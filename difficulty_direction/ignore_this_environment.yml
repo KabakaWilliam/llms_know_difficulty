@@ -1,0 +1,26 @@
+# name: diff-direction
+# channels:
+#   - defaults
+#   - conda-forge
+#   - pytorch-nightly
+#   - nvidia
+# dependencies:
+#   - python==3.12
+#   - pytorch=2.6.0
+#   - pytorch-cuda=12.4
+#   - datasets=3.0.1
+#   - transformers=4.44.0
+#   - accelerate=0.33.0
+#   - pandas=2.2.2
+#   - pyyaml=6.0.2
+#   - dataclass-wizard=0.23.0
+#   - plotly=5.24.1
+#   - python-kaleido=0.2.1
+#   - scipy=1.14.1
+#   - pip
+#   - pip:
+#     - nnsight==0.3.6
+#     - torchtyping==0.1.5
+#     - tiktoken==0.8.0
+#     - transformers_stream_generator==0.0.5
+#     - zstandard==0.23.0
