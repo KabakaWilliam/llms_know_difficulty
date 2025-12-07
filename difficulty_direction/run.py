@@ -12,6 +12,7 @@ from typing import List, Optional, Union
 from .config import Config
 from .model_wrapper.list import get_supported_model_class
 from .dataset.load_dataset import prepare_all_datasets
+from config import DATASET_CONFIGS
 
 
 from .get_directions_store_preds import generate_directions, select_direction, train_probes
@@ -247,7 +248,7 @@ def run_pipeline(args):
     print("Loading and validating data splits !")
     if args.resume_from_step <= 0:
         DATASET_NAMES = cfg.subset_datasets
-        datasets = prepare_all_datasets(dataset_names=DATASET_NAMES, n_train=cfg.n_train, n_test=cfg.n_test)
+        datasets = prepare_all_datasets(dataset_names=DATASET_NAMES, n_train=cfg.n_train, n_test=cfg.n_test, raw_cfg=cfg)
 
         save_dir = cfg.artifact_path() / 'datasplits'
         os.makedirs(save_dir, exist_ok=True)
@@ -312,6 +313,11 @@ def run_pipeline(args):
                 test_instructions = test_dataset["formatted_prompt"].to_list()
                 test_ratings = test_dataset["difficulty"].to_list()
                 test_data = (test_instructions, test_ratings)
+
+                print("===================\n")
+                print(f"length train set b4 probe: {len(train_ratings)}")
+                print(f"length test set b4 probe: {len(test_ratings)}")
+                print("===================\n")
             
             generate_and_save_candidate_steering_vectors(cfg, DATASET_NAME, model, train_data, test_data)
 

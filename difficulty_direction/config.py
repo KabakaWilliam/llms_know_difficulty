@@ -7,55 +7,72 @@ from dataclass_wizard import YAMLWizard
 # Standalone dataset configuration that can be imported independently
 DATASET_CONFIGS = {
     "predicting_learnability": {
-        "hf_dataset": "/VData/linna4335/difficulty_check/predicting_learnability",
-        "subset_name": "MATH_DeepSeek-R1-Distill-Qwen-1.5B-SR",
+        "dataset_type": "local",  # 'local' or 'huggingface'
+        "local_path": "/VData/linna4335/llms_know_difficult/predicting_learnability/data",
+        "file_pattern": "MATH_{model_alias}-SR_{split}.parquet",  # {split} will be replaced with train/test
+        "file_format": "parquet",  # parquet, json, csv, etc.
         "splits": ["train", "test"],
         "prompt_column": "prompt",
         "answer_column": "ground_truth",
         "has_train_split": True,
+        "default_n_train": 10000,
+        "default_n_test": 500,
         "difficulty_column": "success_rate"
     },
     "E2H-Lichess": {
+        "dataset_type": "huggingface",
         "hf_dataset": "furonghuang-lab/Easy2Hard-Bench",
         "subset_name": "E2H-Lichess",
         "splits": ["train", "eval"],
         "prompt_column": "fen",
         "answer_column": "answer_uci",
         "has_train_split": True,
+        "default_n_train": 1000,
+        "default_n_test": 500,
         "difficulty_column": "rating"
     },
     "E2H-AMC": {
+        "dataset_type": "huggingface",
         "hf_dataset": "furonghuang-lab/Easy2Hard-Bench",
         "subset_name": "E2H-AMC", 
         "splits": ["train", "eval"],
         "prompt_column": "problem",
         "answer_column": "answer",
         "has_train_split": True,
+        "default_n_train": 1000,
+        "default_n_test": 600,
         "difficulty_column": "rating"
     },
     "E2H-GSM8K": {
+        "dataset_type": "huggingface",
         "hf_dataset": "furonghuang-lab/Easy2Hard-Bench",
         "subset_name": "E2H-GSM8K",
         "splits": ["eval"],  # Only eval split available
         "prompt_column": "question",
         "answer_column": "answer",
         "has_train_split": False,
-        "train_split_ratio": 0.8,  # Use 80% for training
+        "default_n_train": 792,
+        "default_n_test": 528,
+        "train_split_ratio": 0.6,  # Use 80% for training
         "difficulty_column": "rating"
     },
 
     "E2H-Codeforces": {
+        "dataset_type": "huggingface",
         "hf_dataset": "furonghuang-lab/Easy2Hard-Bench",
         "subset_name": "E2H-Codeforces",
         "splits": ["train", "eval"], 
         "prompt_column": "raw_formatted_prompt",
         "answer_column": "solution_0",
         "has_train_split": True,
-        "train_split_ratio": 0.8,  # Use 80% for training
+        "default_n_train": 2400,
+        "default_n_test": 1600,
+        "train_split_ratio": 0.6,  # Use 80% for training
         "difficulty_column": "rating"
     },
 
     "AMC_test": {
+        "dataset_type": "huggingface",
         "hf_dataset": "furonghuang-lab/Easy2Hard-Bench",
         "subset_name": "E2H-AMC",
         "splits": ["test"],
@@ -64,6 +81,7 @@ DATASET_CONFIGS = {
         "difficulty_column": "rating"
     },
     "GSM8K_test": {
+        "dataset_type": "huggingface",
         "hf_dataset": "furonghuang-lab/Easy2Hard-Bench", 
         "subset_name": "E2H-GSM8K",
         "splits": ["test"], 
@@ -151,8 +169,8 @@ class Config(YAMLWizard):
     save_dir: str = field(default_factory=lambda: str(Path(__file__).parent.parent / "runs"))
 
     # Per subset
-    n_train: int = 600
-    n_test: int = 100
+    n_train: int = 1000
+    n_test: int = 500
     
     # Dataset configuration
     # subset_datasets: List[str] = field(default_factory=lambda: ["E2H-AMC", "E2H-GSM8K", "E2H-Codeforces"])
