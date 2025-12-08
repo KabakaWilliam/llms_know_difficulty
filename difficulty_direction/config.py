@@ -98,6 +98,16 @@ DATASET_CONFIGS = {
         "prompt_column": "question",
         "answer_column": "answer",
         "difficulty_column": "rating"
+    },
+      "AIME_2025": {
+        "dataset_type": "huggingface",
+        "hf_dataset": "opencompass/AIME2025",
+        "subset_name": "AIME2025-I",
+        "splits": ["test"],
+        "prompt_column": "question",
+        "answer_column": "answer",
+        "has_train_split": False,
+        "max_n_test": 15
     }
 }
 
@@ -168,6 +178,10 @@ PROMPT_TEMPLATES = {
     "predicting_learnability": {
         "template": None,
         "prompt_column": DATASET_CONFIGS["predicting_learnability"]["prompt_column"]
+    },
+    "AIME_2025": {
+        "template": None,
+        "prompt_column": DATASET_CONFIGS["AIME_2025"]["prompt_column"]
     }
 }
 
