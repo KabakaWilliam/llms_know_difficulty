@@ -15,6 +15,8 @@ DATASET_CONFIGS = {
         "prompt_column": "prompt",
         "answer_column": "ground_truth",
         "has_train_split": True,
+        "max_n_train": 12000,
+        "max_n_test": 500,
         "default_n_train": 10000,
         "default_n_test": 500,
         "difficulty_column": "success_rate"
@@ -27,6 +29,8 @@ DATASET_CONFIGS = {
         "prompt_column": "fen",
         "answer_column": "answer_uci",
         "has_train_split": True,
+        "max_n_train": 71800,
+        "max_n_test": 5000,
         "default_n_train": 1000,
         "default_n_test": 500,
         "difficulty_column": "rating"
@@ -39,6 +43,8 @@ DATASET_CONFIGS = {
         "prompt_column": "problem",
         "answer_column": "answer",
         "has_train_split": True,
+        "max_n_train": 1000,
+        "max_n_test": 2980,
         "default_n_train": 1000,
         "default_n_test": 600,
         "difficulty_column": "rating"
@@ -51,6 +57,8 @@ DATASET_CONFIGS = {
         "prompt_column": "question",
         "answer_column": "answer",
         "has_train_split": False,
+        "max_n_train": None,
+        "max_n_test": 1320,
         "default_n_train": 792,
         "default_n_test": 528,
         "train_split_ratio": 0.6,  # Use 80% for training
@@ -65,6 +73,8 @@ DATASET_CONFIGS = {
         "prompt_column": "raw_formatted_prompt",
         "answer_column": "solution_0",
         "has_train_split": True,
+        "max_n_train": 3660,
+        "max_n_test": 4000,
         "default_n_train": 2400,
         "default_n_test": 1600,
         "train_split_ratio": 0.6,  # Use 80% for training
