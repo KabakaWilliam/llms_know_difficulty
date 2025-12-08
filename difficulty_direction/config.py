@@ -158,6 +158,8 @@ You must output moves in UCI format whereby it is in the form <from_square><to_s
 {BOARD}\nGiven the chess board above, find the best move that immediately checkmates the opponent.The final answer MUST be a single legal move in UCI format.
 """
 
+AIME_TEMPLATE = "{question} Please put your final answer inside \\boxed{}."
+
 PROMPT_TEMPLATES = {
     "E2H-AMC": {
         "template": "Please take your time to thoroughly analyze and solve the following math problem step by step. Your approach should be detailed, ensuring that each step of your reasoning is clearly explained to minimize errors and maximize understanding.\n[PROBLEM_START]\n{problem}\n[PROBLEM_END]\n While solving, consider all possible scenarios and subtleties involved in the problem. Each step should build upon the previous one logically, leading to a cohesive solution.\nOnce you arrive at the solution, please present the final answer enclosed in ' '.Ensure the answer is displayed using appropriate LaTeX formatting to maintain mathematical precision and clarity.",
@@ -180,7 +182,7 @@ PROMPT_TEMPLATES = {
         "prompt_column": DATASET_CONFIGS["predicting_learnability"]["prompt_column"]
     },
     "AIME_2025": {
-        "template": None,
+        "template": AIME_TEMPLATE,
         "prompt_column": DATASET_CONFIGS["AIME_2025"]["prompt_column"]
     }
 }

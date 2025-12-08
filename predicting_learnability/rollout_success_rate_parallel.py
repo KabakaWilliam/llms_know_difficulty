@@ -9,21 +9,22 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-CHOSEN_DEVICE=2
+CHOSEN_DEVICE=3
 os.environ["CUDA_VISIBLE_DEVICES"] = f"{CHOSEN_DEVICE}"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
-MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B" ##3000
+# MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct" ##3000
 # MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
 # MODEL_NAME = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
 # MODEL_NAME = "HuggingFaceTB/FineMath-Llama-3B"
-# MODEL_NAME = "allenai/Olmo-3-7B-instruct"
+MODEL_NAME = "allenai/Olmo-3-7B-Think"
 
 MODEL_ALIAS = MODEL_NAME.split("/")[-1]
 DATA_PATH = "../hard_rl/data/MATH/{}.parquet"
+MEMORY_UTIL = 0.90
 NUM_ROLLOUTS_PER_QUESTION = 50
-MAX_RESPONSE_LEN = 3000#1024 #32768 #3000
+MAX_RESPONSE_LEN = 32768#1024 #32768 #3000
 
 
 # tune these to fit GPU/memory
@@ -32,7 +33,7 @@ MODEL_CHUNK = 1000   #500  # number of prompts sent to the model at once (after 
 
 assert(MODEL_CHUNK % NUM_ROLLOUTS_PER_QUESTION == 0)
 
-llm = LLM(model=MODEL_NAME, gpu_memory_utilization=0.98)
+llm = LLM(model=MODEL_NAME, gpu_memory_utilization=MEMORY_UTIL)
 
 train_df = pd.read_parquet(DATA_PATH.format("train"))
 test_df = pd.read_parquet(DATA_PATH.format("test"))
@@ -75,7 +76,7 @@ def _eval_pair(item):
     except Exception:
         ans = resp
     try:
-        return 1 if verify(gt, ans) else 0
+        return 1 if verify(parse(f"${gt}$"), ans) else 0
     except Exception:
         return 0
 

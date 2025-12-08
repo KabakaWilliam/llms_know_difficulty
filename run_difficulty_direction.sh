@@ -19,18 +19,18 @@
 #  Qwen/Qwen2.5-Math-1.5B-Instruct 3000
 
 
-CHOSEN_DEVICE=1
+CHOSEN_DEVICE=0
 CUDA_VISIBLE_DEVICES=$CHOSEN_DEVICE python3 -m difficulty_direction.run \
-    --model_path Qwen/Qwen2.5-Math-1.5B \
+    --model_path Qwen/Qwen2.5-Math-1.5B-Instruct \
     --use_k_fold \
     --batch_size 16 \
-    --n_train 12000 \
-    --n_test 500 \
+    --n_train 2000 \
+    --n_test 800 \
     --subset_datasets predicting_learnability \
-    --evaluation_datasets AIME_2025 \
+    --evaluation_datasets predicting_learnability \
     --generation_batch_size 8 \
     --max_new_tokens 2000 \
-    --resume_from_step 4
+
 
 # CUDA_VISIBLE_DEVICES=$CHOSEN_DEVICE python3 -m difficulty_direction.run \
 #     --config_file runs/Qwen2.5-Math-7B/config.yaml \

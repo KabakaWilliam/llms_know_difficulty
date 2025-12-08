@@ -532,102 +532,102 @@ def run_pipeline(args):
     #             print(f"❌ Error processing {target_dataset}: {str(e)}")
     #             continue
 
-    if args.resume_from_step <= 3:
-        # unsupervised labelling of other datasets
-        PROBING_DATASETS = cfg.subset_datasets
-        TARGET_DATASETS = cfg.evaluation_datasets
-        for PROBE_NAME in PROBING_DATASETS:
-            for target_dataset in TARGET_DATASETS:
-                print(f"\n🎯 Labelling {target_dataset} with {PROBE_NAME} probe")
-                probe_dir = os.path.join(cfg.artifact_path(), f"generate_svs/{PROBE_NAME}")
-                directions_file = os.path.join(probe_dir, "probe_directions.pt")
-                performance_file = os.path.join(probe_dir, "best_direction_metadata.json")
+    # if args.resume_from_step <= 3:
+    #     # unsupervised labelling of other datasets
+    #     PROBING_DATASETS = cfg.subset_datasets
+    #     TARGET_DATASETS = cfg.evaluation_datasets
+    #     for PROBE_NAME in PROBING_DATASETS:
+    #         for target_dataset in TARGET_DATASETS:
+    #             print(f"\n🎯 Labelling {target_dataset} with {PROBE_NAME} probe")
+    #             probe_dir = os.path.join(cfg.artifact_path(), f"generate_svs/{PROBE_NAME}")
+    #             directions_file = os.path.join(probe_dir, "probe_directions.pt")
+    #             performance_file = os.path.join(probe_dir, "best_direction_metadata.json")
 
-                # Check if probe exists for this dataset
-                if not os.path.exists(directions_file) or not os.path.exists(performance_file):
-                    print(f"❌ Probe not found for {target_dataset}, skipping...")
-                    continue
+    #             # Check if probe exists for this dataset
+    #             if not os.path.exists(directions_file) or not os.path.exists(performance_file):
+    #                 print(f"❌ Probe not found for {target_dataset}, skipping...")
+    #                 continue
                 
-                try:
-                    # Load performance data
-                    with open(performance_file, 'r') as f:
-                        performance_data = json.load(f)
+    #             try:
+    #                 # Load performance data
+    #                 with open(performance_file, 'r') as f:
+    #                     performance_data = json.load(f)
                     
-                    # Load probe directions
-                    probe_directions = torch.load(directions_file, map_location='cpu')
-                    print(f"✅ Loaded probe directions: {probe_directions.shape}")
+    #                 # Load probe directions
+    #                 probe_directions = torch.load(directions_file, map_location='cpu')
+    #                 print(f"✅ Loaded probe directions: {probe_directions.shape}")
 
-                    # Find best probe
-                    best_performance = performance_data[0]["test_performance"]
-                    best_pos_idx = performance_data[0]["position"]
-                    best_layer = performance_data[0]["layer"]
+    #                 # Find best probe
+    #                 best_performance = performance_data[0]["test_performance"]
+    #                 best_pos_idx = performance_data[0]["position"]
+    #                 best_layer = performance_data[0]["layer"]
                     
-                    best_direction = probe_directions[best_pos_idx, best_layer, :]
+    #                 best_direction = probe_directions[best_pos_idx, best_layer, :]
                     
-                    print(f"✅ Best probe for {target_dataset}:")
-                    print(f"   Position: {best_pos_idx} (index {best_pos_idx})")
-                    print(f"   Layer: {best_layer}")
-                    print(f"   Performance: {best_performance:.4f}")
-                    print(f"   Direction shape: {best_direction.shape}")
-                    print(f"   Direction norm: {torch.norm(best_direction).item():.4f}")
+    #                 print(f"✅ Best probe for {target_dataset}:")
+    #                 print(f"   Position: {best_pos_idx} (index {best_pos_idx})")
+    #                 print(f"   Layer: {best_layer}")
+    #                 print(f"   Performance: {best_performance:.4f}")
+    #                 print(f"   Direction shape: {best_direction.shape}")
+    #                 print(f"   Direction norm: {torch.norm(best_direction).item():.4f}")
 
-                    # Load the test split data from datasplits directory
-                    if DATASET_CONFIGS[target_dataset]["dataset_type"] == "local":
-                        test_split_path = cfg.artifact_path() / f"datasplits/{target_dataset}_test.json"
-                        if not os.path.exists(test_split_path):
-                            print(f"❌ Test split file not found: {test_split_path}")
-                            continue
+    #                 # Load the test split data from datasplits directory
+    #                 if DATASET_CONFIGS[target_dataset]["dataset_type"] == "local":
+    #                     test_split_path = cfg.artifact_path() / f"datasplits/{target_dataset}_test.json"
+    #                     if not os.path.exists(test_split_path):
+    #                         print(f"❌ Test split file not found: {test_split_path}")
+    #                         continue
                         
-                        with open(test_split_path, 'r') as f:
-                            test_data = json.load(f)
+    #                     with open(test_split_path, 'r') as f:
+    #                         test_data = json.load(f)
                         
-                        print(f"✅ Loaded {len(test_data)} items from {test_split_path}")
+    #                     print(f"✅ Loaded {len(test_data)} items from {test_split_path}")
                         
-                        # Extract formatted prompts (already formatted in the saved data)
-                        prompt_list = [item["formatted_prompt"] for item in test_data]
-                    else:
-                        test_data = load_raw_dataset(dataset_name=target_dataset, split="test", save_locally=False, raw_cfg=cfg)
-                        prompt_col = DATASET_CONFIGS[target_dataset]["prompt_column"]
-                        answer_col = DATASET_CONFIGS[target_dataset]["answer_column"]
+    #                     # Extract formatted prompts (already formatted in the saved data)
+    #                     prompt_list = [item["formatted_prompt"] for item in test_data]
+    #                 else:
+    #                     test_data = load_raw_dataset(dataset_name=target_dataset, split="test", save_locally=False, raw_cfg=cfg)
+    #                     prompt_col = DATASET_CONFIGS[target_dataset]["prompt_column"]
+    #                     answer_col = DATASET_CONFIGS[target_dataset]["answer_column"]
 
-                        prompt_list = test_data[prompt_col]
-                                        # Get predicted difficulty scores using the probe
-                        ratings, ratings_sigmoid = label_data_with_probe(prompt_list, best_direction, model, best_pos_idx, best_layer, batch_size=cfg.batch_size, already_formatted=True)
+    #                     prompt_list = test_data[prompt_col]
+    #                                     # Get predicted difficulty scores using the probe
+    #                     ratings, ratings_sigmoid = label_data_with_probe(prompt_list, best_direction, model, best_pos_idx, best_layer, batch_size=cfg.batch_size, already_formatted=True)
                         
-                        # Add predicted difficulty to each item in the dataset
-                        for i, item in enumerate(test_data):
-                            # item["predicted_difficulty"] = ratings[i]
-                            # item["predicted_difficulty_sigmoid"] = ratings_sigmoid[i]
-                            item[f"predicted_difficulty"] = ratings[i]  # Dataset-specific field
-                            item[f"predicted_difficulty_sigmoid"] = ratings_sigmoid[i]
+    #                     # Add predicted difficulty to each item in the dataset
+    #                     for i, item in enumerate(test_data):
+    #                         # item["predicted_difficulty"] = ratings[i]
+    #                         # item["predicted_difficulty_sigmoid"] = ratings_sigmoid[i]
+    #                         item[f"predicted_difficulty"] = ratings[i]  # Dataset-specific field
+    #                         item[f"predicted_difficulty_sigmoid"] = ratings_sigmoid[i]
 
                         
 
-                        output_path = cfg.artifact_path() / f"datasplits/{target_dataset}_predicted_by_{PROBE_NAME}.json"
+    #                     output_path = cfg.artifact_path() / f"datasplits/{target_dataset}_predicted_by_{PROBE_NAME}.json"
 
-                        print(f"new data format\n: {test_data}")
+    #                     print(f"new data format\n: {test_data}")
 
-                        if DATASET_CONFIGS[target_dataset]["dataset_type"] == "huggingface":
+    #                     if DATASET_CONFIGS[target_dataset]["dataset_type"] == "huggingface":
 
-                            test_data = test_data.add_column("predicted_difficulty", ratings)
-                            test_data = test_data.add_column("predicted_difficulty_sigmoid", ratings_sigmoid)
+    #                         test_data = test_data.add_column("predicted_difficulty", ratings)
+    #                         test_data = test_data.add_column("predicted_difficulty_sigmoid", ratings_sigmoid)
 
-                            final_test_data = [{"question": item["question"], "answer": item["answer"], "predicted_difficulty": item["predicted_difficulty"], "predicted_difficulty_sigmoid": item["predicted_difficulty_sigmoid"]} for item in test_data]
+    #                         final_test_data = [{"question": item["question"], "answer": item["answer"], "predicted_difficulty": item["predicted_difficulty"], "predicted_difficulty_sigmoid": item["predicted_difficulty_sigmoid"]} for item in test_data]
 
 
-                            with open(output_path, "w") as f:
-                                json.dump(final_test_data, f, indent=2)
-                        else:
-                            save_to_json_file(output_path, test_data)
+    #                         with open(output_path, "w") as f:
+    #                             json.dump(final_test_data, f, indent=2)
+    #                     else:
+    #                         save_to_json_file(output_path, test_data)
                         
-                        print(f"✅ Saved {len(test_data)} items with predicted difficulty to {output_path}")
-                        print(f"📈 Sample predicted difficulties: {ratings[:5]}")
-                        print(f"📈 Sample sigmoid difficulties: {ratings_sigmoid[:5]}")
+    #                     print(f"✅ Saved {len(test_data)} items with predicted difficulty to {output_path}")
+    #                     print(f"📈 Sample predicted difficulties: {ratings[:5]}")
+    #                     print(f"📈 Sample sigmoid difficulties: {ratings_sigmoid[:5]}")
 
 
-                except Exception as e:
-                    print(f"❌ Error processing {target_dataset}: {str(e)}")
-                    continue
+    #             except Exception as e:
+    #                 print(f"❌ Error processing {target_dataset}: {str(e)}")
+    #                 continue
         return
 
 if __name__ == "__main__":
