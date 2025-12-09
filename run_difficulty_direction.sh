@@ -13,21 +13,22 @@
 #     --subset_datasets E2H-AMC E2H-GSM8K \
 #     --evaluation_datasets E2H-AMC \
 #     --model_alias my_custom_alias \
+#     --resume_from_step 2 \
 #     --save_dir /path/to/custom/save/dir
 # Qwen/Qwen2.5-Math-7B
 # allenai/Olmo-3-7B-Think
 #  Qwen/Qwen2.5-Math-1.5B-Instruct 3000
 
 
-CHOSEN_DEVICE=0
+CHOSEN_DEVICE=3
 CUDA_VISIBLE_DEVICES=$CHOSEN_DEVICE python3 -m difficulty_direction.run \
-    --model_path Qwen/Qwen2.5-Math-1.5B-Instruct \
+    --model_path Qwen/Qwen2.5-Math-1.5B \
     --use_k_fold \
     --batch_size 16 \
-    --n_train 2000 \
+    --n_train 12000 \
     --n_test 800 \
     --subset_datasets predicting_learnability \
-    --evaluation_datasets predicting_learnability \
+    --evaluation_datasets AIME_1983_2024 AIME_2025\
     --generation_batch_size 8 \
     --max_new_tokens 2000 \
 

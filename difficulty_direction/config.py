@@ -108,6 +108,16 @@ DATASET_CONFIGS = {
         "answer_column": "answer",
         "has_train_split": False,
         "max_n_test": 15
+    },
+      "AIME_1983_2024": {
+        "dataset_type": "huggingface",
+        "hf_dataset": "di-zhang-fdu/AIME_1983_2024",
+        "subset_name": "",
+        "splits": ["train"],
+        "prompt_column": "Question",
+        "answer_column": "Answer",
+        "has_train_split": True,
+        "max_n_test": 933
     }
 }
 

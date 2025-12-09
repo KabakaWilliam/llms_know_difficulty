@@ -9,22 +9,23 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-CHOSEN_DEVICE=3
+CHOSEN_DEVICE=0
 os.environ["CUDA_VISIBLE_DEVICES"] = f"{CHOSEN_DEVICE}"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
-# MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct" ##3000
+MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct" ##3000
 # MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
 # MODEL_NAME = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
 # MODEL_NAME = "HuggingFaceTB/FineMath-Llama-3B"
-MODEL_NAME = "allenai/Olmo-3-7B-Think"
+# MODEL_NAME = "allenai/Olmo-3-7B-Think"
 
 MODEL_ALIAS = MODEL_NAME.split("/")[-1]
 DATA_PATH = "../hard_rl/data/MATH/{}.parquet"
 MEMORY_UTIL = 0.90
-NUM_ROLLOUTS_PER_QUESTION = 50
-MAX_RESPONSE_LEN = 32768#1024 #32768 #3000
+NUM_ROLLOUTS_PER_QUESTION = 1
+MAX_RESPONSE_LEN = 3000#1024 #32768 #3000
+TEMPERATURE=0
 
 
 # tune these to fit GPU/memory
@@ -44,7 +45,7 @@ TOTAL_GENERATIONS = NUM_ROLLOUTS_PER_QUESTION * len(train_df)
 
 STORE_DF = {"train": train_df, "test": test_df}
 
-PARAMS = SamplingParams(temperature=1, max_tokens=MAX_RESPONSE_LEN)
+PARAMS = SamplingParams(temperature=TEMPERATURE, max_tokens=MAX_RESPONSE_LEN)
 
 
 def _extract_prompt_and_gt_from_row(row):
@@ -102,7 +103,7 @@ for SUBSET in ["train", "test"]:
     total_counts = [0] * n_q
 
     # iterate over question batches to build repeated prompts, then send to model in chunks
-    for q_start in tqdm(range(0, n_q, BATCH_QUESTIONS), desc=f"gen:{SUBSET}"):
+    for q_start in tqdm(range(0, n_q, BATCH_QUESTIONS), desc=f"generating text in the following subset 🚂: {SUBSET}"):
         q_end = min(q_start + BATCH_QUESTIONS, n_q)
         batch_indices = list(range(q_start, q_end))
 
@@ -153,7 +154,7 @@ for SUBSET in ["train", "test"]:
     results_df["prompt"] = prompts
     results_df["ground_truth"] = gts
 
-    results_df.to_parquet(f"MATH_{MODEL_ALIAS}-SR_{SUBSET}_{MAX_RESPONSE_LEN}.parquet")
+    results_df.to_parquet(f"data/DIRECT/MATH_{MODEL_ALIAS}-SR_{SUBSET}_max_{MAX_RESPONSE_LEN}_k_{NUM_ROLLOUTS_PER_QUESTION}_temp_{TEMPERATURE}.parquet")
 
     fig, ax = plt.subplots(figsize=(6, 4))
     results_df["success_rate"].hist(ax=ax, bins=20)
