@@ -44,22 +44,83 @@ def generate_uid(problem_text: str, dataset_name: str) -> str:
     return hashlib.md5(combined_text.encode()).hexdigest()
 
 
+def generate_full_dataset_name(base_name: str, config: Dict[str, Any], raw_cfg=None) -> str:
+    """Generate full dataset name including parameters for local datasets.
+    
+    For local datasets with file patterns, this creates a unique identifier like:
+    predicting_learnability_MATH_ModelName-SR_max_3000_k_1_temp_0.0
+    """
+    if config.get("dataset_type") != "local":
+        return base_name
+    
+    # Extract parameters from file pattern
+    file_pattern = config.get("file_pattern", "")
+    
+    # Build the identifier from the pattern without split
+    format_params = {}
+    
+    if raw_cfg and hasattr(raw_cfg, 'model_alias') and raw_cfg.model_alias:
+        format_params["model_alias"] = raw_cfg.model_alias
+    
+    for param in ["max_tokens", "k", "temperature"]:
+        if param in config:
+            format_params[param] = config[param]
+    
+    # Create identifier by formatting pattern without split and removing extension
+    if format_params:
+        try:
+            # Use a placeholder for split to extract the base pattern
+            temp_pattern = file_pattern.replace("{split}", "")
+            identifier_parts = [base_name]
+            
+            # Add formatted parts
+            if "model_alias" in format_params:
+                identifier_parts.append(format_params["model_alias"])
+            if "max_tokens" in format_params:
+                identifier_parts.append(f"max_{format_params['max_tokens']}")
+            if "k" in format_params:
+                identifier_parts.append(f"k_{format_params['k']}")
+            if "temperature" in format_params:
+                identifier_parts.append(f"temp_{format_params['temperature']}")
+            
+            return "_".join(identifier_parts)
+        except Exception as e:
+            print(f"Warning: Could not generate full dataset name: {e}")
+            return base_name
+    
+    return base_name
+
+
 def load_local_dataset(dataset_name: str, split: str, config: Dict[str, Any], raw_cfg=None) -> pd.DataFrame:
     """Load dataset from local files (parquet, json, csv, etc.)."""
     local_path = Path(config["local_path"])
+    
+    # Add subdirectory if specified
+    if "subdirectory" in config:
+        local_path = local_path / config["subdirectory"]
+    
     file_pattern = config["file_pattern"]
-
     file_format = config.get("file_format", "parquet")
-    # filename = file_pattern.format(split=split, model_alias="")
+    
+    # Build format parameters dictionary
+    format_params = {"split": split}
+    
+    # Add model_alias if available
+    if raw_cfg and hasattr(raw_cfg, 'model_alias') and raw_cfg.model_alias:
+        format_params["model_alias"] = raw_cfg.model_alias
+    
+    # Add success rate parameters if they exist in config
+    for param in ["max_tokens", "k", "temperature"]:
+        if param in config:
+            format_params[param] = config[param]
+    
+    # Format the filename with all available parameters
     try:
-        print("checking if model alias is specified")
-        model_alias = raw_cfg.model_alias
-        if model_alias != None:
-            filename = file_pattern.format(split=split, model_alias=model_alias)
-        else:
-            filename = file_pattern.format(split=split)
-    except:
-        print("model alias not needed")
+        filename = file_pattern.format(**format_params)
+        print(f"✓ Formatted filename: {filename}")
+    except KeyError as e:
+        raise ValueError(f"Missing required parameter in file_pattern: {e}. Available params: {format_params}")
+    
     file_path = local_path / filename
     
     print(f"Loading {dataset_name} from local file: {file_path}")
@@ -95,9 +156,12 @@ def load_raw_dataset(dataset_name: str, split: Optional[str] = None, save_locall
         
         dataset = load_local_dataset(dataset_name, split, config, raw_cfg=raw_cfg)
         
+        # Generate full dataset name for local datasets
+        full_dataset_name = generate_full_dataset_name(dataset_name, config, raw_cfg)
+        
         if save_locally:
-            # Save raw dataset
-            raw_path = raw_dir / dataset_name
+            # Save raw dataset using full name
+            raw_path = raw_dir / full_dataset_name
             raw_path.mkdir(exist_ok=True)
             save_path = raw_path / f"{split}.pkl"
             dataset.to_pickle(save_path)
@@ -149,24 +213,33 @@ def create_train_test_split(df: pd.DataFrame, train_ratio: float = 0.8) -> tuple
 
 
 def apply_prompt_template(df: pd.DataFrame, dataset_name: str) -> pd.DataFrame:
-    """Apply prompt template to create formatted prompts."""
-    template_config = PROMPT_TEMPLATES.get(dataset_name)
+    """Apply prompt template to create formatted prompts.
+    
+    For local datasets with full names (e.g., 'predicting_learnability_Model_max_3000_k_1_temp_0.0'),
+    extract the base name to find the template.
+    """
+    # Extract base name for local datasets (everything before the first underscore after base name)
+    base_name = dataset_name
+    if dataset_name.startswith("predicting_MATH_learnability"):
+        base_name = "predicting_MATH_learnability"
+    
+    template_config = PROMPT_TEMPLATES.get(base_name)
     
     if not template_config:
-        raise ValueError(f"No template found for dataset: {dataset_name}")
+        raise ValueError(f"No template found for dataset: {base_name} (original: {dataset_name})")
     
     template = template_config.get("template")
     prompt_column = template_config["prompt_column"]
     
     # If no template is specified (e.g., for predicting_learnability), use prompt as-is
     if template is None:
-        print(f"No template for {dataset_name}. Using prompt column directly")
+        print(f"No template for {base_name}. Using prompt column directly")
         df["formatted_prompt"] = df[prompt_column]
-    elif dataset_name == "E2H-Lichess":
+    elif base_name == "E2H-Lichess":
         df["formatted_prompt"] = df[prompt_column].apply(
             lambda x: template.format(BOARD=fen_to_ascii_grid(x))
         )
-    elif dataset_name == "E2H-Codeforces":
+    elif base_name == "E2H-Codeforces":
         df["formatted_prompt"] = df.apply(make_cf_prompt, axis=1)
     else:
         # Create formatted prompts
@@ -309,20 +382,28 @@ def load_processed_dataset(dataset_name: str, split: str = "train") -> pd.DataFr
 
 
 def prepare_all_datasets(dataset_names: List[str], n_train: int = 2000, n_test: int = 500, raw_cfg=None) -> Dict[str, Dict[str, pd.DataFrame]]:
-    """Process all specified datasets."""
+    """Process all specified datasets.
+    
+    Returns a dictionary where keys are full dataset names (including parameters for local datasets).
+    For example: 'predicting_learnability_Qwen2.5-Math-1.5B-Instruct_max_3000_k_1_temp_0.0'
+    """
     all_datasets = {}
     
     for dataset_name in dataset_names:
         config = DATASET_CONFIGS[dataset_name]
         dataset_type = config.get("dataset_type", "huggingface")
         
+        # Generate full dataset name (includes parameters for local datasets)
+        full_dataset_name = generate_full_dataset_name(dataset_name, config, raw_cfg)
+        
         # For local datasets, don't sample since they're pre-prepared
         do_sample = (dataset_type != "local")
         
         if not do_sample:
-            print(f"{dataset_name} (local dataset): train => {n_train}, test => {n_test}")
+            print(f"{full_dataset_name} (local dataset): train => {n_train}, test => {n_test}")
         
-        all_datasets[dataset_name] = process_dataset(dataset_name, n_train, n_test, do_sample=do_sample,raw_cfg=raw_cfg)
+        # Use full dataset name as key
+        all_datasets[full_dataset_name] = process_dataset(dataset_name, n_train, n_test, do_sample=do_sample,raw_cfg=raw_cfg)
     
     return all_datasets
 

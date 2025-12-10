@@ -5,11 +5,25 @@ from dataclasses import dataclass, field
 from dataclass_wizard import YAMLWizard
 
 # Standalone dataset configuration that can be imported independently
+# 
+# For local datasets, you can specify custom parameters in the file_pattern using {parameter_name} syntax.
+# Available placeholders:
+#   - {model_alias}: Automatically filled from Config.model_alias
+#   - {split}: Automatically filled with "train" or "test"
+#   - {max_tokens}: Specify in dataset config (e.g., for success rate calculations)
+#   - {k}: Number of samples used in success rate calculation
+#   - {temperature}: Temperature parameter for generation
+#   - Any custom parameter can be added to the config and used in file_pattern
+#
+# Example file structure:
+#   /data/DIRECT/MATH_ModelName-SR_train_max_3000_k_1_temp_0.0.parquet
+#
 DATASET_CONFIGS = {
-    "predicting_learnability": {
+    "predicting_MATH_learnability": {
         "dataset_type": "local",  # 'local' or 'huggingface'
         "local_path": "/VData/linna4335/llms_know_difficult/predicting_learnability/data",
-        "file_pattern": "MATH_{model_alias}-SR_{split}.parquet",  # {split} will be replaced with train/test
+        "subdirectory": "MATH",  # Optional subdirectory within local_path
+        "file_pattern": "MATH_{model_alias}-SR_{split}_max_{max_tokens}_k_{k}_temp_{temperature}.parquet",
         "file_format": "parquet",  # parquet, json, csv, etc.
         "splits": ["train", "test"],
         "prompt_column": "prompt",
@@ -19,8 +33,32 @@ DATASET_CONFIGS = {
         "max_n_test": 500,
         "default_n_train": 10000,
         "default_n_test": 500,
-        "difficulty_column": "success_rate"
+        "difficulty_column": "success_rate",
+        # Success rate calculation parameters - these are used in file_pattern
+        "max_tokens": 3000,  # Maximum tokens for generation
+        "k": 1,  # Number of samples (num_samples)
+        "temperature": 0.0  # Sampling temperature
     },
+    # Example: Different parameter configuration for the same dataset
+    # "predicting_MATH_learnability_k5": {
+    #     "dataset_type": "local",
+    #     "local_path": "/VData/linna4335/llms_know_difficult/predicting_learnability/data",
+    #     "subdirectory": "MATH",
+    #     "file_pattern": "MATH_{model_alias}-SR_{split}_max_{max_tokens}_k_{k}_temp_{temperature}.parquet",
+    #     "file_format": "parquet",
+    #     "splits": ["train", "test"],
+    #     "prompt_column": "prompt",
+    #     "answer_column": "ground_truth",
+    #     "has_train_split": True,
+    #     "max_n_train": 12000,
+    #     "max_n_test": 500,
+    #     "default_n_train": 10000,
+    #     "default_n_test": 500,
+    #     "difficulty_column": "success_rate",
+    #     "max_tokens": 3000,
+    #     "k": 5,  # Different k value
+    #     "temperature": 0.6  # Different temperature
+    # },
     "E2H-Lichess": {
         "dataset_type": "huggingface",
         "hf_dataset": "furonghuang-lab/Easy2Hard-Bench",
@@ -98,7 +136,7 @@ DATASET_CONFIGS = {
         "answer_column": "answer",
         "difficulty_column": "rating"
     },
-    "GSM_hard": {
+    "GSM_HARD": {
         "dataset_type": "huggingface",
         "hf_dataset": "reasoning-machines/gsm-hard", 
         "subset_name": "",
@@ -198,9 +236,9 @@ PROMPT_TEMPLATES = {
         "template": LICHESS_TEMPLATE,
         "prompt_column": DATASET_CONFIGS["E2H-Lichess"]["prompt_column"]
     },
-    "predicting_learnability": {
+    "predicting_MATH_learnability": {
         "template": None,
-        "prompt_column": DATASET_CONFIGS["predicting_learnability"]["prompt_column"]
+        "prompt_column": DATASET_CONFIGS["predicting_MATH_learnability"]["prompt_column"]
     },
     "AIME_2025": {
         "template": AIME_TEMPLATE,
@@ -230,8 +268,8 @@ class Config(YAMLWizard):
     # Dataset configuration
     # subset_datasets: List[str] = field(default_factory=lambda: ["E2H-AMC", "E2H-GSM8K", "E2H-Codeforces"])
     # evaluation_datasets: List[str] = field(default_factory=lambda: ["E2H-AMC", "E2H-GSM8K", "E2H-Codeforces"])
-    subset_datasets: List[str] = field(default_factory=lambda: ["predicting_learnability"])
-    evaluation_datasets: List[str] = field(default_factory=lambda: ["predicting_learnability"])
+    subset_datasets: List[str] = field(default_factory=lambda: ["predicting_MATH_learnability"])
+    evaluation_datasets: List[str] = field(default_factory=lambda: ["predicting_MATH_learnability"])
     # subset_datasets: List[str] = field(default_factory=lambda: ["E2H-Lichess"])
     # evaluation_datasets: List[str] = field(default_factory=lambda: ["E2H-Lichess"])
 

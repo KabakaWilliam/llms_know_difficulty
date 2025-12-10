@@ -1,6 +1,8 @@
 #!/bin/bash
 
-
+# Activate conda environment
+# source $(conda info --base)/etc/profile.d/conda.sh
+# conda activate diff-direction
 
 # CUDA_VISIBLE_DEVICES=$CHOSEN_DEVICE python3 -m difficulty_direction.run \
 #     --model_path HuggingFaceTB/FineMath-Llama-3B \
@@ -22,16 +24,20 @@
 
 CHOSEN_DEVICE=0
 CUDA_VISIBLE_DEVICES=$CHOSEN_DEVICE python3 -m difficulty_direction.run \
-    --model_path Qwen/Qwen2.5-Math-1.5B-Instruct \
+    --model_path deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B \
     --use_k_fold \
     --batch_size 16 \
     --n_train 12000 \
     --n_test 500 \
-    --subset_datasets predicting_learnability \
-    --evaluation_datasets GSM_HARD AIME_1983_2024 AIME_2025 E2H-GSM8K\
+    --subset_datasets predicting_MATH_learnability E2H-AMC \
+    --subdirectory MATH \
+    --max_tokens 32768 \
+    --k 1 \
+    --temperature 0 \
+    --evaluation_datasets GSM_HARD E2H-GSM8K \
     --generation_batch_size 8 \
     --max_new_tokens 2000 \
-    --resume_from_step 3 \
+    --resume_from_step 3
 
 
 
@@ -40,5 +46,3 @@ CUDA_VISIBLE_DEVICES=$CHOSEN_DEVICE python3 -m difficulty_direction.run \
 #     --generate_responses \
 #     --resume_from_step 2
 # echo "All models completed!"
-
-

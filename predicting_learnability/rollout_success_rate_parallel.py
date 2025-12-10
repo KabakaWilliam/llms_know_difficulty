@@ -14,18 +14,19 @@ os.environ["CUDA_VISIBLE_DEVICES"] = f"{CHOSEN_DEVICE}"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
-MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct" ##3000
+MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct" ##3000
 # MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
 # MODEL_NAME = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
 # MODEL_NAME = "HuggingFaceTB/FineMath-Llama-3B"
 # MODEL_NAME = "allenai/Olmo-3-7B-Think"
 
 MODEL_ALIAS = MODEL_NAME.split("/")[-1]
-DATA_PATH = "../hard_rl/data/MATH/{}.parquet"
+DS_NAME="MATH"
+DATA_PATH = "../hard_rl/data/{DS_NAME}/{SPLIT}.parquet"
 MEMORY_UTIL = 0.90
-NUM_ROLLOUTS_PER_QUESTION = 5
+NUM_ROLLOUTS_PER_QUESTION = 1
 MAX_RESPONSE_LEN = 3000#1024 #32768 #3000
-TEMPERATURE=1.0
+TEMPERATURE=0.0
 
 
 # tune these to fit GPU/memory
@@ -36,8 +37,8 @@ assert(MODEL_CHUNK % NUM_ROLLOUTS_PER_QUESTION == 0)
 
 llm = LLM(model=MODEL_NAME, gpu_memory_utilization=MEMORY_UTIL)
 
-train_df = pd.read_parquet(DATA_PATH.format("train"))
-test_df = pd.read_parquet(DATA_PATH.format("test"))
+train_df = pd.read_parquet(DATA_PATH.format(DS_NAME=DS_NAME,SPLIT="train"))
+test_df = pd.read_parquet(DATA_PATH.format(DS_NAME=DS_NAME,SPLIT="test"))
 
 
 
@@ -154,7 +155,7 @@ for SUBSET in ["train", "test"]:
     results_df["prompt"] = prompts
     results_df["ground_truth"] = gts
 
-    results_df.to_parquet(f"data/DIRECT/MATH_{MODEL_ALIAS}-SR_{SUBSET}_max_{MAX_RESPONSE_LEN}_k_{NUM_ROLLOUTS_PER_QUESTION}_temp_{TEMPERATURE}.parquet")
+    results_df.to_parquet(f"data/MATH/MATH_{MODEL_ALIAS}-SR_{SUBSET}_max_{MAX_RESPONSE_LEN}_k_{NUM_ROLLOUTS_PER_QUESTION}_temp_{TEMPERATURE}.parquet")
 
     fig, ax = plt.subplots(figsize=(6, 4))
     results_df["success_rate"].hist(ax=ax, bins=20)

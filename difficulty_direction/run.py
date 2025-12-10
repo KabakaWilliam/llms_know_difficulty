@@ -24,7 +24,16 @@ logging.basicConfig(level=logging.INFO)
 torch.set_grad_enabled(False);
 intervention_labels = ['baseline', 'actadd', 'ablation']
 
-
+def int_or_float(value: str):
+    try:
+        return int(value)
+    except ValueError:
+        try:
+            return float(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError(
+                f"{value!r} is not a valid int or float"
+            )
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -54,6 +63,12 @@ def parse_arguments():
     parser.add_argument('--evaluation_datasets', type=str, nargs='+', default=None,
                         help="List of datasets to evaluate on (e.g., --evaluation_datasets E2H-AMC E2H-GSM8K)")
     parser.add_argument('--do_sample', action="store_true", help="Use sampling for generation")
+    
+    # Dataset-specific configuration parameters
+    parser.add_argument('--subdirectory', type=str, default=None, help="Subdirectory within local dataset path")
+    parser.add_argument('--max_tokens', type=int, default=None, help="Max tokens parameter for dataset file pattern")
+    parser.add_argument('--k', type=int, default=None, help="Number of samples (k) parameter for dataset file pattern")
+    parser.add_argument('--temperature', type=float, default=None, help="Temperature parameter for dataset file pattern")
     
     return parser.parse_args()
 
@@ -223,6 +238,20 @@ def run_pipeline(args):
             cfg.evaluation_datasets = args.evaluation_datasets
         if args.do_sample:
             cfg.do_sample = args.do_sample
+        
+        # Apply dataset-specific configuration overrides
+        if args.subdirectory is not None or args.max_tokens is not None or args.k is not None or args.temperature is not None:
+            # Update the dataset config for subset_datasets
+            for dataset_name in cfg.subset_datasets:
+                if dataset_name in cfg.dataset_config:
+                    if args.subdirectory is not None:
+                        cfg.dataset_config[dataset_name]['subdirectory'] = args.subdirectory
+                    if args.max_tokens is not None:
+                        cfg.dataset_config[dataset_name]['max_tokens'] = args.max_tokens
+                    if args.k is not None:
+                        cfg.dataset_config[dataset_name]['k'] = args.k
+                    if args.temperature is not None:
+                        cfg.dataset_config[dataset_name]['temperature'] = args.temperature
             
         cfg.save()
     
@@ -261,19 +290,21 @@ def run_pipeline(args):
         save_dir = cfg.artifact_path() / 'datasplits'
         os.makedirs(save_dir, exist_ok=True)
 
-        for DATASET_NAME in DATASET_NAMES:
+        # Create mapping from base names to full names
+        # datasets dict keys are full names (e.g., predicting_MATH_learnability_Model_max_3000_k_1_temp_0.0)
+        for FULL_DATASET_NAME in datasets.keys():
             for split in ["train", "test"]:
-                data = datasets[DATASET_NAME][split]
+                data = datasets[FULL_DATASET_NAME][split]
                 INSTRUCTIONS = data["formatted_prompt"].to_list()
                 FORMATTED_INSTRUCTIONS = model.apply_chat_template(INSTRUCTIONS)
                 RATINGS = data["difficulty"].to_list()
 
                 if args.generate_responses:
-                    print(f"generating baseline completions for {DATASET_NAME}: [{split}]")
+                    print(f"generating baseline completions for {FULL_DATASET_NAME}: [{split}]")
                     # Generate completions on train/val splits
                     results = generate_and_save_completions_for_dataset(cfg, model, instructions=FORMATTED_INSTRUCTIONS, ratings=RATINGS, intervention_label='baseline')
                 else:
-                    print(f"preparing datasplit for {DATASET_NAME}: [{split}] (without response generation)")
+                    print(f"preparing datasplit for {FULL_DATASET_NAME}: [{split}] (without response generation)")
                     # Create results structure without generating responses
                     results = [{"prompt": FORMATTED_INSTRUCTIONS[i], "difficulty": RATINGS[i]} for i in range(len(FORMATTED_INSTRUCTIONS))]
 
@@ -287,9 +318,9 @@ def run_pipeline(args):
                     r["uid"] = data["uid"].to_list()[idx]
                 
                 # if datasets != None :
-                #     datasets[DATASET_NAME][split] = results.to_dict()
+                #     datasets[FULL_DATASET_NAME][split] = results.to_dict()
 
-                save_to_json_file(cfg.artifact_path() / f"datasplits/{DATASET_NAME}_{split}.json", results)
+                save_to_json_file(cfg.artifact_path() / f"datasplits/{FULL_DATASET_NAME}_{split}.json", results)
         
         if args.generate_responses:
             print("Generations completed 🎉")
@@ -299,19 +330,25 @@ def run_pipeline(args):
     # 1. Get activations to train probes
     if args.resume_from_step <= 1:
         logging.info("Extracting activations to train probes")
-        DATASET_NAMES = cfg.subset_datasets
-        for DATASET_NAME in DATASET_NAMES:
+        # Get full dataset names
+        if datasets is not None:
+            FULL_DATASET_NAMES = list(datasets.keys())
+        else:
+            from .dataset.load_dataset import generate_full_dataset_name
+            FULL_DATASET_NAMES = [generate_full_dataset_name(name, cfg.get_dataset_config(name), cfg) for name in cfg.subset_datasets]
+        
+        for FULL_DATASET_NAME in FULL_DATASET_NAMES:
             if datasets is None:
                 train_data = load_cached_data(cfg,
-                                               DATASET_NAME=DATASET_NAME,
+                                               DATASET_NAME=FULL_DATASET_NAME,
                                                split="train")
                 test_data = load_cached_data(cfg,
-                                               DATASET_NAME=DATASET_NAME,
+                                               DATASET_NAME=FULL_DATASET_NAME,
                                                split="test")
             else:
                 # Convert dataset objects to the expected tuple format
-                train_dataset = datasets[DATASET_NAME]["train"]
-                test_dataset = datasets[DATASET_NAME]["test"]
+                train_dataset = datasets[FULL_DATASET_NAME]["train"]
+                test_dataset = datasets[FULL_DATASET_NAME]["test"]
                 
                 # Use the already formatted prompts - no need to apply chat template again
                 train_instructions = train_dataset["formatted_prompt"].to_list()
@@ -327,43 +364,36 @@ def run_pipeline(args):
                 print(f"length test set b4 probe: {len(test_ratings)}")
                 print("===================\n")
             
-            generate_and_save_candidate_steering_vectors(cfg, DATASET_NAME, model, train_data, test_data)
+            generate_and_save_candidate_steering_vectors(cfg, FULL_DATASET_NAME, model, train_data, test_data)
 
 
 
     # 2. Get candidate steering vectors
     if args.resume_from_step <= 2:
         logging.info("Evaluating candidate steering vectors")
-        DATASET_NAMES = cfg.subset_datasets
-        for DATASET_NAME in DATASET_NAMES:
-            candidate_svs = torch.load(cfg.artifact_path() / f'generate_svs/{DATASET_NAME}/probe_directions.pt')
+        # Get full dataset names
+        if datasets is not None:
+            FULL_DATASET_NAMES = list(datasets.keys())
+        else:
+            from .dataset.load_dataset import generate_full_dataset_name
+            FULL_DATASET_NAMES = [generate_full_dataset_name(name, cfg.get_dataset_config(name), cfg) for name in cfg.subset_datasets]
+        
+        for FULL_DATASET_NAME in FULL_DATASET_NAMES:
+            candidate_svs = torch.load(cfg.artifact_path() / f'generate_svs/{FULL_DATASET_NAME}/probe_directions.pt')
 
             if datasets is None:
-                train_data = load_cached_data(cfg,
-                                               DATASET_NAME=DATASET_NAME,
-                                               split="train")
-                test_data = load_cached_data(cfg,
-                                               DATASET_NAME=DATASET_NAME,
-                                               split="test")
+                train_data = json.load(open(cfg.artifact_path() / f"datasplits/{FULL_DATASET_NAME}_train.json", "r"))
+                test_data = json.load(open(cfg.artifact_path() / f"datasplits/{FULL_DATASET_NAME}_test.json", "r"))
+                train_data = pd.DataFrame(train_data)
+                test_data = pd.DataFrame(test_data)
             else:
-                # Convert dataset objects to the expected tuple format
-                train_dataset = datasets[DATASET_NAME]["train"]
-                test_dataset = datasets[DATASET_NAME]["test"]
-                
-                # Use the already formatted prompts - no need to apply chat template again
-                train_instructions = train_dataset["formatted_prompt"].to_list()
-                train_ratings = train_dataset["difficulty"].to_list()
-                train_data = (train_instructions, train_ratings)
-
-                
-                test_instructions = test_dataset["formatted_prompt"].to_list()
-                test_ratings = test_dataset["difficulty"].to_list()
-                test_data = (test_instructions, test_ratings)
+                train_data = datasets[FULL_DATASET_NAME]['train']
+                test_data = datasets[FULL_DATASET_NAME]['test']
             
 
 
             # Load performance metrics to find the best performing probe
-            performance_path = cfg.artifact_path() / f'generate_svs/{DATASET_NAME}/probe_performance.json'
+            performance_path = cfg.artifact_path() / f'generate_svs/{FULL_DATASET_NAME}/probe_performance.json'
             direction_metadata = json.load(open(performance_path, "r"))
             
             # Find the best performing position and layer based on test performance
@@ -384,16 +414,16 @@ def run_pipeline(args):
                             best_pos_idx = pos_idx
                             best_layer = layer_idx
             
-            print(f"Best probe for {DATASET_NAME}: Position {positions[best_pos_idx]}, Layer {best_layer}, Performance: {best_performance:.4f}")
+            print(f"Best probe for {FULL_DATASET_NAME}: Position {positions[best_pos_idx]}, Layer {best_layer}, Performance: {best_performance:.4f}")
             
             # Extract the best steering vector
             best_direction = candidate_svs[best_pos_idx, best_layer, :]
             
             # Save the best direction and metadata
-            torch.save(best_direction, cfg.artifact_path() / f'generate_svs/{DATASET_NAME}/best_direction.pt')
+            torch.save(best_direction, cfg.artifact_path() / f'generate_svs/{FULL_DATASET_NAME}/best_direction.pt')
             
             best_metadata = {
-                "dataset": DATASET_NAME,
+                "dataset": FULL_DATASET_NAME,
                 "position": positions[best_pos_idx],
                 "layer": best_layer,
                 "test_performance": best_performance,
@@ -401,20 +431,20 @@ def run_pipeline(args):
             }
             
             # Save metadata as a single-item list to match the function signature
-            save_to_json_file(cfg.artifact_path() / f'generate_svs/{DATASET_NAME}/best_direction_metadata.json', [best_metadata])
+            save_to_json_file(cfg.artifact_path() / f'generate_svs/{FULL_DATASET_NAME}/best_direction_metadata.json', [best_metadata])
             
             # Set the intervention on the model
             model.set_intervene_direction(best_direction)
             model.set_actAdd_intervene_layer(best_layer)
             
-            print(f"Model configured with best steering vector for {DATASET_NAME}")
+            print(f"Model configured with best steering vector for {FULL_DATASET_NAME}")
             print(f"Intervention layer: {best_layer}")
             print(f"Direction shape: {best_direction.shape}")
             print(f"Direction norm: {torch.norm(best_direction).item():.4f}")
 
 
             
-            print(f"using steering vectors from {DATASET_NAME}")
+            print(f"using steering vectors from {FULL_DATASET_NAME}")
 
             # Only run evaluations if responses were generated
             if args.generate_responses:
@@ -429,7 +459,7 @@ def run_pipeline(args):
                     save_dir = cfg.artifact_path() / f'completions/{eval_dataset_name}'
                     os.makedirs(save_dir, exist_ok=True)
 
-                    print(f"steering generations on {eval_dataset_name} with : {DATASET_NAME} svs")
+                    print(f"steering generations on {eval_dataset_name} with : {FULL_DATASET_NAME} svs")
 
                     test_data = load_cached_data(
                         cfg,
@@ -448,7 +478,7 @@ def run_pipeline(args):
                         else:
                             for COEFF in COEFFS_RANGE:
                                 logging.info(f"Evaluating generations {eval_dataset_name} with intervention: {intervention}, coeff: {COEFF}")
-                                results = generate_and_save_completions_for_dataset(cfg, model, instructions=test_instructions, ratings=test_ratings, intervention_label=intervention, coeffs=COEFF, save_path=save_dir / f'{DATASET_NAME}_{intervention}_{COEFF}_completions.json')
+                                results = generate_and_save_completions_for_dataset(cfg, model, instructions=test_instructions, ratings=test_ratings, intervention_label=intervention, coeffs=COEFF, save_path=save_dir / f'{FULL_DATASET_NAME}_{intervention}_{COEFF}_completions.json')
             else:
                 print("Skipping evaluations since --generate_responses was not specified")
 
@@ -534,9 +564,15 @@ def run_pipeline(args):
 
     if args.resume_from_step <= 3:
         # unsupervised labelling of other datasets
-        PROBING_DATASETS = cfg.subset_datasets
+        # Get full dataset names for probes
+        if datasets is not None:
+            FULL_PROBING_DATASET_NAMES = list(datasets.keys())
+        else:
+            from .dataset.load_dataset import generate_full_dataset_name
+            FULL_PROBING_DATASET_NAMES = [generate_full_dataset_name(name, cfg.get_dataset_config(name), cfg) for name in cfg.subset_datasets]
+        
         TARGET_DATASETS = cfg.evaluation_datasets
-        for PROBE_NAME in PROBING_DATASETS:
+        for PROBE_NAME in FULL_PROBING_DATASET_NAMES:
             for target_dataset in TARGET_DATASETS:
                 print(f"\n🎯 Labelling {target_dataset} with {PROBE_NAME} probe")
                 probe_dir = os.path.join(cfg.artifact_path(), f"generate_svs/{PROBE_NAME}")
@@ -546,7 +582,7 @@ def run_pipeline(args):
 
                 # Check if probe exists for this dataset
                 if not os.path.exists(directions_file) or not os.path.exists(performance_file):
-                    print(f"❌ Probe not found for {target_dataset}, skipping...")
+                    print(f"❌ Probe not found for {PROBE_NAME}, skipping...")
                     continue
                 
                 try:
@@ -594,6 +630,8 @@ def run_pipeline(args):
                             test_data = load_raw_dataset(dataset_name=target_dataset, split="train", save_locally=False, raw_cfg=cfg)
                         elif target_dataset == "E2H-GSM8K": #very shaky fix here. Need to have a way to specify whether train/test.
                             test_data = load_raw_dataset(dataset_name=target_dataset, split="eval", save_locally=False, raw_cfg=cfg)
+                        elif target_dataset == "GSM_HARD": #very shaky fix here. Need to have a way to specify whether train/test.
+                            test_data = load_raw_dataset(dataset_name=target_dataset, split="train", save_locally=False, raw_cfg=cfg)
                         else:
                             test_data = load_raw_dataset(dataset_name=target_dataset, split="test", save_locally=False, raw_cfg=cfg)
                         prompt_col = DATASET_CONFIGS[target_dataset]["prompt_column"]
@@ -612,8 +650,11 @@ def run_pipeline(args):
                             item[f"predicted_difficulty_sigmoid"] = ratings_sigmoid[i]
 
                         
-
-                        output_path = cfg.artifact_path() / f"datasplits/{target_dataset}_predicted_by_{PROBE_NAME}.json"
+                        if PROBE_NAME == "predicting_learnability":
+                            FILE_PATTERN = f"{target_dataset}_predicted_by_{DATASET_CONFIGS[PROBE_NAME]["file_pattern"].split(".par")[0]}"
+                            output_path = cfg.artifact_path() / f"datasplits/{FILE_PATTERN}.json"
+                        else:
+                            output_path = cfg.artifact_path() / f"datasplits/{target_dataset}_predicted_by_{PROBE_NAME}.json"
 
                         print(f"new data format\n: {test_data}")
 
@@ -623,8 +664,8 @@ def run_pipeline(args):
                                 # ensure concistency
                                 prompt_col = DATASET_CONFIGS[target_dataset]["prompt_column"]
                                 answer_col = DATASET_CONFIGS[target_dataset]["answer_column"]
-                                test_data = test_data.rename_column(prompt_col, prompt_col.lower())
-                                test_data = test_data.rename_column(answer_col, answer_col.lower())
+                                test_data = test_data.rename_column(prompt_col, "question")
+                                test_data = test_data.rename_column(answer_col, "answer")
                             except Exception as e:
                                 print(f"❌ ERROR renaming prompt or answer columns: {str(e)}")
 
