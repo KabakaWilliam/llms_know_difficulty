@@ -9,7 +9,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-CHOSEN_DEVICE=0
+CHOSEN_DEVICE=1
 os.environ["CUDA_VISIBLE_DEVICES"] = f"{CHOSEN_DEVICE}"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -26,7 +26,7 @@ DATA_PATH = "../hard_rl/data/{DS_NAME}/{SPLIT}.parquet"
 MEMORY_UTIL = 0.90
 NUM_ROLLOUTS_PER_QUESTION = 1
 MAX_RESPONSE_LEN = 3000#1024 #32768 #3000
-TEMPERATURE=0.6
+TEMPERATURE=0.0
 
 
 # tune these to fit GPU/memory
