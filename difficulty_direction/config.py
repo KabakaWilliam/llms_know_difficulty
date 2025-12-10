@@ -64,7 +64,6 @@ DATASET_CONFIGS = {
         "train_split_ratio": 0.6,  # Use 80% for training
         "difficulty_column": "rating"
     },
-
     "E2H-Codeforces": {
         "dataset_type": "huggingface",
         "hf_dataset": "furonghuang-lab/Easy2Hard-Bench",
@@ -98,6 +97,17 @@ DATASET_CONFIGS = {
         "prompt_column": "question",
         "answer_column": "answer",
         "difficulty_column": "rating"
+    },
+    "GSM_hard": {
+        "dataset_type": "huggingface",
+        "hf_dataset": "reasoning-machines/gsm-hard", 
+        "subset_name": "",
+        "splits": ["train"], 
+        "prompt_column": "input",
+        "answer_column": "target",
+        "has_train_split": True,
+        "max_n_train": 1320,
+        "max_n_test": 0,
     },
       "AIME_2025": {
         "dataset_type": "huggingface",
@@ -169,6 +179,7 @@ You must output moves in UCI format whereby it is in the form <from_square><to_s
 """
 
 AIME_TEMPLATE = "{question} Please put your final answer inside \\boxed{}."
+GSM_HARD_TEMPLATE = "{input} Please put your final answer inside \\boxed{}."
 
 PROMPT_TEMPLATES = {
     "E2H-AMC": {
@@ -194,6 +205,14 @@ PROMPT_TEMPLATES = {
     "AIME_2025": {
         "template": AIME_TEMPLATE,
         "prompt_column": DATASET_CONFIGS["AIME_2025"]["prompt_column"]
+    },
+    "AIME_1983_2024": {
+        "template": AIME_TEMPLATE,
+        "prompt_column": DATASET_CONFIGS["AIME_2025"]["prompt_column"]
+    },
+    "GSM_HARD": {
+        "template": GSM_HARD_TEMPLATE,
+        "prompt_column": DATASET_CONFIGS["GSM_HARD"]["prompt_column"]
     }
 }
 

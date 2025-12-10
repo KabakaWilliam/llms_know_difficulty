@@ -9,12 +9,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-CHOSEN_DEVICE=0
+CHOSEN_DEVICE=1
 os.environ["CUDA_VISIBLE_DEVICES"] = f"{CHOSEN_DEVICE}"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
-MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct" ##3000
+MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct" ##3000
 # MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
 # MODEL_NAME = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
 # MODEL_NAME = "HuggingFaceTB/FineMath-Llama-3B"
@@ -23,13 +23,13 @@ MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct" ##3000
 MODEL_ALIAS = MODEL_NAME.split("/")[-1]
 DATA_PATH = "../hard_rl/data/MATH/{}.parquet"
 MEMORY_UTIL = 0.90
-NUM_ROLLOUTS_PER_QUESTION = 1
+NUM_ROLLOUTS_PER_QUESTION = 5
 MAX_RESPONSE_LEN = 3000#1024 #32768 #3000
-TEMPERATURE=0
+TEMPERATURE=1.0
 
 
 # tune these to fit GPU/memory
-BATCH_QUESTIONS = 24  # number of distinct questions per model call batch
+BATCH_QUESTIONS = 64  # number of distinct questions per model call batch
 MODEL_CHUNK = 1000   #500  # number of prompts sent to the model at once (after repetition)
 
 assert(MODEL_CHUNK % NUM_ROLLOUTS_PER_QUESTION == 0)

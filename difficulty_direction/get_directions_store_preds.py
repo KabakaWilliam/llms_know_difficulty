@@ -3,14 +3,18 @@ import json
 import numpy as np
 import math
 import random
+import torch
 from tqdm import tqdm
-from sklearn.linear_model import Ridge, RidgeClassifier
-from scipy.stats import spearmanr
+from sklearn.linear_model import Ridge, LogisticRegression
+
+
 from typing import List, Optional, Tuple
 from torchtyping import TensorType
-import torch
 from difficulty_direction import ModelBase
-from sklearn.model_selection import KFold, train_test_split
+from scipy.stats import spearmanr
+from sklearn.model_selection import KFold, train_test_split, StratifiedKFold, GridSearchCV
+from sklearn.metrics import roc_auc_score
+from sklearn.utils.multiclass import type_of_target
 # from .eval.refusal import get_refusal_scores, plot_refusal_scores
 from .utils import ceildiv, chunks, kl_div_fn
 
@@ -25,6 +29,43 @@ def set_seed(seed: int = 42):
     # For deterministic operations (may impact performance)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+def infer_task_type(y: np.ndarray, task_type: str = "auto") -> str:
+    """
+    Decide whether we're doing regression or classification.
+    - If task_type is explicitly "regression" or "classification", return it.
+    - Otherwise, infer from y using scikit-learn's type_of_target.
+    """
+    if task_type in ("regression", "classification"):
+        return task_type
+
+    target_type = type_of_target(y)
+    if target_type in ("binary", "multiclass", "multiclass-multioutput"):
+        return "classification"
+    else:
+        return "regression"
+
+
+def make_cv(y: np.ndarray, n_splits: int, shuffle: bool, random_state: int):
+    """
+    Return a cross-validator:
+      - StratifiedKFold for (binary/multiclass) classification
+      - KFold for regression / other targets
+    """
+    target_type = type_of_target(y)
+    if target_type in ("binary", "multiclass", "multiclass-multioutput"):
+        return StratifiedKFold(
+            n_splits=n_splits,
+            shuffle=shuffle,
+            random_state=random_state,
+        )
+    else:
+        return KFold(
+            n_splits=n_splits,
+            shuffle=shuffle,
+            random_state=random_state,
+        )
+
 
 def get_activations(
     model: ModelBase, instructions: List[str], positions: Optional[List[int]] = [-1], batch_size: Optional[int] = 32
@@ -90,13 +131,20 @@ def generate_directions(
     return mean_diffs
 
 def train_probes(
-    model: ModelBase, train_data: Tuple[List[str], List[float]], test_data: Tuple[List[str], List[float]], 
-    artifact_dir: str, batch_size: Optional[int] = 32, seed: int = 42, k_fold:bool = False, n_folds :int = 5
+    model: ModelBase,
+    train_data: Tuple[List[str], List[float]],
+    test_data: Tuple[List[str], List[float]],
+    artifact_dir: str,
+    batch_size: Optional[int] = 32,
+    seed: int = 42,
+    k_fold: bool = False,
+    n_folds: int = 5,
+    task_type: str = "auto",  # "auto" | "regression" | "classification"
 ):
-    """Train linear probes from all layers and post instruction token positions"""
+    """Train linear probes from all layers and post instruction token positions."""
     # Set seed for reproducibility
     set_seed(seed)
-    
+
     os.makedirs(artifact_dir, exist_ok=True)
     positions = list(range(-len(model.eoi_toks), 0))
 
@@ -107,112 +155,175 @@ def train_probes(
     print(f"test data len: {len(test_instructions)}")
     print("===========================\n")
 
-    # Convert ratings to numpy arrays
+    # Convert ratings/labels to numpy arrays
     train_ratings = np.array(train_ratings)
     test_ratings = np.array(test_ratings)
+
+    # Decide if we're doing regression or classification
+    task_type = infer_task_type(train_ratings, task_type)
+    print(f"Detected task type: {task_type}")
+
+    # For classification we treat ratings as labels (assumed 0/1 or class indices)
+    if task_type == "classification":
+        train_targets = train_ratings.astype(int)
+        test_targets = test_ratings.astype(int)
+    else:
+        # regression
+        train_targets = train_ratings
+        test_targets = test_ratings
 
     # Get activations for all positions and layers
     print("Getting train activations...")
     train_activations_list = get_activations(model, train_instructions, positions, batch_size)
     print("Getting test activations...")
     test_activations_list = get_activations(model, test_instructions, positions, batch_size)
-    
+
     # Concatenate all batches - convert TensorType to regular tensors first
     train_tensors = [torch.as_tensor(act) for act in train_activations_list]
     test_tensors = [torch.as_tensor(act) for act in test_activations_list]
-    
+
     # Each element in the list has shape (n_layer, n_prompt_batch, n_pos, hidden_size)
     train_activations = torch.cat(train_tensors, dim=1)  # (n_layer, n_prompt_total, n_pos, hidden_size)
     test_activations = torch.cat(test_tensors, dim=1)    # (n_layer, n_prompt_total, n_pos, hidden_size)
-    
+
     # Rearrange to (n_prompt, n_layer, n_pos, hidden_size)
     train_activations = train_activations.permute(1, 0, 2, 3)
     test_activations = test_activations.permute(1, 0, 2, 3)
-    
+
     n_prompts_train, n_layers, n_pos, hidden_size = train_activations.shape
-    
+
     # Initialize storage for probe directions
     probe_directions = torch.zeros((n_pos, n_layers, hidden_size), dtype=torch.float32)
     layer_performance = {"train": [], "test": [], "cv": [] if k_fold else None}
-    
+
     # Storage for predictions from all probes (to save best one later)
     all_predictions = {}  # key: (pos_idx, layer_idx), value: dict with train/test/cv predictions
-    
+
+    # Pre-create CV object if needed (same y for all layers)
+    cv = make_cv(train_targets, n_splits=n_folds, shuffle=True, random_state=seed) if k_fold else None
+
     # Train probes for each position and layer
     for pos_idx, pos in enumerate(positions):
         print(f"Training probes for position {pos}")
         pos_train_performance = []
         pos_test_performance = []
         pos_cv_performance = [] if k_fold else None
-        
+
         for layer_idx in tqdm(range(n_layers), desc=f"Layer progress for position {pos}"):
             # Extract activations for this layer and position
             # Shape: (n_prompts, hidden_size)
             x_train = train_activations[:, layer_idx, pos_idx, :].cpu().numpy()
             x_test = test_activations[:, layer_idx, pos_idx, :].cpu().numpy()
-            
+
             # Storage for CV predictions (out-of-fold predictions for all training samples)
             cv_predictions = None
-            
+
             if k_fold:
-                # K-Fold Cross Validation
-                kf = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
                 cv_scores = []
-                cv_predictions = np.zeros(len(train_ratings))  # Out-of-fold predictions
-                
-                for fold_idx, (train_idx, val_idx) in enumerate(kf.split(x_train)):
+                cv_predictions = np.zeros(len(train_targets), dtype=float)  # out-of-fold predictions
+
+                for fold_idx, (train_idx, val_idx) in enumerate(cv.split(x_train, train_targets)):
                     x_train_fold, x_val_fold = x_train[train_idx], x_train[val_idx]
-                    y_train_fold, y_val_fold = train_ratings[train_idx], train_ratings[val_idx]
-                    
-                    # Train on fold
-                    ridge_model_fold = Ridge(alpha=1.0, fit_intercept=False, random_state=seed)
-                    ridge_model_fold.fit(x_train_fold, y_train_fold)
-                    
-                    # Validate on fold
-                    y_pred_val = ridge_model_fold.predict(x_val_fold)
-                    cv_predictions[val_idx] = y_pred_val  # Store out-of-fold predictions
-                    val_corr_result = spearmanr(y_val_fold, y_pred_val)
-                    val_performance = val_corr_result[0] if isinstance(val_corr_result, tuple) else val_corr_result.correlation
+                    y_train_fold, y_val_fold = train_targets[train_idx], train_targets[val_idx]
+
+                    if task_type == "regression":
+                        # Ridge regression on ratings
+                        model_fold = Ridge(alpha=1.0, fit_intercept=False)
+                        model_fold.fit(x_train_fold, y_train_fold)
+                        y_pred_val = model_fold.predict(x_val_fold)
+                        cv_predictions[val_idx] = y_pred_val
+
+                        val_corr_result = spearmanr(y_val_fold, y_pred_val)
+                        if isinstance(val_corr_result, tuple):
+                            val_performance = val_corr_result[0]
+                        else:
+                            val_performance = val_corr_result.correlation
+
+                    else:  # classification
+                        # Logistic regression probe
+                        model_fold = LogisticRegression(
+                            penalty="l2",
+                            C=1.0,
+                            fit_intercept=False,
+                            solver="lbfgs",
+                            max_iter=1000,
+                        )
+                        model_fold.fit(x_train_fold, y_train_fold)
+                        y_proba_val = model_fold.predict_proba(x_val_fold)[:, 1]
+                        cv_predictions[val_idx] = y_proba_val
+
+                        # ROC-AUC as CV metric
+                        val_performance = roc_auc_score(y_val_fold, y_proba_val)
+
                     cv_scores.append(val_performance)
-                
+
                 # Store average CV performance
-                avg_cv_performance = np.mean(cv_scores)
+                avg_cv_performance = float(np.mean(cv_scores))
                 pos_cv_performance.append(avg_cv_performance)
-            
+
             # Train final model on full training set
-            ridge_model = Ridge(alpha=1.0, fit_intercept=False, random_state=seed)
-            ridge_model.fit(x_train, train_ratings)
-            
-            # Store the probe direction (coefficients)
-            probe_directions[pos_idx, layer_idx, :] = torch.tensor(ridge_model.coef_, dtype=torch.float32)
-            
-            # Evaluate performance on training set
-            y_pred_train = ridge_model.predict(x_train)
-            train_corr_result = spearmanr(train_ratings, y_pred_train)
-            train_performance = train_corr_result[0] if isinstance(train_corr_result, tuple) else train_corr_result.correlation
-            pos_train_performance.append(train_performance)
-            
-            #store CV scores, and performance on holdout set
-            y_pred_test = ridge_model.predict(x_test)
-            test_corr_result = spearmanr(test_ratings, y_pred_test)
-            test_performance = test_corr_result[0] if isinstance(test_corr_result, tuple) else test_corr_result.correlation
-            pos_test_performance.append(test_performance)
-            
+            if task_type == "regression":
+                final_model = Ridge(alpha=1.0, fit_intercept=False)
+                final_model.fit(x_train, train_targets)
+
+                coef = final_model.coef_  # shape: (hidden_size,)
+                y_pred_train = final_model.predict(x_train)
+                y_pred_test = final_model.predict(x_test)
+
+                train_corr_result = spearmanr(train_targets, y_pred_train)
+                if isinstance(train_corr_result, tuple):
+                    train_performance = train_corr_result[0]
+                else:
+                    train_performance = train_corr_result.correlation
+
+                test_corr_result = spearmanr(test_targets, y_pred_test)
+                if isinstance(test_corr_result, tuple):
+                    test_performance = test_corr_result[0]
+                else:
+                    test_performance = test_corr_result.correlation
+
+            else:  # classification
+                final_model = LogisticRegression(
+                    penalty="l2",
+                    C=1.0,
+                    fit_intercept=False,
+                    solver="lbfgs",
+                    max_iter=1000,
+                )
+                final_model.fit(x_train, train_targets)
+
+                # coef_ shape: (1, hidden_size) for binary; flatten
+                coef = final_model.coef_.ravel()
+
+                # Use probabilities for performance & stored predictions
+                y_pred_train = final_model.predict_proba(x_train)[:, 1]
+                y_pred_test = final_model.predict_proba(x_test)[:, 1]
+
+                train_performance = roc_auc_score(train_targets, y_pred_train)
+                test_performance = roc_auc_score(test_targets, y_pred_test)
+
+            # Store the probe direction (coefficients) as a direction vector
+            probe_directions[pos_idx, layer_idx, :] = torch.tensor(coef, dtype=torch.float32)
+
+            # Save metrics
+            pos_train_performance.append(float(train_performance))
+            pos_test_performance.append(float(test_performance))
+
             # Store predictions for this probe
             all_predictions[(pos_idx, layer_idx)] = {
                 "train_predictions": y_pred_train.tolist(),
                 "test_predictions": y_pred_test.tolist(),
-                "cv_predictions": cv_predictions.tolist() if cv_predictions is not None else None
+                "cv_predictions": cv_predictions.tolist() if cv_predictions is not None else None,
             }
-        
+
         layer_performance["train"].append(pos_train_performance)
-        layer_performance["test"].append(pos_test_performance) #holdout scotes
+        layer_performance["test"].append(pos_test_performance)  # holdout scores
         if k_fold:
-            layer_performance["cv"].append(pos_cv_performance) #cv scores
-    
+            layer_performance["cv"].append(pos_cv_performance)   # cv scores
+
     # Save probe directions and performance
     torch.save(probe_directions, f"{artifact_dir}/probe_directions.pt")
-    
+
     # Save performance metrics
     performance_data = {
         "layer_performance": layer_performance,
@@ -220,12 +331,14 @@ def train_probes(
         "n_layers": n_layers,
         "hidden_size": hidden_size,
         "k_fold": k_fold,
-        "n_folds": n_folds if k_fold else None
+        "n_folds": n_folds if k_fold else None,
+        "task_type": task_type,
+        "metric": "spearman" if task_type == "regression" else "roc_auc",
     }
-    
+
     with open(f"{artifact_dir}/probe_performance.json", 'w') as f:
         json.dump(performance_data, f, indent=4)
-    
+
     print(f"Probe directions saved to {artifact_dir}/probe_directions.pt")
     print(f"Performance metrics saved to {artifact_dir}/probe_performance.json")
 
@@ -249,7 +362,7 @@ def train_probes(
             print(f"Position {pos}: Best by Test -> layer {best_layer_by_test}: Test={best_test:.4f}; CV@that_layer={cv_at_test_layer:.4f}")
         else:
             print(f"Position {pos}: Best by Test -> layer {best_layer_by_test}: Test={best_test:.4f}")
-    
+
     # If k-fold was used, also report the single best probe chosen by CV across all positions/layers,
     # and show how it performed on the holdout test set.
     best_probe_predictions = None
@@ -276,7 +389,7 @@ def train_probes(
             print(f"CV score (selected): {best_cv_overall:.4f}")
             print(f"Test score at that probe: {test_at_best_cv:.4f}")
             print("============================================================")
-            
+
             # Save predictions from the best probe (selected by CV)
             best_probe_predictions = {
                 "best_position": best_pos,
@@ -284,19 +397,22 @@ def train_probes(
                 "best_layer": best_layer_idx,
                 "cv_score": best_cv_overall,
                 "test_score": test_at_best_cv,
-                "train_actual": train_ratings.tolist(),
-                "test_actual": test_ratings.tolist(),
+                "train_actual": train_targets.tolist(),
+                "test_actual": test_targets.tolist(),
                 "train_predictions": all_predictions[(best_pos_idx, best_layer_idx)]["train_predictions"],
                 "test_predictions": all_predictions[(best_pos_idx, best_layer_idx)]["test_predictions"],
-                "cv_predictions": all_predictions[(best_pos_idx, best_layer_idx)]["cv_predictions"]
+                "cv_predictions": all_predictions[(best_pos_idx, best_layer_idx)]["cv_predictions"],
+                "task_type": task_type,
+                "metric": "spearman" if task_type == "regression" else "roc_auc",
             }
-            
+
             with open(f"{artifact_dir}/best_probe_predictions.json", 'w') as f:
                 json.dump(best_probe_predictions, f, indent=4)
-            
+
             print(f"Best probe predictions saved to {artifact_dir}/best_probe_predictions.json")
-    
+
     return probe_directions
+
     
     # # Print summary of best performance for each position
     # for pos_idx, pos in enumerate(positions):

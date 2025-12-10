@@ -592,6 +592,8 @@ def run_pipeline(args):
                     else:
                         if target_dataset == "AIME_1983_2024": #very shaky fix here. Need to have a way to specify whether train/test.
                             test_data = load_raw_dataset(dataset_name=target_dataset, split="train", save_locally=False, raw_cfg=cfg)
+                        elif target_dataset == "E2H-GSM8K": #very shaky fix here. Need to have a way to specify whether train/test.
+                            test_data = load_raw_dataset(dataset_name=target_dataset, split="eval", save_locally=False, raw_cfg=cfg)
                         else:
                             test_data = load_raw_dataset(dataset_name=target_dataset, split="test", save_locally=False, raw_cfg=cfg)
                         prompt_col = DATASET_CONFIGS[target_dataset]["prompt_column"]
