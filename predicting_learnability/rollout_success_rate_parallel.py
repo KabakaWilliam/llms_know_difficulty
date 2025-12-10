@@ -9,12 +9,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-CHOSEN_DEVICE=1
+CHOSEN_DEVICE=0
 os.environ["CUDA_VISIBLE_DEVICES"] = f"{CHOSEN_DEVICE}"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
-MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct" ##3000
+MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct" ##3000
 # MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
 # MODEL_NAME = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
 # MODEL_NAME = "HuggingFaceTB/FineMath-Llama-3B"
@@ -26,7 +26,7 @@ DATA_PATH = "../hard_rl/data/{DS_NAME}/{SPLIT}.parquet"
 MEMORY_UTIL = 0.90
 NUM_ROLLOUTS_PER_QUESTION = 1
 MAX_RESPONSE_LEN = 3000#1024 #32768 #3000
-TEMPERATURE=0.0
+TEMPERATURE=0.6
 
 
 # tune these to fit GPU/memory

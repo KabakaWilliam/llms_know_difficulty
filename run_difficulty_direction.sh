@@ -29,7 +29,7 @@ CUDA_VISIBLE_DEVICES=$CHOSEN_DEVICE python3 -m difficulty_direction.run \
     --batch_size 16 \
     --n_train 12000 \
     --n_test 500 \
-    --subset_datasets predicting_MATH_learnability E2H-AMC \
+    --subset_datasets predicting_MATH_learnability \
     --subdirectory MATH \
     --max_tokens 32768 \
     --k 1 \
