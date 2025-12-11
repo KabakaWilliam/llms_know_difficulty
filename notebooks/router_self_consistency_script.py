@@ -1,9 +1,9 @@
 # %%
 
-##For tmux TMUX_DS_K_5_T_0.6(diff_amc) this uses the 5 sampled predictions for deepseek. looks crap
+##For tmux TMUX_DS_K_5_T_0.6(diff_amc) this uses the 5 sampled predictions for deepseek. looks crap. Processed prompts:  80%|███████████████████████▏     | 4/5 [00:16<00:05,  5.75s/it, est. speed input: 27.62 toks/s, output: 487.15 toks/s] 4pm thur 11
 ##For tmux TMUX_DS_K_1_T_0.0(diff_3) this uses the 1 greedy sampled predictions for deepseek
 ##For tmux TMUX_QwM_K_1_T_0.0(diff_4) this uses the 1 greedy sampled predictions for qwenmath inst
-
+###reasoning models are bad at greedy temp. they are prone to hallucinate more.
 import pandas as pd
 import numpy as np
 import os
@@ -45,13 +45,13 @@ MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct"
 # MODEL_NAME = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
 MODEL_ALIAS = MODEL_NAME.split("/")[-1]
 
-DATASETS_TO_ROUTE = ["E2H-GSM8K", "GSM_HARD", "AIME_1983_2024", "AIME_2025"]
+DATASETS_TO_ROUTE = ["E2H-GSM8K", "AIME_2025", "GSM_HARD", "AIME_1983_2024"]
 # Generation settings
 GENERATION_SETTING_STR = "max_{MAX_TOKENS}_k_{K_SAMPLE}_temp_{TEMPERATURE}"
 # GENERATION_SETTING_STR = "max_3000_k_1_temp_0"
 GREEDY_TEMP = 0.0
-PROBE_TEMP = 0.6
-PROBE_K = 5
+PROBE_TEMP = 0.0
+PROBE_K = 1
 MAX_TOKENS =3000 #32768 #3000
 
 SC_TEMP = 0.6
@@ -170,6 +170,9 @@ for DATASET_NAME in DATASETS_TO_ROUTE:
 
     # %% [markdown]
     # ## Load Data
+    def cost_for_result(r: SolverResult,INPUT_TOKEN_PRICE=0.1, OUTPUT_TOKEN_PRICE=0.2) -> float:
+        # return input_tokens * INPUT_TOKEN_PRICE + output_tokens * OUTPUT_TOKEN_PRICE
+        return OUTPUT_TOKEN_PRICE * sum(r.token_lengths)
 
     # %%
     df = pd.read_json(LABELLED_DATA_PATH)
