@@ -612,7 +612,7 @@ def run_pipeline(args):
                     print(f"   Direction norm: {torch.norm(best_direction).item():.4f}")
 
                     # Load the test split data from datasplits directory
-                    if DATASET_CONFIGS[target_dataset]["dataset_type"] == "local":
+                    if cfg.dataset_config[target_dataset]["dataset_type"] == "local":
                         test_split_path = cfg.artifact_path() / f"datasplits/{target_dataset}_test.json"
                         if not os.path.exists(test_split_path):
                             print(f"❌ Test split file not found: {test_split_path}")
@@ -634,8 +634,8 @@ def run_pipeline(args):
                             test_data = load_raw_dataset(dataset_name=target_dataset, split="train", save_locally=False, raw_cfg=cfg)
                         else:
                             test_data = load_raw_dataset(dataset_name=target_dataset, split="test", save_locally=False, raw_cfg=cfg)
-                        prompt_col = DATASET_CONFIGS[target_dataset]["prompt_column"]
-                        answer_col = DATASET_CONFIGS[target_dataset]["answer_column"]
+                        prompt_col = cfg.dataset_config[target_dataset]["prompt_column"]
+                        answer_col = cfg.dataset_config[target_dataset]["answer_column"]
 
                         prompt_list = test_data[prompt_col]
                         answer_list = test_data[answer_col]
@@ -651,7 +651,7 @@ def run_pipeline(args):
 
                         
                         if PROBE_NAME == "predicting_learnability":
-                            FILE_PATTERN = f"{target_dataset}_predicted_by_{DATASET_CONFIGS[PROBE_NAME]["file_pattern"].split(".par")[0]}"
+                            FILE_PATTERN = f"{target_dataset}_predicted_by_{cfg.dataset_config[PROBE_NAME]["file_pattern"].split(".par")[0]}"
                             output_path = cfg.artifact_path() / f"datasplits/{FILE_PATTERN}.json"
                         else:
                             output_path = cfg.artifact_path() / f"datasplits/{target_dataset}_predicted_by_{PROBE_NAME}.json"
@@ -659,11 +659,11 @@ def run_pipeline(args):
                         print(f"new data format\n: {test_data}")
 
 
-                        if DATASET_CONFIGS[target_dataset]["dataset_type"] == "huggingface":
+                        if cfg.dataset_config[target_dataset]["dataset_type"] == "huggingface":
                             try:
                                 # ensure concistency
-                                prompt_col = DATASET_CONFIGS[target_dataset]["prompt_column"]
-                                answer_col = DATASET_CONFIGS[target_dataset]["answer_column"]
+                                prompt_col = cfg.dataset_config[target_dataset]["prompt_column"]
+                                answer_col = cfg.dataset_config[target_dataset]["answer_column"]
                                 test_data = test_data.rename_column(prompt_col, "question")
                                 test_data = test_data.rename_column(answer_col, "answer")
                             except Exception as e:

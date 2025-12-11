@@ -20,9 +20,9 @@
 # Qwen/Qwen2.5-Math-7B
 # allenai/Olmo-3-7B-Think
 #  Qwen/Qwen2.5-Math-1.5B-Instruct 3000
+# deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
 
-
-CHOSEN_DEVICE=0
+CHOSEN_DEVICE=0 #not run yet
 CUDA_VISIBLE_DEVICES=$CHOSEN_DEVICE python3 -m difficulty_direction.run \
     --model_path deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B \
     --use_k_fold \
@@ -32,12 +32,11 @@ CUDA_VISIBLE_DEVICES=$CHOSEN_DEVICE python3 -m difficulty_direction.run \
     --subset_datasets predicting_MATH_learnability \
     --subdirectory MATH \
     --max_tokens 32768 \
-    --k 1 \
-    --temperature 0 \
-    --evaluation_datasets GSM_HARD E2H-GSM8K \
+    --k 5 \
+    --temperature 0.6 \
+    --evaluation_datasets GSM_HARD E2H-GSM8K AIME_1983_2024 AIME_2025\
     --generation_batch_size 8 \
     --max_new_tokens 2000 \
-    --resume_from_step 3
 
 
 

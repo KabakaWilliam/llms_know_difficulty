@@ -146,7 +146,11 @@ def load_local_dataset(dataset_name: str, split: str, config: Dict[str, Any], ra
 
 def load_raw_dataset(dataset_name: str, split: Optional[str] = None, save_locally: bool = True, raw_cfg=None) -> Union[Dataset, DatasetDict, pd.DataFrame]:
     """Load raw dataset from HuggingFace or local files and save locally."""
-    config = DATASET_CONFIGS[dataset_name]
+    # Use config from raw_cfg if available, otherwise fall back to global DATASET_CONFIGS
+    if raw_cfg is not None and hasattr(raw_cfg, 'dataset_config'):
+        config = raw_cfg.dataset_config[dataset_name]
+    else:
+        config = DATASET_CONFIGS[dataset_name]
     dataset_type = config.get("dataset_type", "huggingface")  # Default to huggingface for backward compatibility
     
     if dataset_type == "local":
@@ -274,7 +278,11 @@ def process_dataset(dataset_name: str, n_train: int = 2000, n_test: int = 500, d
     Returns:
         Dictionary with 'train' and 'test' DataFrames
     """
-    config = DATASET_CONFIGS[dataset_name]
+    # Use config from raw_cfg if available, otherwise fall back to global DATASET_CONFIGS
+    if raw_cfg is not None and hasattr(raw_cfg, 'dataset_config'):
+        config = raw_cfg.dataset_config[dataset_name]
+    else:
+        config = DATASET_CONFIGS[dataset_name]
     dataset_type = config.get("dataset_type", "huggingface")
     processed_data = {}
     
@@ -390,7 +398,11 @@ def prepare_all_datasets(dataset_names: List[str], n_train: int = 2000, n_test: 
     all_datasets = {}
     
     for dataset_name in dataset_names:
-        config = DATASET_CONFIGS[dataset_name]
+        # Use config from raw_cfg if available, otherwise fall back to global DATASET_CONFIGS
+        if raw_cfg is not None and hasattr(raw_cfg, 'dataset_config'):
+            config = raw_cfg.dataset_config[dataset_name]
+        else:
+            config = DATASET_CONFIGS[dataset_name]
         dataset_type = config.get("dataset_type", "huggingface")
         
         # Generate full dataset name (includes parameters for local datasets)
