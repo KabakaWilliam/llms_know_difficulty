@@ -36,13 +36,15 @@ TOKEN_BUDGET_DICT={
 
 # Configuration
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-# MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct"
-MODEL_NAME = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
+MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct"
+# MODEL_NAME = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
 MODEL_ALIAS = MODEL_NAME.split("/")[-1]
+ROUTER_DIRECTORY_NAME="TEST_SELF_CONCISTENCY_EXPERIMENTS"
 
-DATASETS_TO_ROUTE = ["E2H-GSM8K", "GSM_HARD", "AIME_2025", "AIME_1983_2024"]
-DATASETS_TO_ROUTE = ["E2H-GSM8K", "AIME_2025",]
-DATASET_SAMPLE_AMOUNT= 1.0
+# DATASETS_TO_ROUTE = ["E2H-GSM8K", "GSM_HARD", "AIME_2025", "AIME_1983_2024"]
+DATASETS_TO_ROUTE = ["AIME_2025", "E2H-GSM8K", "GSM_HARD",]
+DATASET_SAMPLE_AMOUNT= 0.3
+
 
 # Generation settings
 GENERATION_SETTING_STR = "max_{MAX_TOKENS}_k_{K_SAMPLE}_temp_{TEMPERATURE}"
@@ -74,7 +76,7 @@ for DATASET_NAME in DATASETS_TO_ROUTE:
     FULL_PROBE_PREDICTION_SOURCE = f"{DATASET_NAME}_predicted_by_{PROBE_PREDICTING_STR}"
     
     LABELLED_DATA_PATH = f"../runs/{MODEL_ALIAS}/datasplits/{FULL_PROBE_PREDICTION_SOURCE}.json"
-    RESULTS_DIR = f"../predicting_learnability/SELF_CONCISTENCY_EXPERIMENTS/{DATASET_NAME}/{PROBE_PREDICTING_STR}_probe"
+    RESULTS_DIR = f"../predicting_learnability/{ROUTER_DIRECTORY_NAME}/{DATASET_NAME}/{PROBE_PREDICTING_STR}_probe"
     # RESULTS_DIR = f"../predicting_learnability/MAJORITY_VOTE_DATA/{DATASET_NAME}/{PROBE_PREDICTING_STR}_probe"
     os.makedirs(RESULTS_DIR, exist_ok=True)
     # Load data
@@ -216,6 +218,13 @@ for DATASET_NAME in DATASETS_TO_ROUTE:
             "Router Acc": m.router_accuracy,
             "Router Prec": m.router_precision,
             "Router Recall": m.router_recall,
+            "Pass@1": m.avg_pass_at_1 if m.avg_pass_at_1 else 0,
+            "Pass@5": m.pass_at_k.get(5, 0) if m.pass_at_k else 0,
+            "Avg First Correct": m.avg_first_correct_sample if m.avg_first_correct_sample != float('inf') else 0,
+            "Total Correct Samples": m.total_correct_samples if m.total_correct_samples else 0,
+            "Best-Case Oracle Acc": m.oracle_best_case_accuracy if m.oracle_best_case_accuracy else 0,
+            "Best-Case Oracle Gain": m.oracle_best_case_gain if m.oracle_best_case_gain else 0,
+            "Sample Utilization": m.sample_utilization if m.sample_utilization else 0,
         }
         for m in all_metrics
     ])
@@ -260,6 +269,38 @@ for DATASET_NAME in DATASETS_TO_ROUTE:
     print(f"   → Accuracy: {best_accuracy['Accuracy']:.2%}")
     print(f"   → Cost: {best_accuracy['Avg Samples']:.2f}x samples")
     
+    # Theoretical Best-Case Oracle Analysis
+    print("\n" + "="*80)
+    print("🔮 THEORETICAL BEST-CASE ORACLE ANALYSIS".center(80))
+    print("="*80)
+    print("\nIf we could always pick the best sample (theoretical oracle selector):\n")
+    
+    # Sort by oracle gain (potential improvement)
+    oracle_sorted = comparison_df.sort_values("Best-Case Oracle Gain", ascending=False)
+    
+    print("Top 3 strategies with highest improvement potential:")
+    for i, (idx, row) in enumerate(oracle_sorted.head(3).iterrows(), 1):
+        print(f"\n{i}. {row['Strategy']}")
+        print(f"   → Current Accuracy: {row['Accuracy']:.2%}")
+        print(f"   → Best-Case Oracle Accuracy:  {row['Best-Case Oracle Acc']:.2%}")
+        print(f"   → Potential Gain:   {row['Best-Case Oracle Gain']:+.2%}")
+        print(f"   → Sample Utilization: {row['Sample Utilization']:.1%} (capturing {row['Sample Utilization']:.1%} of available correct samples)")
+    
+    # Find strategies with best sample utilization
+    best_utilization = comparison_df.sort_values("Sample Utilization", ascending=False).iloc[0]
+    worst_utilization_df = comparison_df[comparison_df['Sample Utilization'] > 0].sort_values("Sample Utilization", ascending=True)
+    
+    print(f"\n📊 Sample Utilization Insights:")
+    print(f"   → Best utilization: {best_utilization['Strategy']} at {best_utilization['Sample Utilization']:.1%}")
+    print(f"     (Majority voting captures {best_utilization['Sample Utilization']:.1%} of correct samples)")
+    
+    if len(worst_utilization_df) > 0:
+        worst_utilization = worst_utilization_df.iloc[0]
+        print(f"   → Worst utilization: {worst_utilization['Strategy']} at {worst_utilization['Sample Utilization']:.1%}")
+        print(f"     (Leaving {worst_utilization['Best-Case Oracle Gain']:.1%} accuracy points on the table)")
+    else:
+        print(f"   → No strategies with multiple samples to analyze utilization")
+    
     print("\n" + "="*80)
     print("\n" * 2)
     
@@ -290,6 +331,82 @@ for DATASET_NAME in DATASETS_TO_ROUTE:
     ax.grid(alpha=0.3)
     plt.tight_layout()
     plt.savefig(f'{RESULTS_DIR}/accuracy_vs_compute.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.close()
+    
+    # Plot: Actual vs Oracle (Theoretical Best) Accuracy
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    for m in all_metrics:
+        color = get_strategy_color(m.strategy_name)
+        # Plot actual accuracy
+        ax.scatter(
+            m.avg_samples_per_question,
+            m.overall_accuracy,
+            s=200,
+            alpha=0.8,
+            color=color,
+            edgecolor='black',
+            linewidth=2,
+            label=f'{m.strategy_name} (actual)',
+            marker='o'
+        )
+        
+        # Plot theoretical best-case accuracy (if we could pick best sample)
+        if m.oracle_best_case_accuracy:
+            ax.scatter(
+                m.avg_samples_per_question,
+                m.oracle_best_case_accuracy,
+                s=200,
+                alpha=0.5,
+                color=color,
+                edgecolor='black',
+                linewidth=2,
+                linestyle='--',
+                marker='^'
+            )
+            
+            # Draw line connecting actual to theoretical best-case
+            ax.plot(
+                [m.avg_samples_per_question, m.avg_samples_per_question],
+                [m.overall_accuracy, m.oracle_best_case_accuracy],
+                color=color,
+                linestyle=':',
+                linewidth=2,
+                alpha=0.5
+            )
+            
+            # Annotate with best-case gain
+            mid_y = (m.overall_accuracy + m.oracle_best_case_accuracy) / 2
+            ax.annotate(
+                f'+{m.oracle_best_case_gain:.1%}',
+                (m.avg_samples_per_question, mid_y),
+                xytext=(10, 0),
+                textcoords='offset points',
+                fontsize=8,
+                color=color,
+                fontweight='bold',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor=color, alpha=0.7)
+            )
+    
+    # Add legend elements for actual vs theoretical best-case
+    from matplotlib.lines import Line2D
+    legend_elements = [
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='gray', markersize=10, 
+               label='Actual (majority vote)', markeredgecolor='black', markeredgewidth=2),
+        Line2D([0], [0], marker='^', color='w', markerfacecolor='gray', markersize=10, 
+               label='Theoretical Best-Case', markeredgecolor='black', markeredgewidth=2, alpha=0.5),
+    ]
+    
+    ax.axhline(BASELINE_ACCURACY, color='red', linestyle='--', alpha=0.5, linewidth=2, label='Baseline')
+    ax.set_xlabel('Average Samples per Question', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Accuracy', fontsize=12, fontweight='bold')
+    ax.set_title(f'{DATASET_NAME}: Actual vs Theoretical Best-Case Accuracy\n(Lines show potential improvement if we could always pick the best sample)', 
+                 fontsize=14, fontweight='bold')
+    ax.legend(handles=legend_elements, loc='lower right', fontsize=10)
+    ax.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f'{RESULTS_DIR}/accuracy_vs_compute_with_theoretical_best_case.png', dpi=300, bbox_inches='tight')
     plt.show()
     plt.close()
     
@@ -371,6 +488,64 @@ for DATASET_NAME in DATASETS_TO_ROUTE:
     plt.show()
     plt.close()
     
+    # Plot: Sample Utilization Efficiency (how well majority voting works)
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    strategies_with_oracle = [m for m in all_metrics if m.sample_utilization is not None and m.sample_utilization > 0]
+    if strategies_with_oracle:
+        strategy_names = [m.strategy_name for m in strategies_with_oracle]
+        utilization = [m.sample_utilization for m in strategies_with_oracle]
+        oracle_gains = [m.oracle_best_case_gain for m in strategies_with_oracle]
+        
+        colors_list = [get_strategy_color(s) for s in strategy_names]
+        
+        bars = ax.barh(strategy_names, utilization, color=colors_list, alpha=0.85, edgecolor='black', linewidth=1.5)
+        ax.set_xlabel('Sample Utilization (Actual / Theoretical Best-Case)', fontsize=12, fontweight='bold')
+        ax.set_title(f'{DATASET_NAME}: Sample Utilization Efficiency\n(Higher = Majority voting effectively captures correct samples)', 
+                     fontsize=14, fontweight='bold')
+        ax.set_xlim([0, 1.05])
+        ax.grid(axis='x', alpha=0.3)
+        
+        # Add text showing utilization percentage and potential gain
+        for i, (name, util, gain) in enumerate(zip(strategy_names, utilization, oracle_gains)):
+            ax.text(util, i, f'  {util:.1%} (unused: {gain:+.1%})', va='center', fontsize=9, fontweight='bold')
+        
+        # Add vertical line at 100%
+        ax.axvline(1.0, color='green', linestyle='--', linewidth=2, alpha=0.5, label='Perfect utilization')
+        ax.legend(loc='lower right', fontsize=10)
+    
+    plt.tight_layout()
+    plt.savefig(f'{RESULTS_DIR}/sample_utilization_efficiency.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.close()
+    
+    # Plot: Oracle Gain Potential
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    if strategies_with_oracle:
+        strategy_names = [m.strategy_name for m in strategies_with_oracle]
+        oracle_gains = [m.oracle_best_case_gain * 100 for m in strategies_with_oracle]  # Convert to percentage points
+        
+        # Sort by oracle gain
+        sorted_indices = np.argsort(oracle_gains)[::-1]  # Descending order
+        strategy_names_sorted = [strategy_names[i] for i in sorted_indices]
+        oracle_gains_sorted = [oracle_gains[i] for i in sorted_indices]
+        colors_sorted = [get_strategy_color(s) for s in strategy_names_sorted]
+        
+        bars = ax.barh(strategy_names_sorted, oracle_gains_sorted, color=colors_sorted, alpha=0.85, edgecolor='black', linewidth=1.5)
+        ax.set_xlabel('Best-Case Oracle Gain (Percentage Points)', fontsize=12, fontweight='bold')
+        ax.set_title(f'{DATASET_NAME}: Theoretical Best-Case Improvement Potential\n(Accuracy gain if we could always pick the best sample)', 
+                     fontsize=14, fontweight='bold')
+        ax.grid(axis='x', alpha=0.3)
+        
+        for i, (name, gain) in enumerate(zip(strategy_names_sorted, oracle_gains_sorted)):
+            ax.text(gain, i, f'  +{gain:.1f} pts', va='center', fontsize=9, fontweight='bold')
+    
+    plt.tight_layout()
+    plt.savefig(f'{RESULTS_DIR}/theoretical_best_case_gain_potential.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.close()
+    
     # Plot: Router quality metrics
     fig, axes = plt.subplots(1, 3, figsize=(16, 6))
     
@@ -409,6 +584,50 @@ for DATASET_NAME in DATASETS_TO_ROUTE:
     
     plt.tight_layout()
     plt.savefig(f'{RESULTS_DIR}/router_quality_metrics.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.close()
+    
+    # Plot: Actual vs Oracle Accuracy Comparison (Grouped Bar Chart)
+    fig, ax = plt.subplots(figsize=(14, 8))
+    
+    strategies_list = [m.strategy_name for m in all_metrics]
+    actual_acc = [m.overall_accuracy * 100 for m in all_metrics]
+    oracle_acc = [m.oracle_best_case_accuracy * 100 if m.oracle_best_case_accuracy else m.overall_accuracy * 100 for m in all_metrics]
+    
+    x = np.arange(len(strategies_list))
+    width = 0.35
+    
+    bars1 = ax.bar(x - width/2, actual_acc, width, label='Actual (Majority Vote)', 
+                   color='#42A5F5', alpha=0.8, edgecolor='black', linewidth=1.5)
+    bars2 = ax.bar(x + width/2, oracle_acc, width, label='Theoretical Best-Case', 
+                   color='#66BB6A', alpha=0.8, edgecolor='black', linewidth=1.5)
+    
+    # Add text labels on bars
+    for i, (actual, oracle) in enumerate(zip(actual_acc, oracle_acc)):
+        ax.text(i - width/2, actual + 0.5, f'{actual:.1f}%', ha='center', va='bottom', fontsize=8, fontweight='bold')
+        ax.text(i + width/2, oracle + 0.5, f'{oracle:.1f}%', ha='center', va='bottom', fontsize=8, fontweight='bold')
+        
+        # Show gap
+        gap = oracle - actual
+        if gap > 0.5:  # Only show if gap is meaningful
+            ax.annotate('', xy=(i + width/2, oracle - 0.3), xytext=(i - width/2, actual + 0.3),
+                       arrowprops=dict(arrowstyle='<->', color='red', lw=1.5, alpha=0.6))
+            ax.text(i, (actual + oracle) / 2, f'+{gap:.1f}', ha='center', va='center',
+                   fontsize=7, color='red', fontweight='bold',
+                   bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='red', alpha=0.8))
+    
+    ax.set_xlabel('Strategy', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Accuracy (%)', fontsize=12, fontweight='bold')
+    ax.set_title(f'{DATASET_NAME}: Actual vs Theoretical Best-Case Accuracy\n(Gap shows potential improvement if we could always pick the best sample)', 
+                 fontsize=14, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels([s.replace('_', '\n') for s in strategies_list], fontsize=9, rotation=45, ha='right')
+    ax.legend(fontsize=11, loc='lower right')
+    ax.grid(axis='y', alpha=0.3)
+    ax.axhline(BASELINE_ACCURACY * 100, color='red', linestyle=':', linewidth=2, alpha=0.5, label='Baseline')
+    
+    plt.tight_layout()
+    plt.savefig(f'{RESULTS_DIR}/actual_vs_theoretical_best_case_accuracy_bars.png', dpi=300, bbox_inches='tight')
     plt.show()
     plt.close()
     
@@ -648,6 +867,108 @@ for DATASET_NAME in DATASETS_TO_ROUTE:
     
     print("\n" + "="*80)
     
+    # Plot: Pass@k Comparison
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    
+    # Left plot: Pass@k curves for each strategy
+    ax1 = axes[0]
+    for m in all_metrics:
+        if m.pass_at_k:
+            k_values = sorted(m.pass_at_k.keys())
+            pass_rates = [m.pass_at_k[k] for k in k_values]
+            color = get_strategy_color(m.strategy_name)
+            ax1.plot(k_values, pass_rates, marker='o', label=m.strategy_name, 
+                    color=color, linewidth=2, markersize=6, alpha=0.8)
+    
+    ax1.set_xlabel('Number of Samples (k)', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('Pass@k Rate', fontsize=12, fontweight='bold')
+    ax1.set_title('Pass@k: Success Rate with k Samples', fontsize=13, fontweight='bold')
+    ax1.legend(loc='lower right', fontsize=9)
+    ax1.grid(alpha=0.3)
+    ax1.set_ylim([0, 1.05])
+    
+    # Right plot: Average position of first correct answer
+    ax2 = axes[1]
+    strategies_with_sc = [m for m in all_metrics if m.avg_first_correct_sample and m.avg_first_correct_sample != float('inf')]
+    if strategies_with_sc:
+        strategy_names = [m.strategy_name for m in strategies_with_sc]
+        first_correct_pos = [m.avg_first_correct_sample for m in strategies_with_sc]
+        colors_list = [get_strategy_color(s) for s in strategy_names]
+        
+        bars = ax2.barh(strategy_names, first_correct_pos, color=colors_list, alpha=0.85, edgecolor='black', linewidth=1.5)
+        ax2.set_xlabel('Average Position of First Correct Sample', fontsize=12, fontweight='bold')
+        ax2.set_title('Efficiency: How Quickly We Find Correct Answers', fontsize=13, fontweight='bold')
+        ax2.grid(axis='x', alpha=0.3)
+        
+        for i, (name, pos) in enumerate(zip(strategy_names, first_correct_pos)):
+            ax2.text(pos, i, f'  {pos:.2f}', va='center', fontsize=9, fontweight='bold')
+    
+    plt.tight_layout()
+    plt.savefig(f'{RESULTS_DIR}/pass_at_k_analysis.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.close()
+    
+    # Plot: Theoretical Best-Case Accuracy vs Total Samples (Pareto Frontier)
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    # Collect data points
+    data_points = []
+    for m in all_metrics:
+        if m.oracle_best_case_accuracy is not None and m.avg_samples_per_question:
+            total_samples = m.avg_samples_per_question * len(df)
+            oracle_acc = m.oracle_best_case_accuracy * 100  # Convert to percentage
+            data_points.append((m, total_samples, oracle_acc))
+    
+    # Plot all strategies
+    for m, total_samples, oracle_acc in data_points:
+        color = get_strategy_color(m.strategy_name)
+        ax.scatter(
+            total_samples,
+            oracle_acc,
+            s=300,
+            alpha=0.8,
+            color=color,
+            edgecolor='black',
+            linewidth=2
+        )
+        ax.annotate(
+            m.strategy_name,
+            (total_samples, oracle_acc),
+            xytext=(8, 8),
+            textcoords='offset points',
+            fontsize=9,
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='gray', alpha=0.7)
+        )
+    
+    # Find and draw Pareto frontier
+    # Sort by total samples
+    sorted_points = sorted(data_points, key=lambda x: x[1])
+    pareto_points = []
+    max_acc = 0
+    
+    for m, samples, acc in sorted_points:
+        if acc > max_acc:
+            pareto_points.append((samples, acc))
+            max_acc = acc
+    
+    if len(pareto_points) > 1:
+        pareto_x = [p[0] for p in pareto_points]
+        pareto_y = [p[1] for p in pareto_points]
+        ax.plot(pareto_x, pareto_y, 'r--', linewidth=2.5, alpha=0.6, label='Pareto Frontier', zorder=10)
+        # Highlight Pareto optimal points
+        ax.scatter(pareto_x, pareto_y, s=400, facecolors='none', edgecolors='red', linewidth=3, zorder=11)
+    
+    ax.set_xlabel('Total Samples Generated', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Theoretical Best-Case Accuracy (%)', fontsize=12, fontweight='bold')
+    ax.set_title(f'{DATASET_NAME}: Theoretical Best-Case Accuracy vs Compute\n(Pareto frontier shows optimal accuracy-compute trade-offs)', 
+                 fontsize=14, fontweight='bold')
+    ax.legend(loc='lower right', fontsize=11)
+    ax.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f'{RESULTS_DIR}/theoretical_best_case_accuracy_vs_samples_pareto.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.close()
+    
     # Deep Dive: Probe-based Routing Analysis
     probe_metrics = [m for m in all_metrics if 'probe' in m.strategy_name.lower()]
     best_probe_metric = max(probe_metrics, key=lambda m: m.efficiency_score())
@@ -783,6 +1104,22 @@ for DATASET_NAME in DATASETS_TO_ROUTE:
     for i, (idx, row) in enumerate(top3_acc.iterrows(), 1):
         print(f"\n{i}. {row['Strategy']}")
         print(f"   Accuracy: {row['Accuracy']:.2%} | Gain: {row['Accuracy Gain']:+.2%} | Cost: {row['Avg Samples']:.2f}x")
+    
+    print("\n\n")
+    print("🔮 THEORETICAL BEST-CASE ORACLE ANALYSIS SUMMARY:")
+    print("═" * 80)
+    top3_oracle = comparison_df.sort_values("Best-Case Oracle Gain", ascending=False).head(3)
+    for i, (idx, row) in enumerate(top3_oracle.iterrows(), 1):
+        print(f"\n{i}. {row['Strategy']}")
+        print(f"   Current: {row['Accuracy']:.2%} | Best-Case: {row['Best-Case Oracle Acc']:.2%} | Potential: {row['Best-Case Oracle Gain']:+.2%}")
+        print(f"   Utilization: {row['Sample Utilization']:.1%} (wasting {100 - row['Sample Utilization']*100:.1f}% of correct samples)")
+    
+    avg_utilization = comparison_df['Sample Utilization'].mean()
+    avg_oracle_gain = comparison_df['Best-Case Oracle Gain'].mean()
+    print(f"\n📊 Overall Statistics:")
+    print(f"   → Average Sample Utilization: {avg_utilization:.1%}")
+    print(f"   → Average Best-Case Oracle Gain: {avg_oracle_gain:+.2%}")
+    print(f"   → Interpretation: On average, majority voting captures {avg_utilization:.1%} of available correct samples")
     
     print("\n\n")
     print("=" * 80)
