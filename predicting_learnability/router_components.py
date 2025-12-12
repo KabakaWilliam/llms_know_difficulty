@@ -166,9 +166,9 @@ class EvaluationMetrics:
 """
 
 
-def cost_for_result(r: SolverResult, INPUT_TOKEN_PRICE=0.1, OUTPUT_TOKEN_PRICE=0.2) -> float:
-    """Calculate cost for a result based on token usage"""
-    return OUTPUT_TOKEN_PRICE * sum(r.token_lengths)
+# def cost_for_result(r: SolverResult, INPUT_TOKEN_PRICE=0.1, OUTPUT_TOKEN_PRICE=0.2) -> float:
+#     """Calculate cost for a result based on token usage"""
+#     return OUTPUT_TOKEN_PRICE * sum(r.token_lengths)
 
 
 def run_greedy_baseline(llm, df: pd.DataFrame, greedy_temp: float, max_tokens: int) -> tuple:
