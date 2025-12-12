@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 import seaborn as sns
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+import requests
 
 # Import our router components
 from router_components import (
@@ -29,44 +30,113 @@ from router_components import (
 
 sns.set_style("whitegrid")
 
-TOKEN_BUDGET_DICT={
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+TOKEN_BUDGET_DICT = {
     "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B": 32768,
-     "Qwen/Qwen2.5-Math-1.5B-Instruct": 3000
+    "Qwen/Qwen2.5-Math-1.5B-Instruct": 3000
 }
 
-# Configuration
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct"
-# MODEL_NAME = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
-MODEL_ALIAS = MODEL_NAME.split("/")[-1]
-ROUTER_DIRECTORY_NAME="TEST_SELF_CONCISTENCY_EXPERIMENTS"
+# Experiment Configuration
+CONFIG = {
+    # Device settings
+    "device": 0,
+    
+    # Model settings
+    "model_name": "Qwen/Qwen2.5-Math-1.5B-Instruct",
+    # "model_name": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+    "memory_util": 0.9,
+    
+    # Dataset settings
+    "datasets": ["AIME_2025", "AIME_1983_2024", "E2H-GSM8K", "GSM_HARD"],
+    "dataset_sample_fraction": 1.0,  # Fraction of dataset to use (1.0 = all)
+    
+    # Generation settings
+    "greedy_temp": 0.0,
+    "probe_temp": 0.0,  # 0.6 is default; 0.0 temp was probe at greedy
+    "probe_k": 1,  # Num samples for which probe label was calculated
+    "sc_temp": 0.6,
+    "num_sc_samples": 5,
+    
+    # Output settings
+    "results_base_dir": "predicting_learnability",
+    "router_directory_name": "TEST_SELF_CONCISTENCY_EXPERIMENTS",
+    
+    # Notification settings
+    "send_notifications": True,
+    "notification_url": "https://ntfy.sh/training_runs_lugoloobi",
+}
 
-# DATASETS_TO_ROUTE = ["E2H-GSM8K", "GSM_HARD", "AIME_2025", "AIME_1983_2024"]
-DATASETS_TO_ROUTE = ["AIME_2025", "AIME_1983_2024", "E2H-GSM8K", "GSM_HARD",]
-DATASET_SAMPLE_AMOUNT= 1.0
+# Derived settings
+CONFIG["model_alias"] = CONFIG["model_name"].split("/")[-1]
+CONFIG["max_tokens"] = TOKEN_BUDGET_DICT[CONFIG["model_name"]]
 
 
-# Generation settings
+# ============================================================================
+# SETUP
+# ============================================================================
+
+os.environ["CUDA_VISIBLE_DEVICES"] = f"{CONFIG['device']}"
+
 GENERATION_SETTING_STR = "max_{MAX_TOKENS}_k_{K_SAMPLE}_temp_{TEMPERATURE}"
-GREEDY_TEMP = 0.0
-PROBE_TEMP = 0.0 #0.6 is default #0.0 temp was probe at greedy
-PROBE_K = 1 #Num samples for which probe label was calculated
-MAX_TOKENS = TOKEN_BUDGET_DICT[MODEL_NAME] #done to match settings for probe #3000#32768
 
-SC_TEMP = 0.6
-NUM_SC_SAMPLES = 5
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def send_notification(title: str, message: str):
+    """Send notification to ntfy.sh"""
+    if not CONFIG.get("send_notifications", True):
+        return
+    
+    try:
+        requests.post(
+            CONFIG["notification_url"],
+            data=message.encode(encoding='utf-8'),
+            headers={"Title": title}
+        )
+    except:
+        pass  # Don't fail if notification doesn't work
+
+
+# ============================================================================
+# MAIN PROCESSING
+# ============================================================================
+
+print(f"{'='*70}")
+print(f"Self-Consistency Router Evaluation")
+print(f"{'='*70}")
+print(f"Model: {CONFIG['model_name']}")
+print(f"Datasets: {', '.join(CONFIG['datasets'])}")
+print(f"SC Samples: {CONFIG['num_sc_samples']} @ temp {CONFIG['sc_temp']}")
+print(f"{'='*70}\n")
 
 # Initialize model
-llm = LLM(model=MODEL_NAME, gpu_memory_utilization=0.9)
-print(f"Loaded model: {MODEL_NAME}")
+print("Loading model...")
+llm = LLM(model=CONFIG["model_name"], gpu_memory_utilization=CONFIG["memory_util"])
+print(f"✓ Loaded model: {CONFIG['model_name']}\n")
 
 # Process each dataset
-for DATASET_NAME in DATASETS_TO_ROUTE:
+for DATASET_NAME in CONFIG["datasets"]:
     print("="*100)
     print(f"\n🍨 Performing routing analysis for {DATASET_NAME} 🍨\n")
     print("="*100)
     
     # Setup paths
+    MODEL_ALIAS = CONFIG["model_alias"]
+    MAX_TOKENS = CONFIG["max_tokens"]
+    PROBE_K = CONFIG["probe_k"]
+    PROBE_TEMP = CONFIG["probe_temp"]
+    GREEDY_TEMP = CONFIG["greedy_temp"]
+    ROUTER_DIRECTORY_NAME = CONFIG["router_directory_name"]
+    DATASET_SAMPLE_AMOUNT = CONFIG["dataset_sample_fraction"]
+    SC_TEMP = CONFIG["sc_temp"]
+    NUM_SC_SAMPLES = CONFIG["num_sc_samples"]
+    
     PROBE_SOURCE = f"{MODEL_ALIAS}_" + GENERATION_SETTING_STR.format(
         MAX_TOKENS=MAX_TOKENS,
         K_SAMPLE=PROBE_K,
@@ -76,8 +146,7 @@ for DATASET_NAME in DATASETS_TO_ROUTE:
     FULL_PROBE_PREDICTION_SOURCE = f"{DATASET_NAME}_predicted_by_{PROBE_PREDICTING_STR}"
     
     LABELLED_DATA_PATH = f"../runs/{MODEL_ALIAS}/datasplits/{FULL_PROBE_PREDICTION_SOURCE}.json"
-    RESULTS_DIR = f"../predicting_learnability/{ROUTER_DIRECTORY_NAME}/{DATASET_NAME}/{PROBE_PREDICTING_STR}_probe"
-    # RESULTS_DIR = f"../predicting_learnability/MAJORITY_VOTE_DATA/{DATASET_NAME}/{PROBE_PREDICTING_STR}_probe"
+    RESULTS_DIR = f"../{CONFIG['results_base_dir']}/{ROUTER_DIRECTORY_NAME}/{DATASET_NAME}/{PROBE_PREDICTING_STR}_probe"
     os.makedirs(RESULTS_DIR, exist_ok=True)
     # Load data
     df = pd.read_json(LABELLED_DATA_PATH)
@@ -1126,7 +1195,41 @@ for DATASET_NAME in DATASETS_TO_ROUTE:
     print(f"✅ Full results saved to: {RESULTS_DIR}/")
     print("=" * 80)
     print("\n" * 3)
+    
+    # Send notification after completing dataset
+    try:
+        best_strategy = comparison_df.iloc[0]
+        notification_msg = (
+            f"✅ {DATASET_NAME} routing analysis complete!\n"
+            f"📊 Model: {MODEL_ALIAS}\n"
+            f"🎯 Baseline Acc: {BASELINE_ACCURACY:.2%}\n"
+            f"🏆 Best: {best_strategy['Strategy']}\n"
+            f"   → Acc: {best_strategy['Accuracy']:.2%} ({best_strategy['Accuracy Gain']:+.2%})\n"
+            f"   → Token Eff: {best_strategy['Efficiency (token)']:.4f}\n"
+            f"📂 {RESULTS_DIR}"
+        )
+        send_notification(
+            f"SC Router - {DATASET_NAME} Complete",
+            notification_msg
+        )
+    except Exception as e:
+        print(f"Note: Notification not sent - {e}")
 
 print("\n" + "🎊" * 40)
 print("ALL DATASETS PROCESSED SUCCESSFULLY!")
 print("🎊" * 40 + "\n")
+
+# Send final summary notification
+try:
+    final_msg = (
+        f"🎉 All SC router experiments complete!\n"
+        f"📊 Model: {CONFIG['model_alias']}\n"
+        f"📈 Datasets processed: {len(CONFIG['datasets'])}\n"
+        f"✓ {', '.join(CONFIG['datasets'])}"
+    )
+    send_notification(
+        "SC Router - All Experiments Complete",
+        final_msg
+    )
+except:
+    pass
