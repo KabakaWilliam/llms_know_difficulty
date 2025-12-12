@@ -117,6 +117,21 @@ DATASET_CONFIGS = {
         "train_split_ratio": 0.6,  # Use 80% for training
         "difficulty_column": "rating"
     },
+    "GSM8K_Full":{
+        "dataset_type": "huggingface",
+        "hf_dataset": "openai/gsm8k",
+        "subset_name": "main",
+        "splits": ["train", "test"],  
+        "prompt_column": "question",
+        "answer_column": "answer",
+        "has_train_split": True,
+        "max_n_train": 7473,
+        "max_n_test": 1319,
+        "default_n_train": 5000,
+        "default_n_test": 1319,
+        "train_split_ratio": 0.6,  # Use 80% for training
+        "difficulty_column": "rating"
+    },
 
     "AMC_test": {
         "dataset_type": "huggingface",
