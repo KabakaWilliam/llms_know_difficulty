@@ -7,8 +7,8 @@ def parse_answers(responses):
             parsed_anwer = parse(response)
             PARSED_ANSWER_LIST.append(parsed_anwer)
         except Exception:
-            PARSED_ANSWER_LIST.append(response)
-            print("\n***** can't parse answer so appending whole response ****** \n")
+            # Append empty list instead of unparsed response to avoid verification bottleneck
+            PARSED_ANSWER_LIST.append([])
     return PARSED_ANSWER_LIST
 
 

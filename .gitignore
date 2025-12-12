@@ -175,6 +175,7 @@ runs/**/datasplits/**_test.json
 runs
 predicting_learnability/data
 predicting_learnability/checkpoints
+predicting_learnability/MAJORITY_VOTE_DATA_COPY
 difficulty_direction/dataset/processed
 difficulty_direction/dataset/raw
 # runs/*
