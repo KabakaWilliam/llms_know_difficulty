@@ -36,12 +36,12 @@ TOKEN_BUDGET_DICT={
 
 # Configuration
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct"
-# MODEL_NAME = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
+# MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct"
+MODEL_NAME = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
 MODEL_ALIAS = MODEL_NAME.split("/")[-1]
 
 DATASETS_TO_ROUTE = ["E2H-GSM8K", "GSM_HARD", "AIME_2025", "AIME_1983_2024"]
-# DATASETS_TO_ROUTE = ["E2H-GSM8K", "AIME_2025",]
+DATASETS_TO_ROUTE = ["E2H-GSM8K", "AIME_2025",]
 DATASET_SAMPLE_AMOUNT= 1.0
 
 # Generation settings
