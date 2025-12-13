@@ -43,19 +43,21 @@ DATA_SUCCESS_RATE_CONFIGS = {
 # Experiment Configuration
 CONFIG = {
     # Device settings
-    "device": 3,
+    "device": 2,
     
     # Model settings
-    "model_name": "Qwen/Qwen2.5-Math-1.5B-Instruct",
-    "memory_util": 0.90,
+    # "model_name": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+    "model_name": "Qwen/Qwen2.5-Math-7B-Instruct",
+    # "model_name": "Qwen/Qwen2.5-1.5B-Instruct",
+    "memory_util": 0.60,
     
     # Dataset settings
-    "datasets": ["MATH",],  # List of datasets to process, e.g., ["MATH", "GSM8K"]
+    "datasets": ["GSM8K", "MATH"],  # List of datasets to process, e.g., ["MATH", "GSM8K"]
     "splits": ["train", "test"],
     
     # Generation settings
     "num_rollouts": 1,
-    "max_tokens": 3000,
+    "max_tokens": 3000, #32768 #3000
     "temperature": 0.0,
     
     # Batch settings (tune for GPU/memory)
@@ -298,8 +300,8 @@ for DATASET_NAME in CONFIG["datasets"]:
         }
         
         results_df = pd.DataFrame.from_dict(results, orient='index')
-        results_df["prompt"] = prompts
-        results_df["ground_truth"] = gts
+        results_df["question"] = prompts
+        results_df["answer"] = gts
         
         # Save results
         model_alias = CONFIG["model_name"].split("/")[-1]

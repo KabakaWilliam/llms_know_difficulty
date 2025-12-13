@@ -43,31 +43,34 @@ TOKEN_BUDGET_DICT = {
 # Experiment Configuration
 CONFIG = {
     # Device settings
-    "device": 0,
+    "device": 1,
     
     # Model settings
     "model_name": "Qwen/Qwen2.5-Math-1.5B-Instruct",
     # "model_name": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
-    "memory_util": 0.9,
-    
+    "memory_util": 0.6,
+
+    #Probe settings
+    "probe_source": "GSM8K",
+    "probe_temp": 0.0,  # 0.6 is default; 0.0 temp was probe at greedy
+    "probe_k": 1,  # Num samples for which probe label was calculated
+
     # Dataset settings
-    "datasets": ["AIME_2025", "AIME_1983_2024", "E2H-GSM8K", "GSM_HARD"],
+    "datasets": ["AIME_2025","E2H-GSM8K", "GSM_HARD", "AIME_1983_2024"],
     "dataset_sample_fraction": 1.0,  # Fraction of dataset to use (1.0 = all)
     
     # Generation settings
     "greedy_temp": 0.0,
-    "probe_temp": 0.0,  # 0.6 is default; 0.0 temp was probe at greedy
-    "probe_k": 1,  # Num samples for which probe label was calculated
     "sc_temp": 0.6,
     "num_sc_samples": 5,
     
     # Output settings
     "results_base_dir": "predicting_learnability",
-    "router_directory_name": "TEST_SELF_CONCISTENCY_EXPERIMENTS",
+    "router_directory_name": "ROUTER_SELF_CONCISTENCY_EXPERIMENTS",
     
     # Notification settings
     "send_notifications": True,
-    "notification_url": "https://ntfy.sh/training_runs_lugoloobi",
+    "notification_url": "https://ntfy.sh/router_runs_lugoloobi",
 }
 
 # Derived settings
@@ -136,13 +139,19 @@ for DATASET_NAME in CONFIG["datasets"]:
     DATASET_SAMPLE_AMOUNT = CONFIG["dataset_sample_fraction"]
     SC_TEMP = CONFIG["sc_temp"]
     NUM_SC_SAMPLES = CONFIG["num_sc_samples"]
+    PROBE_SOURCE = CONFIG["probe_source"]
     
-    PROBE_SOURCE = f"{MODEL_ALIAS}_" + GENERATION_SETTING_STR.format(
+    PROBE_FILE_SOURCE = f"{MODEL_ALIAS}_" + GENERATION_SETTING_STR.format(
         MAX_TOKENS=MAX_TOKENS,
         K_SAMPLE=PROBE_K,
         TEMPERATURE=PROBE_TEMP
     )
-    PROBE_PREDICTING_STR = f"predicting_MATH_learnability_{PROBE_SOURCE}"
+    PROBE_PREDICTING_STR = ""
+    if PROBE_SOURCE == "MATH": #SHAKY FIX. JUST HAVE CONSISTENT FILE STRUCTURE
+        PROBE_PREDICTING_STR = f"predicting_{PROBE_SOURCE}_learnability_{PROBE_FILE_SOURCE}"
+    elif PROBE_SOURCE == "GSM8K":
+        PROBE_PREDICTING_STR = f"predicting_{PROBE_SOURCE}_SR_{PROBE_FILE_SOURCE}"
+
     FULL_PROBE_PREDICTION_SOURCE = f"{DATASET_NAME}_predicted_by_{PROBE_PREDICTING_STR}"
     
     LABELLED_DATA_PATH = f"../runs/{MODEL_ALIAS}/datasplits/{FULL_PROBE_PREDICTION_SOURCE}.json"
@@ -183,8 +192,6 @@ for DATASET_NAME in CONFIG["datasets"]:
         # Upper bound: SC on everything
         RouterConfig(strategy=RoutingStrategy.ALL_SC),
         
-        # Random: 30% of questions
-        RouterConfig(strategy=RoutingStrategy.RANDOM, fraction=0.3, seed=42),
         
         # Probe-based: threshold at 0.5
         RouterConfig(
@@ -193,6 +200,9 @@ for DATASET_NAME in CONFIG["datasets"]:
             score_column="predicted_difficulty_sigmoid"
         ),
         
+        # Random: 30% of questions
+        RouterConfig(strategy=RoutingStrategy.RANDOM, fraction=0.3, seed=42),
+
         # Probe-based: bottom 30% quantile
         RouterConfig(
             strategy=RoutingStrategy.PROBE_QUANTILE,
