@@ -13,6 +13,7 @@ import pandas as pd
 import numpy as np
 import os
 import requests
+import subprocess
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple
 from enum import Enum
@@ -30,6 +31,7 @@ from utils import parse_answers
 from math_verify import parse, verify
 
 os.environ["CUDA_VISIBLE_DEVICES"] = f"2"
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 # ============================================================================
 # NOTIFICATION CONFIGURATION
@@ -53,6 +55,49 @@ def send_notification(title: str, message: str):
         )
     except:
         pass  # Don't fail if notification doesn't work
+
+
+def check_gpu_memory():
+    """Check available GPU memory and warn if low"""
+    try:
+        result = subprocess.run(
+            ['nvidia-smi', '--query-gpu=memory.free', '--format=csv,noheader,nounits'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            free_mem = float(result.stdout.strip().split('\n')[0])  # First GPU
+            free_mem_gb = free_mem / 1024
+            print(f"💾 GPU Memory Available: {free_mem_gb:.2f} GB")
+            return free_mem_gb
+    except:
+        pass
+    return None
+
+
+def force_gpu_cleanup():
+    """Aggressively clean up GPU memory"""
+    import gc
+    import torch
+    
+    print("🧹 Force cleaning GPU memory...")
+    gc.collect()
+    gc.collect()
+    
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+        torch.cuda.ipc_collect()
+    
+    import time
+    time.sleep(2)
+    
+    free_gb = check_gpu_memory()
+    if free_gb and free_gb < 30:
+        print(f"⚠️  WARNING: Only {free_gb:.2f} GB free - may cause OOM!")
+        print("   Consider running: nvidia-smi | grep python | awk '{print $5}' | xargs -r kill -9")
+    else:
+        print(f"✅ GPU cleanup complete - {free_gb:.2f} GB available")
+
 
 
 # ============================================================================
@@ -140,7 +185,7 @@ class SmartRouter:
         self.config = config
         self.llm_cache: Dict[str, LLM] = {}
         
-    def load_model(self, model_name: str, gpu_memory_util: float = 0.4) -> LLM:
+    def load_model(self, model_name: str, gpu_memory_util: float = 0.45) -> LLM:
         """Lazy load models as needed"""
         if model_name not in self.llm_cache:
             print(f"🔄 Loading model: {model_name}")
@@ -150,6 +195,50 @@ class SmartRouter:
             )
             print(f"✅ Model loaded: {model_name}")
         return self.llm_cache[model_name]
+    
+    def unload_model(self, model_name: str):
+        """Unload a model to free GPU memory"""
+        if model_name in self.llm_cache:
+            print(f"🗑️  Unloading model: {model_name}")
+            llm = self.llm_cache[model_name]
+            
+            # Explicitly destroy vLLM engine
+            try:
+                if hasattr(llm, 'llm_engine'):
+                    del llm.llm_engine
+                if hasattr(llm, '_run_engine'):
+                    llm._run_engine = None
+            except:
+                pass
+            
+            del self.llm_cache[model_name]
+            del llm
+            
+            # Aggressive garbage collection
+            import gc
+            import torch
+            gc.collect()
+            gc.collect()  # Call twice for cycles
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()  # Wait for GPU operations to complete
+            print(f"✅ Model unloaded and GPU memory cleared")
+    
+    def unload_all_models(self):
+        """Unload all cached models to completely free GPU memory"""
+        if not self.llm_cache:
+            return
+        
+        print(f"🧹 Unloading all {len(self.llm_cache)} cached models...")
+        model_names = list(self.llm_cache.keys())
+        for model_name in model_names:
+            self.unload_model(model_name)
+        
+        # Extra cleanup
+        import gc
+        import torch
+        gc.collect()
+        torch.cuda.empty_cache()
+        print("✅ All models unloaded, GPU memory completely freed")
     
     def solve_question(
         self,
@@ -262,18 +351,19 @@ class SmartRouter:
     ) -> Tuple[EvaluationMetrics, List[SolverResult]]:
         """
         Evaluate the SMART routing strategy on a dataset.
+        Uses batched inference for significant speedup.
         
         Returns:
             Tuple of (metrics, results)
         """
         from tqdm import tqdm
         
-        results = []
+        results = [None] * len(df)  # Preallocate to maintain order
         routing_stats = {model.name: 0 for model in self.config.models}
         routing_stats["ABSTAIN"] = 0
         
         print("\n" + "="*80)
-        print("🧠 SMART ROUTER EVALUATION")
+        print("🧠 SMART ROUTER EVALUATION (BATCHED)")
         print("="*80)
         print(f"Models in cascade: {len(self.config.models)}")
         for model in self.config.models:
@@ -281,30 +371,151 @@ class SmartRouter:
         print(f"Abstain threshold: {self.config.abstain_threshold:.2f}")
         print("="*80 + "\n")
         
-        for idx in tqdm(range(len(df)), desc="Routing questions"):
+        # PHASE 1: Route all questions and group by model
+        print("📍 Phase 1: Routing questions to models...")
+        batches_by_model = {model.name: [] for model in self.config.models}
+        batches_by_model["ABSTAIN"] = []
+        
+        for idx in tqdm(range(len(df)), desc="Routing"):
             row = df.iloc[idx]
             predicted_success = row[self.config.probe_column]
             
             # Route to appropriate model
             model_config = self.config.get_model_for_question(predicted_success)
             
-            # Track routing decision
+            # Track routing decision and group
             if model_config is None:
                 routing_stats["ABSTAIN"] += 1
+                batches_by_model["ABSTAIN"].append({
+                    'idx': idx,
+                    'prompt': row["formatted_prompt"],
+                    'ground_truth': row["answer"],
+                    'predicted_success': predicted_success
+                })
             else:
                 routing_stats[model_config.name] += 1
+                batches_by_model[model_config.name].append({
+                    'idx': idx,
+                    'prompt': row["formatted_prompt"],
+                    'ground_truth': row["answer"],
+                    'predicted_success': predicted_success,
+                    'model_config': model_config
+                })
+        
+        # PHASE 2: Process each model's batch
+        print("\n🚀 Phase 2: Processing batches...")
+        
+        # Handle abstentions first (no inference needed)
+        if batches_by_model["ABSTAIN"]:
+            print(f"⏭️  Abstaining on {len(batches_by_model['ABSTAIN'])} questions...")
+            for item in batches_by_model["ABSTAIN"]:
+                results[item['idx']] = SolverResult(
+                    question_idx=item['idx'],
+                    used_sc=False,
+                    is_correct=0,
+                    final_answer="IDK",
+                    num_samples_used=0,
+                    responses=["IDK"],
+                    token_lengths=[0],
+                    predicted_score=item['predicted_success'],
+                    individual_correct=[False]
+                )
+        
+        # Process each model's batch
+        for model_config in self.config.models:
+            batch = batches_by_model[model_config.name]
+            if not batch:
+                continue
             
-            # Solve
-            result = self.solve_question(
-                question_idx=idx,
-                prompt=row["formatted_prompt"],
-                ground_truth=row["answer"],
-                predicted_success=predicted_success,
-                model_config=model_config,
-                use_sc=False  # Can be made configurable per model
+            print(f"⚡ Processing {len(batch)} questions with {model_config.display_name}...")
+            
+            # Load model once (with reduced memory usage for batching)
+            llm = self.load_model(model_config.name, gpu_memory_util=0.45)
+            
+            # Prepare batch prompts
+            num_samples = self.config.num_sc_samples  # Can make this per-model
+            temp = self.config.sc_temp if num_samples > 1 else self.config.greedy_temp
+            
+            params = SamplingParams(
+                temperature=temp,
+                max_tokens=model_config.max_tokens
             )
             
-            results.append(result)
+            # Create prompt list (with SC duplicates if needed)
+            all_prompts = []
+            prompt_to_idx = []  # Track which question each prompt belongs to
+            for item in batch:
+                for _ in range(num_samples):
+                    all_prompts.append(item['prompt'])
+                    prompt_to_idx.append(item['idx'])
+            
+            # BATCHED GENERATION
+            batch_outputs = llm.generate(all_prompts, params)
+            
+            # Process outputs and group by question
+            question_outputs = {}
+            for prompt_idx, output in enumerate(batch_outputs):
+                question_idx = prompt_to_idx[prompt_idx]
+                if question_idx not in question_outputs:
+                    question_outputs[question_idx] = []
+                question_outputs[question_idx].append(output)
+            
+            # Create results for each question
+            for item in tqdm(batch, desc=f"  Verifying {model_config.display_name}", leave=False):
+                idx = item['idx']
+                outputs = question_outputs[idx]
+                
+                responses = []
+                token_lengths = []
+                individual_correct = []
+                
+                for output in outputs:
+                    response = output.outputs[0].text
+                    token_length = len(output.outputs[0].token_ids)
+                    responses.append(response)
+                    token_lengths.append(token_length)
+                    
+                    # Check individual correctness
+                    parsed = parse_answers([response])
+                    if parsed and len(parsed[0]) > 0:
+                        answer = parsed[0][0]
+                        correct = verify(parse(f"${item['ground_truth']}$"), answer)
+                        individual_correct.append(correct)
+                    else:
+                        individual_correct.append(False)
+                
+                # Final answer (majority vote if SC, otherwise just the response)
+                if num_samples > 1:
+                    parsed_answers_list = parse_answers(responses)
+                    all_answers = []
+                    for parsed in parsed_answers_list:
+                        all_answers.extend(parsed)
+                    
+                    if all_answers:
+                        final_answer = Counter(all_answers).most_common(1)[0][0]
+                    else:
+                        final_answer = ""
+                else:
+                    parsed = parse_answers([responses[0]])
+                    final_answer = parsed[0][0] if parsed and len(parsed[0]) > 0 else ""
+                
+                # Verify
+                is_correct = int(verify(parse(f"${item['ground_truth']}$"), final_answer))
+                
+                results[idx] = SolverResult(
+                    question_idx=idx,
+                    used_sc=(num_samples > 1),
+                    is_correct=is_correct,
+                    final_answer=final_answer,
+                    num_samples_used=num_samples,
+                    responses=responses,
+                    token_lengths=token_lengths,
+                    predicted_score=item['predicted_success'],
+                    individual_correct=individual_correct
+                )
+            
+            # Unload model after processing this batch to free memory
+            self.unload_model(model_config.name)
         
         # Print routing stats
         print("\n" + "="*80)
@@ -516,6 +727,13 @@ if __name__ == "__main__":
     # MAIN LOOP
     # ========================================================================
     
+    # Check initial GPU memory
+    print("\n" + "="*80)
+    print("📊 INITIAL GPU MEMORY CHECK")
+    print("="*80)
+    check_gpu_memory()
+    print("="*80 + "\n")
+    
     print("=" * 80)
     print("🚀 SMART ROUTER MULTI-DATASET EVALUATION")
     print("=" * 80)
@@ -529,6 +747,11 @@ if __name__ == "__main__":
     
     for DATASET_NAME in CONFIG["datasets"]:
         for PROBE_SOURCE in CONFIG["probe_sources"]:
+            
+            # Check GPU memory before starting
+            print("\n" + "👀" * 40)
+            check_gpu_memory()
+            print("👀" * 40 + "\n")
             
             print("\n" + "█" * 80)
             print(f"📦 Dataset: {DATASET_NAME} | 🔍 Probe: {PROBE_SOURCE}")
@@ -606,6 +829,10 @@ if __name__ == "__main__":
                 print(f"✅ Baseline accuracy: {baseline_accuracy:.2%}")
                 print(f"💰 Baseline cost: ${baseline_cost:.5f}")
                 print(f"📊 Baseline tokens: {baseline_total_tokens:,}")
+                
+                # Unload baseline model to free GPU memory before cascade evaluation
+                router.unload_model(cascade_config.models[0].name)
+                print("🧹 Baseline model unloaded, GPU memory freed\n")
                 
                 # Evaluate SMART router
                 metrics, results = router.evaluate(
@@ -701,10 +928,42 @@ if __name__ == "__main__":
                 print(f"✨ Completed: {DATASET_NAME} with {PROBE_SOURCE} probe ✨")
                 print("="*80 + "\n")
                 
+                # Clean up all models before next iteration
+                router.unload_all_models()
+                del router  # Delete router object
+                
+                # Force aggressive GPU cleanup
+                force_gpu_cleanup()
+                
             except Exception as e:
                 print(f"\n❌ Error processing {DATASET_NAME} with {PROBE_SOURCE} probe:")
                 print(f"   {str(e)}")
                 print("   Continuing to next dataset/probe combination...\n")
+                notification_error_msg = (
+                    f"\n❌ Error processing {DATASET_NAME} with {PROBE_SOURCE} probe:"
+                    f"   {str(e)}"
+                    "   Continuing to next dataset/probe combination...\n"
+                    )
+
+                send_notification(
+                        f"SMART Router - {DATASET_NAME} ({PROBE_SOURCE})",
+                        notification_error_msg
+                    )
+                
+                # Clean up any loaded models before continuing
+                try:
+                    if 'router' in locals():
+                        router.unload_all_models()
+                        del router
+                    import gc
+                    import torch
+                    import time
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    time.sleep(3)  # Give GPU time to clean up after error
+                except:
+                    pass  # Best effort cleanup
+                
                 continue
     
     # ========================================================================
