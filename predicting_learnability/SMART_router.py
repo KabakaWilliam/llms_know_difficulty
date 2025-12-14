@@ -483,125 +483,268 @@ def get_example_cascade_with_reasoning() -> CascadeConfig:
 
 if __name__ == "__main__":
     """
-    Example usage of the SMART router.
-    
-    This is just a template - modify for your specific use case.
+    SMART Router evaluation across multiple datasets and probe sources.
     """
     
     import os
     import uuid
     import base64
     
-    # Configuration
-    DATASET_NAME = "AIME_2025"  # OPTIONS:["AIME_2025","E2H-GSM8K", "GSM_HARD", "AIME_1983_2024"]
-    MODEL_ALIAS = "Qwen2.5-Math-1.5B-Instruct"
-    PROBE_SOURCE = "MATH" #GSM8K is other option
+    # ========================================================================
+    # EXPERIMENT CONFIGURATION
+    # ========================================================================
+    
+    CONFIG = {
+        # Datasets to evaluate (use single-item list for one dataset)
+        "datasets": ["AIME_2025", "E2H-GSM8K", "GSM_HARD", "AIME_1983_2024"],
+        # "datasets": ["AIME_2025"],  # Single dataset example
+        
+        # Probe sources to try (use single-item list for one probe)
+        "probe_sources": ["MATH", "GSM8K"],
+        # "probe_sources": ["GSM8K"],  # Single probe example
+        
+        # Model configuration
+        "model_alias": "Qwen2.5-Math-1.5B-Instruct",
+        
+        # Probe settings
+        "probe_temp": 0.0,
+        "probe_max_tokens": 3000,
+        "probe_k": 1,
+    }
+    
+    # ========================================================================
+    # MAIN LOOP
+    # ========================================================================
+    
+    print("=" * 80)
+    print("🚀 SMART ROUTER MULTI-DATASET EVALUATION")
+    print("=" * 80)
+    print(f"📊 Datasets: {', '.join(CONFIG['datasets'])}")
+    print(f"🔍 Probe Sources: {', '.join(CONFIG['probe_sources'])}")
+    print(f"🤖 Model: {CONFIG['model_alias']}")
+    print("=" * 80 + "\n")
+    
+    # Track overall results
+    all_evaluations = []
+    
+    for DATASET_NAME in CONFIG["datasets"]:
+        for PROBE_SOURCE in CONFIG["probe_sources"]:
+            
+            print("\n" + "█" * 80)
+            print(f"📦 Dataset: {DATASET_NAME} | 🔍 Probe: {PROBE_SOURCE}")
+            print("█" * 80 + "\n")
+            
+            # Configuration for this run
+            MODEL_ALIAS = CONFIG["model_alias"]
+            PROBE_TEMP = CONFIG["probe_temp"]
+            PROBE_MAX_TOKENS = CONFIG["probe_max_tokens"]
+            PROBE_K = CONFIG["probe_k"]
+            PROBE_SETTING_STR = f"max_{PROBE_MAX_TOKENS}_k_{PROBE_K}_temp_{PROBE_TEMP}"
+            
+            # Setup paths (PLEASE FIX THIS SOON: LEARNABILITY VS SR)
+            if "MATH" in PROBE_SOURCE:
+                DONKEY_PATH_PATH_STR = "learnability"
+            elif "GSM8K" in PROBE_SOURCE:
+                DONKEY_PATH_PATH_STR = "SR" \
 
-    PROBE_TEMP = 0.0
-    PROBE_MAX_TOKENS = 3000
-    PROBE_K = 1
-    PROBE_SETTING_STR = f"max_{PROBE_MAX_TOKENS}_k_{PROBE_K}_temp_{PROBE_TEMP}"
+            LABELLED_DATA_PATH = f"../runs/{MODEL_ALIAS}/datasplits/{DATASET_NAME}_predicted_by_predicting_{PROBE_SOURCE}_{DONKEY_PATH_PATH_STR}_{MODEL_ALIAS}_{PROBE_SETTING_STR}.json"
+            RESULTS_DIR = f"../predicting_learnability/SMART_ROUTER_EXPERIMENTS/{DATASET_NAME}/{PROBE_SOURCE}_probe"
+            os.makedirs(RESULTS_DIR, exist_ok=True)
+            
+            # Check if data file exists
+            if not os.path.exists(LABELLED_DATA_PATH):
+                print(f"⚠️  Data file not found: {LABELLED_DATA_PATH}")
+                print(f"⏭️  Skipping {DATASET_NAME} with {PROBE_SOURCE} probe\n")
+                continue
+            
+            try:
+                # Load data
+                print("📊 Loading dataset...")
+                df = pd.read_json(LABELLED_DATA_PATH)
+                # df = df.sample(n=15, random_state=42)  # Uncomment to test on subset
+                # DONKEY PATCH: Please fix this. We should be calling these success rate probes
+                # df.rename(columns={
+                #     'predicted_difficulty_sigmoid': 'predicted_success_rate_sigmoid',
+                #     'predicted_difficulty': 'predicted_success_rate',
+                # }, inplace=True)
+                
+                print(f"\n📏 Dataset size: {len(df)} questions 📏\n")
+                
+                # Format prompts
+                MATH_PROMPT_FORMATTING = " Please put your final answer inside \\boxed{}."
+                df["formatted_prompt"] = df["question"].apply(lambda x: x + MATH_PROMPT_FORMATTING)
+                df["id"] = [str(uuid.uuid1()) for _ in range(len(df))]
+                
+                print(f"✅ Loaded {len(df)} questions")
+                print(f"\nPredicted success rate distribution:")
+                # print(df["predicted_success_rate_sigmoid"].describe())
+                print(df["predicted_difficulty_sigmoid"].describe())
+                
+                # Create router with the chosen cascade configuration
+                cascade_config = get_example_cascade_tiny()  # or get_example_cascade_with_reasoning()
+                router = SmartRouter(cascade_config)
     
-    # Setup paths
-    LABELLED_DATA_PATH = f"../runs/{MODEL_ALIAS}/datasplits/{DATASET_NAME}_predicted_by_predicting_{PROBE_SOURCE}_learnability_{MODEL_ALIAS}_{PROBE_SETTING_STR}.json"
-    RESULTS_DIR = f"../predicting_learnability/SMART_ROUTER_EXPERIMENTS/{DATASET_NAME}"
-    os.makedirs(RESULTS_DIR, exist_ok=True)
+                # Run baseline (you might want to load this from cache)
+                print("\n🏃 Running baseline...")
+                from router_components import run_greedy_baseline
+                
+                llm = router.load_model(cascade_config.models[0].name)
+                
+                baseline_responses, baseline_tokens, baseline_correct = run_greedy_baseline(
+                    llm, df, cascade_config.greedy_temp, cascade_config.models[0].max_tokens
+                )
+                baseline_accuracy = np.mean(baseline_correct)
+                baseline_total_tokens = sum(baseline_tokens) + len(baseline_tokens) * 100  # Approx input tokens
+                
+                # Calculate baseline cost
+                from router_components import INPUT_TOKEN_PRICE, OUTPUT_TOKEN_PRICE, AVG_PROMPT_TOKENS
+                baseline_input_tokens = len(baseline_tokens) * AVG_PROMPT_TOKENS
+                baseline_output_tokens = sum(baseline_tokens)
+                baseline_cost = (baseline_input_tokens / 1_000_000) * INPUT_TOKEN_PRICE + \
+                                (baseline_output_tokens / 1_000_000) * OUTPUT_TOKEN_PRICE
+                
+                print(f"✅ Baseline accuracy: {baseline_accuracy:.2%}")
+                print(f"💰 Baseline cost: ${baseline_cost:.5f}")
+                print(f"📊 Baseline tokens: {baseline_total_tokens:,}")
+                
+                # Evaluate SMART router
+                metrics, results = router.evaluate(
+                    df=df,
+                    baseline_accuracy=baseline_accuracy,
+                    baseline_cost=baseline_cost,
+                    baseline_tokens=baseline_total_tokens
+                )
+                
+                # Print results
+                print("\n" + "="*80)
+                print("🎉 SMART ROUTER RESULTS")
+                print("="*80)
+                print(metrics)
+                
+                # Save results
+                results_df = pd.DataFrame([
+                    {
+                        "question_idx": r.question_idx,
+                        "predicted_success": r.predicted_score,
+                        "is_correct": r.is_correct,
+                        "final_answer": r.final_answer,
+                        "num_samples": r.num_samples_used,
+                        "total_tokens": sum(r.token_lengths),
+                    }
+                    for r in results
+                ])
+                
+                results_df.to_csv(f"{RESULTS_DIR}/smart_router_results.csv", index=False)
+                print(f"\n💾 Results saved to {RESULTS_DIR}/")
+                
+                # Track this evaluation
+                all_evaluations.append({
+                    "dataset": DATASET_NAME,
+                    "probe_source": PROBE_SOURCE,
+                    "baseline_acc": baseline_accuracy,
+                    "router_acc": metrics.overall_accuracy,
+                    "accuracy_gain": metrics.accuracy_gain,
+                    "token_multiplier": metrics.token_multiplier,
+                    "total_cost": metrics.total_cost,
+                    "results_dir": RESULTS_DIR
+                })
+                
+                # Send notification
+                try:
+                    # Calculate routing distribution
+                    from collections import Counter
+                    routing_counts = Counter()
+                    for r in results:
+                        if r.num_samples_used == 0:
+                            routing_counts["ABSTAIN"] += 1
+                        else:
+                            # Find which model was used based on token pattern
+                            for model in cascade_config.models:
+                                if r.num_samples_used > 0:
+                                    routing_counts[model.display_name] += 1
+                                    break
+                    
+                    total_q = len(results)
+                    routing_str = " | ".join([f"{k}: {v}/{total_q} ({v/total_q*100:.0f}%)" for k, v in routing_counts.most_common()])
+                    
+                    # Build model list
+                    models_str = " → ".join([m.display_name for m in cascade_config.models])
+                    
+                    # Cost comparison
+                    cost_diff = metrics.total_cost - baseline_cost
+                    cost_pct = (cost_diff / baseline_cost * 100) if baseline_cost > 0 else 0
+                    cost_sign = "💰" if cost_diff < 0 else "💸"
+                    
+                    notification_msg = (
+                        f"✅ SMART Router evaluation complete!\n"
+                        f"📊 Dataset: {DATASET_NAME} ({len(df)} questions)\n"
+                        f"🔍 Probe: {PROBE_SOURCE}\n"
+                        f"🎯 Baseline Acc: {baseline_accuracy:.2%}\n"
+                        f"🤖 Router Acc: {metrics.overall_accuracy:.2%} ({metrics.accuracy_gain:+.2%})\n"
+                        f"⚡ Token Multiplier: {metrics.token_multiplier:.2f}x\n"
+                        f"{cost_sign} Cost: ${metrics.total_cost:.5f} (baseline: ${baseline_cost:.5f})\n"
+                        f"💵 Cost Diff: ${cost_diff:+.5f} ({cost_pct:+.1f}%)\n"
+                        f"🌡️ Temp: {cascade_config.greedy_temp} (greedy) / {cascade_config.sc_temp} (SC)\n"
+                        f"🔀 SC Samples: {cascade_config.num_sc_samples}\n"
+                        f"🤖 Models: {models_str}\n"
+                        f"📈 Routing: {routing_str}\n"
+                        f"📂 {RESULTS_DIR}"
+                    )
+                    send_notification(
+                        f"SMART Router - {DATASET_NAME} ({PROBE_SOURCE})",
+                        notification_msg
+                    )
+                except Exception as e:
+                    print(f"Note: Notification not sent - {e}")
+                
+                print("\n" + "="*80)
+                print(f"✨ Completed: {DATASET_NAME} with {PROBE_SOURCE} probe ✨")
+                print("="*80 + "\n")
+                
+            except Exception as e:
+                print(f"\n❌ Error processing {DATASET_NAME} with {PROBE_SOURCE} probe:")
+                print(f"   {str(e)}")
+                print("   Continuing to next dataset/probe combination...\n")
+                continue
     
-    # Load data
-    print("📊 Loading dataset...")
-    df = pd.read_json(LABELLED_DATA_PATH)
-    # df = df.sample(n=100, random_state=42)
-    df.rename(columns={
-    'predicted_difficulty_sigmoid': 'predicted_success_rate_sigmoid',
-    'predicted_difficulty': 'predicted_success_rate',})
-
-
-    print(f"\n📏 LEN OF OUR DATASET: {len(df)} 📏\n")
+    # ========================================================================
+    # FINAL SUMMARY
+    # ========================================================================
     
-    # Format prompts
-    MATH_PROMPT_FORMATTING = " Please put your final answer inside \\boxed{}."
-    df["formatted_prompt"] = df["question"].apply(lambda x: x + MATH_PROMPT_FORMATTING)
-    df["id"] = [str(uuid.uuid1()) for _ in range(len(df))]
+    print("\n" + "🎊" * 40)
+    print("ALL EVALUATIONS COMPLETE!")
+    print("🎊" * 40 + "\n")
     
-    print(f"✅ Loaded {len(df)} questions")
-    print(f"\nPredicted success rate distribution:")
-    print(df["predicted_difficulty_sigmoid"].describe())
+    if all_evaluations:
+        summary_df = pd.DataFrame(all_evaluations)
+        print("📊 SUMMARY OF ALL RUNS:")
+        print("=" * 80)
+        print(summary_df.to_string(index=False))
+        print("=" * 80)
+        
+        # Save summary
+        summary_path = "../predicting_learnability/SMART_ROUTER_EXPERIMENTS/evaluation_summary.csv"
+        summary_df.to_csv(summary_path, index=False)
+        print(f"\n💾 Summary saved to: {summary_path}")
+        
+        # Send final notification
+        try:
+            best_run = summary_df.loc[summary_df['accuracy_gain'].idxmax()]
+            final_msg = (
+                f"🎉 All SMART Router evaluations complete!\n"
+                f"📊 Total runs: {len(all_evaluations)}\n"
+                f"🏆 Best: {best_run['dataset']} ({best_run['probe_source']})\n"
+                f"   → Acc gain: {best_run['accuracy_gain']:+.2%}\n"
+                f"   → Token mult: {best_run['token_multiplier']:.2f}x\n"
+                f"📂 Results: SMART_ROUTER_EXPERIMENTS/"
+            )
+            send_notification(
+                "SMART Router - All Evaluations Complete",
+                final_msg
+            )
+        except:
+            pass
+    else:
+        print("⚠️  No evaluations completed successfully.")
     
-    # Create router with your cascade configuration
-    cascade_config = get_example_cascade_tiny()  # or get_example_cascade_with_reasoning()
-    router = SmartRouter(cascade_config)
-    
-    # Run baseline (you might want to load this from cache)
-    print("\n🏃 Running baseline...")
-    from router_components import run_greedy_baseline
-    
-    llm = router.load_model(cascade_config.models[0].name)
-    
-    baseline_responses, baseline_tokens, baseline_correct = run_greedy_baseline(
-        llm, df, cascade_config.greedy_temp, cascade_config.models[0].max_tokens
-    )
-    baseline_accuracy = np.mean(baseline_correct)
-    baseline_total_tokens = sum(baseline_tokens) + len(baseline_tokens) * 100  # Approx input tokens
-    
-    # Calculate baseline cost
-    from router_components import INPUT_TOKEN_PRICE, OUTPUT_TOKEN_PRICE, AVG_PROMPT_TOKENS
-    baseline_input_tokens = len(baseline_tokens) * AVG_PROMPT_TOKENS
-    baseline_output_tokens = sum(baseline_tokens)
-    baseline_cost = (baseline_input_tokens / 1_000_000) * INPUT_TOKEN_PRICE + \
-                    (baseline_output_tokens / 1_000_000) * OUTPUT_TOKEN_PRICE
-    
-    print(f"✅ Baseline accuracy: {baseline_accuracy:.2%}")
-    print(f"💰 Baseline cost: ${baseline_cost:.5f}")
-    print(f"📊 Baseline tokens: {baseline_total_tokens:,}")
-    
-    # Evaluate SMART router
-    metrics, results = router.evaluate(
-        df=df,
-        baseline_accuracy=baseline_accuracy,
-        baseline_cost=baseline_cost,
-        baseline_tokens=baseline_total_tokens
-    )
-    
-    # Print results
-    print("\n" + "="*80)
-    print("🎉 SMART ROUTER RESULTS")
-    print("="*80)
-    print(metrics)
-    
-    # Save results
-    results_df = pd.DataFrame([
-        {
-            "question_idx": r.question_idx,
-            "predicted_success": r.predicted_score,
-            "is_correct": r.is_correct,
-            "final_answer": r.final_answer,
-            "num_samples": r.num_samples_used,
-            "total_tokens": sum(r.token_lengths),
-        }
-        for r in results
-    ])
-    
-    results_df.to_csv(f"{RESULTS_DIR}/smart_router_results.csv", index=False)
-    print(f"\n💾 Results saved to {RESULTS_DIR}/")
-    
-    # Send notification
-    try:
-        notification_msg = (
-            f"✅ SMART Router evaluation complete!\n"
-            f"📊 Dataset: {DATASET_NAME}\n"
-            f"🎯 Baseline Acc: {baseline_accuracy:.2%}\n"
-            f"🤖 Router Acc: {metrics.overall_accuracy:.2%} ({metrics.accuracy_gain:+.2%})\n"
-            f"⚡ Token Multiplier: {metrics.token_multiplier:.2f}x\n"
-            f"💰 Total Cost: ${metrics.total_cost:.5f}\n"
-            f"📂 {RESULTS_DIR}"
-        )
-        send_notification(
-            f"SMART Router - {DATASET_NAME} Complete",
-            notification_msg
-        )
-    except Exception as e:
-        print(f"Note: Notification not sent - {e}")
-    
-    print("\n" + "="*80)
-    print("✨ Done! Hope this run went well ✨")
-    print("="*80)
+    print("\n✨ All done! ✨\n")
