@@ -175,6 +175,7 @@ runs/**/datasplits/**_test.json
 runs
 predicting_learnability/data
 predicting_learnability/SMART_ROUTER_EXPERIMENTS
+predicting_learnability/PIKA_ROUTER_EXPERIMENTS
 predicting_learnability/TEST_SELF_CONCISTENCY_EXPERIMENTS
 predicting_learnability/ROUTER_SELF_CONCISTENCY_EXPERIMENTS
 predicting_learnability/checkpoints

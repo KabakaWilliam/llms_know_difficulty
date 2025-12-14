@@ -43,26 +43,26 @@ DATA_SUCCESS_RATE_CONFIGS = {
 # Experiment Configuration
 CONFIG = {
     # Device settings
-    "device": 2,
+    "device": 3,
     
     # Model settings
-    # "model_name": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
-    "model_name": "Qwen/Qwen2.5-Math-7B-Instruct",
+    "model_name": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+    # "model_name": "Qwen/Qwen2.5-Math-7B-Instruct",
     # "model_name": "Qwen/Qwen2.5-1.5B-Instruct",
-    "memory_util": 0.60,
+    "memory_util": 0.70,
     
     # Dataset settings
     "datasets": ["GSM8K", "MATH"],  # List of datasets to process, e.g., ["MATH", "GSM8K"]
     "splits": ["train", "test"],
     
     # Generation settings
-    "num_rollouts": 1,
-    "max_tokens": 3000, #32768 #3000
-    "temperature": 0.0,
+    "num_rollouts": 5,
+    "max_tokens": 32768, #32768 #3000
+    "temperature": 0.6,
     
     # Batch settings (tune for GPU/memory)
     "batch_questions": 64,   # number of distinct questions per batch
-    "model_chunk": 1000,     # number of prompts sent to model at once
+    "model_chunk": 3000,     # number of prompts sent to model at once
     
     # Output settings
     "output_base_dir": "data/SR_DATASETS",

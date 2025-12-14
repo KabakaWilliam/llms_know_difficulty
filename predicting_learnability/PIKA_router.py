@@ -1,5 +1,8 @@
 """
-SMART Router - Cascading Model Selection Based on Predicted Success Rates
+PIKA Router - Cascading Model Selection Based on Predicted Success Rates
+
+HAKI-Route: Heuristic Allocation vis k-Inference Router (observation->predict p_success, armament -> increase k, conqueror->escalate to bigger model)
+PIKA-Route: Probe-Informed K Allocation Router
 
 This is a practical routing system that doesn't waste compute on models that won't help.
 Instead of throwing every hard question at expensive models, we intelligently cascade:
@@ -101,7 +104,7 @@ def force_gpu_cleanup():
 
 
 # ============================================================================
-# SMART ROUTER CONFIGURATION
+# PIKA ROUTER CONFIGURATION
 # ============================================================================
 
 @dataclass
@@ -124,7 +127,7 @@ class CascadeConfig:
     abstain_threshold: float     # If predicted_success < this, abstain with "IDK" (too hard)
     greedy_temp: float = 0.0
     sc_temp: float = 0.6
-    num_sc_samples: int = 1      # Can enable SC for specific models
+    num_sc_samples: int = 1      # Can enable SC for specific models if >1.
     probe_column: str = "predicted_difficulty_sigmoid"  # Misnomer: actually contains success rates!
     enable_abstain: bool = True  # If False, always route to a model (never abstain)
     
@@ -168,10 +171,10 @@ class CascadeConfig:
 
 
 # ============================================================================
-# SMART ROUTER IMPLEMENTATION
+# PIKA ROUTER IMPLEMENTATION
 # ============================================================================
 
-class SmartRouter:
+class PIKARouter:
     """
     Intelligent model cascade router.
     
@@ -348,22 +351,22 @@ class SmartRouter:
         baseline_accuracy: float,
         baseline_cost: Optional[float] = None,
         baseline_tokens: Optional[int] = None
-    ) -> Tuple[EvaluationMetrics, List[SolverResult]]:
+    ) -> Tuple[EvaluationMetrics, List[SolverResult], Dict[str, int]]:
         """
-        Evaluate the SMART routing strategy on a dataset.
+        Evaluate the PIKA routing strategy on a dataset.
         Uses batched inference for significant speedup.
         
         Returns:
-            Tuple of (metrics, results)
+            Tuple of (metrics, results, routing_stats)
         """
         from tqdm import tqdm
         
-        results = [None] * len(df)  # Preallocate to maintain order
+        results: List[SolverResult] = [None] * len(df)  # type: ignore  # Preallocate to maintain order
         routing_stats = {model.name: 0 for model in self.config.models}
         routing_stats["ABSTAIN"] = 0
         
         print("\n" + "="*80)
-        print("🧠 SMART ROUTER EVALUATION (BATCHED)")
+        print("🧠 PIKA ROUTER EVALUATION (BATCHED)")
         print("="*80)
         print(f"Models in cascade: {len(self.config.models)}")
         for model in self.config.models:
@@ -548,7 +551,7 @@ class SmartRouter:
         if baseline_tokens and baseline_tokens > 0:
             token_multiplier = total_tokens / baseline_tokens
         
-        # Router quality metrics (simplified for SMART routing)
+        # Router quality metrics (simplified for PIKA routing)
         # "Benefits from routing" = questions where we didn't use base model
         base_model_name = self.config.models[0].name
         routed_to_better = sum(1 for r in results if r.num_samples_used > 0 and 
@@ -568,7 +571,7 @@ class SmartRouter:
             roi = float('inf')  # Better AND cheaper!
         
         metrics = EvaluationMetrics(
-            strategy_name="smart_cascade",
+            strategy_name="PIKA_cascade",
             overall_accuracy=overall_accuracy,
             baseline_accuracy=baseline_accuracy,
             accuracy_gain=accuracy_gain,
@@ -603,7 +606,7 @@ class SmartRouter:
                               if pass_k_metrics['oracle_best_case_accuracy'] > 0 else 0.0,
         )
         
-        return metrics, results
+        return metrics, results, routing_stats
 
 
 # ============================================================================
@@ -694,7 +697,7 @@ def get_example_cascade_with_reasoning() -> CascadeConfig:
 
 if __name__ == "__main__":
     """
-    SMART Router evaluation across multiple datasets and probe sources.
+    PIKA Router evaluation across multiple datasets and probe sources.
     """
     
     import os
@@ -735,7 +738,7 @@ if __name__ == "__main__":
     print("="*80 + "\n")
     
     print("=" * 80)
-    print("🚀 SMART ROUTER MULTI-DATASET EVALUATION")
+    print("🚀 PIKA ROUTER MULTI-DATASET EVALUATION")
     print("=" * 80)
     print(f"📊 Datasets: {', '.join(CONFIG['datasets'])}")
     print(f"🔍 Probe Sources: {', '.join(CONFIG['probe_sources'])}")
@@ -771,7 +774,7 @@ if __name__ == "__main__":
                 DONKEY_PATH_PATH_STR = "SR" \
 
             LABELLED_DATA_PATH = f"../runs/{MODEL_ALIAS}/datasplits/{DATASET_NAME}_predicted_by_predicting_{PROBE_SOURCE}_{DONKEY_PATH_PATH_STR}_{MODEL_ALIAS}_{PROBE_SETTING_STR}.json"
-            RESULTS_DIR = f"../predicting_learnability/SMART_ROUTER_EXPERIMENTS/{DATASET_NAME}/{PROBE_SOURCE}_probe"
+            RESULTS_DIR = f"../predicting_learnability/PIKA_ROUTER_EXPERIMENTS/{DATASET_NAME}/{PROBE_SOURCE}_probe"
             os.makedirs(RESULTS_DIR, exist_ok=True)
             
             # Check if data file exists
@@ -784,7 +787,7 @@ if __name__ == "__main__":
                 # Load data
                 print("📊 Loading dataset...")
                 df = pd.read_json(LABELLED_DATA_PATH)
-                # df = df.sample(n=15, random_state=42)  # Uncomment to test on subset
+                df = df.sample(n=15, random_state=42)  # Uncomment to test on subset
                 # DONKEY PATCH: Please fix this. We should be calling these success rate probes
                 # df.rename(columns={
                 #     'predicted_difficulty_sigmoid': 'predicted_success_rate_sigmoid',
@@ -805,7 +808,7 @@ if __name__ == "__main__":
                 
                 # Create router with the chosen cascade configuration
                 cascade_config = get_example_cascade_tiny()  # or get_example_cascade_with_reasoning()
-                router = SmartRouter(cascade_config)
+                router = PIKARouter(cascade_config)
     
                 # Run baseline (you might want to load this from cache)
                 print("\n🏃 Running baseline...")
@@ -834,8 +837,27 @@ if __name__ == "__main__":
                 router.unload_model(cascade_config.models[0].name)
                 print("🧹 Baseline model unloaded, GPU memory freed\n")
                 
-                # Evaluate SMART router
-                metrics, results = router.evaluate(
+                # Run upper bound (most expensive model in cascade)
+                if len(cascade_config.models) > 1:
+                    print("\n🏃 Running upper bound (most expensive model)...")
+                    upper_model = cascade_config.models[-1]  # Last model (most expensive)
+                    llm = router.load_model(upper_model.name)
+                    
+                    upper_responses, upper_tokens, upper_correct = run_greedy_baseline(
+                        llm, df, cascade_config.greedy_temp, upper_model.max_tokens
+                    )
+                    upper_accuracy = np.mean(upper_correct)
+                    
+                    print(f"✅ Upper bound accuracy: {upper_accuracy:.2%} ({upper_model.display_name})")
+                    
+                    # Unload upper bound model
+                    router.unload_model(upper_model.name)
+                    print("🧹 Upper bound model unloaded\n")
+                else:
+                    upper_accuracy = baseline_accuracy  # Only one model, so baseline = upper bound
+                
+                # Evaluate PIKA router
+                metrics, results, routing_stats = router.evaluate(
                     df=df,
                     baseline_accuracy=baseline_accuracy,
                     baseline_cost=baseline_cost,
@@ -844,7 +866,7 @@ if __name__ == "__main__":
                 
                 # Print results
                 print("\n" + "="*80)
-                print("🎉 SMART ROUTER RESULTS")
+                print("🎉 PIKA ROUTER RESULTS")
                 print("="*80)
                 print(metrics)
                 
@@ -861,7 +883,7 @@ if __name__ == "__main__":
                     for r in results
                 ])
                 
-                results_df.to_csv(f"{RESULTS_DIR}/smart_router_results.csv", index=False)
+                results_df.to_csv(f"{RESULTS_DIR}/PIKA_router_results.csv", index=False)
                 print(f"\n💾 Results saved to {RESULTS_DIR}/")
                 
                 # Track this evaluation
@@ -869,6 +891,7 @@ if __name__ == "__main__":
                     "dataset": DATASET_NAME,
                     "probe_source": PROBE_SOURCE,
                     "baseline_acc": baseline_accuracy,
+                    "upper_acc": upper_accuracy if 'upper_accuracy' in locals() else baseline_accuracy,
                     "router_acc": metrics.overall_accuracy,
                     "accuracy_gain": metrics.accuracy_gain,
                     "token_multiplier": metrics.token_multiplier,
@@ -878,21 +901,20 @@ if __name__ == "__main__":
                 
                 # Send notification
                 try:
-                    # Calculate routing distribution
-                    from collections import Counter
-                    routing_counts = Counter()
-                    for r in results:
-                        if r.num_samples_used == 0:
-                            routing_counts["ABSTAIN"] += 1
-                        else:
-                            # Find which model was used based on token pattern
-                            for model in cascade_config.models:
-                                if r.num_samples_used > 0:
-                                    routing_counts[model.display_name] += 1
-                                    break
-                    
+                    # Calculate routing distribution from routing_stats (already tracked during evaluation)
                     total_q = len(results)
-                    routing_str = " | ".join([f"{k}: {v}/{total_q} ({v/total_q*100:.0f}%)" for k, v in routing_counts.most_common()])
+                    routing_parts = []
+                    for model in cascade_config.models:
+                        count = routing_stats[model.name]
+                        if count > 0:
+                            pct = count / total_q * 100
+                            routing_parts.append(f"{model.display_name}: {count} ({pct:.0f}%)")
+                    if routing_stats["ABSTAIN"] > 0:
+                        count = routing_stats["ABSTAIN"]
+                        pct = count / total_q * 100
+                        routing_parts.append(f"ABSTAIN: {count} ({pct:.0f}%)")
+                    
+                    routing_str = " | ".join(routing_parts)
                     
                     # Build model list
                     models_str = " → ".join([m.display_name for m in cascade_config.models])
@@ -902,12 +924,18 @@ if __name__ == "__main__":
                     cost_pct = (cost_diff / baseline_cost * 100) if baseline_cost > 0 else 0
                     cost_sign = "💰" if cost_diff < 0 else "💸"
                     
+                    # Upper bound comparison
+                    upper_bound_acc = upper_accuracy if 'upper_accuracy' in locals() else baseline_accuracy
+                    router_vs_upper = metrics.overall_accuracy - upper_bound_acc
+                    upper_model_name = cascade_config.models[-1].display_name if len(cascade_config.models) > 1 else "N/A"
+                    
                     notification_msg = (
-                        f"✅ SMART Router evaluation complete!\n"
+                        f"✅ PIKA Router evaluation complete!\n"
                         f"📊 Dataset: {DATASET_NAME} ({len(df)} questions)\n"
                         f"🔍 Probe: {PROBE_SOURCE}\n"
-                        f"🎯 Baseline Acc: {baseline_accuracy:.2%}\n"
-                        f"🤖 Router Acc: {metrics.overall_accuracy:.2%} ({metrics.accuracy_gain:+.2%})\n"
+                        f"🎯 Baseline Acc: {baseline_accuracy:.2%} ({cascade_config.models[0].display_name})\n"
+                        f"🏆 Upper Bound: {upper_bound_acc:.2%} ({upper_model_name})\n"
+                        f"🤖 Router Acc: {metrics.overall_accuracy:.2%} ({metrics.accuracy_gain:+.2%} vs baseline, {router_vs_upper:+.2%} vs upper)\n"
                         f"⚡ Token Multiplier: {metrics.token_multiplier:.2f}x\n"
                         f"{cost_sign} Cost: ${metrics.total_cost:.5f} (baseline: ${baseline_cost:.5f})\n"
                         f"💵 Cost Diff: ${cost_diff:+.5f} ({cost_pct:+.1f}%)\n"
@@ -918,7 +946,7 @@ if __name__ == "__main__":
                         f"📂 {RESULTS_DIR}"
                     )
                     send_notification(
-                        f"SMART Router - {DATASET_NAME} ({PROBE_SOURCE})",
+                        f"⚡️PIKA Router⚡️ - {DATASET_NAME} ({PROBE_SOURCE})",
                         notification_msg
                     )
                 except Exception as e:
@@ -946,7 +974,7 @@ if __name__ == "__main__":
                     )
 
                 send_notification(
-                        f"SMART Router - {DATASET_NAME} ({PROBE_SOURCE})",
+                        f"⚡️PIKA Router⚡️ - {DATASET_NAME} ({PROBE_SOURCE})",
                         notification_error_msg
                     )
                 
@@ -982,7 +1010,7 @@ if __name__ == "__main__":
         print("=" * 80)
         
         # Save summary
-        summary_path = "../predicting_learnability/SMART_ROUTER_EXPERIMENTS/evaluation_summary.csv"
+        summary_path = "../predicting_learnability/PIKA_ROUTER_EXPERIMENTS/evaluation_summary.csv"
         summary_df.to_csv(summary_path, index=False)
         print(f"\n💾 Summary saved to: {summary_path}")
         
@@ -990,15 +1018,15 @@ if __name__ == "__main__":
         try:
             best_run = summary_df.loc[summary_df['accuracy_gain'].idxmax()]
             final_msg = (
-                f"🎉 All SMART Router evaluations complete!\n"
+                f"🎉 All PIKA Router evaluations complete!\n"
                 f"📊 Total runs: {len(all_evaluations)}\n"
                 f"🏆 Best: {best_run['dataset']} ({best_run['probe_source']})\n"
                 f"   → Acc gain: {best_run['accuracy_gain']:+.2%}\n"
                 f"   → Token mult: {best_run['token_multiplier']:.2f}x\n"
-                f"📂 Results: SMART_ROUTER_EXPERIMENTS/"
+                f"📂 Results: PIKA_ROUTER_EXPERIMENTS/"
             )
             send_notification(
-                "SMART Router - All Evaluations Complete",
+                "⚡️PIKA Router⚡️ - All Evaluations Complete",
                 final_msg
             )
         except:
