@@ -200,9 +200,9 @@ class EvaluationMetrics:
 ║  🎯 Efficiency (token):  {self.token_efficiency():>6.4f}                         ║
 {pass_section}{cost_section}╠═══════════════════════════════════════════════════════════════╣
 ║  Router Quality:                                              ║
-║    Accuracy:   {self.router_accuracy:>6.2%}                                 ║
-║    Precision:  {self.router_precision:>6.2%}                                 ║
-║    Recall:     {self.router_recall:>6.2%}                                 ║
+║    Accuracy:   {f'{self.router_accuracy:>6.2%}' if self.router_accuracy is not None else '   N/A'}                                 ║
+║    Precision:  {f'{self.router_precision:>6.2%}' if self.router_precision is not None else '   N/A'}                                 ║
+║    Recall:     {f'{self.router_recall:>6.2%}' if self.router_recall is not None else '   N/A'}                                 ║
 ╚═══════════════════════════════════════════════════════════════╝
 """
 
