@@ -33,7 +33,7 @@ from router_components import (
 from utils import parse_answers
 from math_verify import parse, verify
 
-os.environ["CUDA_VISIBLE_DEVICES"] = f"2"
+os.environ["CUDA_VISIBLE_DEVICES"] = f"3"
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 # ============================================================================
@@ -48,16 +48,22 @@ NOTIFICATION_CONFIG = {
 def send_notification(title: str, message: str):
     """Send notification to ntfy.sh"""
     if not NOTIFICATION_CONFIG.get("enabled", True):
+        print("📵 Notifications disabled in config")
         return
     
     try:
-        requests.post(
+        response = requests.post(
             NOTIFICATION_CONFIG["url"],
             data=message.encode(encoding='utf-8'),
-            headers={"Title": title}
+            headers={"Title": title},
+            timeout=10
         )
-    except:
-        pass  # Don't fail if notification doesn't work
+        response.raise_for_status()
+        print(f"✅ Notification sent: {title}")
+    except Exception as e:
+        print(f"⚠️  Failed to send notification: {e}")
+        print(f"   Title: {title}")
+        print(f"   URL: {NOTIFICATION_CONFIG['url']}")
 
 
 def check_gpu_memory():
@@ -672,14 +678,14 @@ def get_example_cascade_with_reasoning() -> CascadeConfig:
             ModelConfig(
                 name="Qwen/Qwen2.5-Math-7B-Instruct",
                 display_name="Qwen-Math-7B",
-                threshold=0.5,  # Medium difficulty (50-80% success)
+                threshold=0.3,  # Medium difficulty (30-80% success)
                 cost_multiplier=4.0,
                 max_tokens=3000
             ),
             ModelConfig(
                 name="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
                 display_name="DeepSeek-R1-1.5B",
-                threshold=0.2,  # Hard problems (20-50% success, use reasoning)
+                threshold=0.0,  # Hard problems (00-30% success, use reasoning)
                 cost_multiplier=8.0,  # More expensive due to longer outputs
                 max_tokens=32768
             ),
@@ -708,7 +714,7 @@ if __name__ == "__main__":
     # EXPERIMENT CONFIGURATION
     # ========================================================================
     
-    CONFIG = {
+    EXPERIMENT_CONFIG = {
         # Datasets to evaluate (use single-item list for one dataset)
         "datasets": ["AIME_2025", "E2H-GSM8K", "GSM_HARD", "AIME_1983_2024"],
         # "datasets": ["AIME_2025"],  # Single dataset example
@@ -724,6 +730,8 @@ if __name__ == "__main__":
         "probe_temp": 0.0,
         "probe_max_tokens": 3000,
         "probe_k": 1,
+        
+        "results_dir_path": "../predicting_learnability/PIKA_ROUTER_EXPERIMENTS_NEW"
     }
     
     # ========================================================================
@@ -740,16 +748,16 @@ if __name__ == "__main__":
     print("=" * 80)
     print("🚀 PIKA ROUTER MULTI-DATASET EVALUATION")
     print("=" * 80)
-    print(f"📊 Datasets: {', '.join(CONFIG['datasets'])}")
-    print(f"🔍 Probe Sources: {', '.join(CONFIG['probe_sources'])}")
-    print(f"🤖 Model: {CONFIG['model_alias']}")
+    print(f"📊 Datasets: {', '.join(EXPERIMENT_CONFIG['datasets'])}")
+    print(f"🔍 Probe Sources: {', '.join(EXPERIMENT_CONFIG['probe_sources'])}")
+    print(f"🤖 Model: {EXPERIMENT_CONFIG['model_alias']}")
     print("=" * 80 + "\n")
     
     # Track overall results
     all_evaluations = []
     
-    for DATASET_NAME in CONFIG["datasets"]:
-        for PROBE_SOURCE in CONFIG["probe_sources"]:
+    for DATASET_NAME in EXPERIMENT_CONFIG["datasets"]:
+        for PROBE_SOURCE in EXPERIMENT_CONFIG["probe_sources"]:
             
             # Check GPU memory before starting
             print("\n" + "👀" * 40)
@@ -761,11 +769,12 @@ if __name__ == "__main__":
             print("█" * 80 + "\n")
             
             # Configuration for this run
-            MODEL_ALIAS = CONFIG["model_alias"]
-            PROBE_TEMP = CONFIG["probe_temp"]
-            PROBE_MAX_TOKENS = CONFIG["probe_max_tokens"]
-            PROBE_K = CONFIG["probe_k"]
+            MODEL_ALIAS = EXPERIMENT_CONFIG["model_alias"]
+            PROBE_TEMP = EXPERIMENT_CONFIG["probe_temp"]
+            PROBE_MAX_TOKENS = EXPERIMENT_CONFIG["probe_max_tokens"]
+            PROBE_K = EXPERIMENT_CONFIG["probe_k"]
             PROBE_SETTING_STR = f"max_{PROBE_MAX_TOKENS}_k_{PROBE_K}_temp_{PROBE_TEMP}"
+            RESULT_DIR_PATH = EXPERIMENT_CONFIG["results_dir_path"]
             
             # Setup paths (PLEASE FIX THIS SOON: LEARNABILITY VS SR)
             if "MATH" in PROBE_SOURCE:
@@ -774,7 +783,7 @@ if __name__ == "__main__":
                 DONKEY_PATH_PATH_STR = "SR" \
 
             LABELLED_DATA_PATH = f"../runs/{MODEL_ALIAS}/datasplits/{DATASET_NAME}_predicted_by_predicting_{PROBE_SOURCE}_{DONKEY_PATH_PATH_STR}_{MODEL_ALIAS}_{PROBE_SETTING_STR}.json"
-            RESULTS_DIR = f"../predicting_learnability/PIKA_ROUTER_EXPERIMENTS/{DATASET_NAME}/{PROBE_SOURCE}_probe"
+            RESULTS_DIR = f"{RESULT_DIR_PATH}/{DATASET_NAME}/{PROBE_SOURCE}_probe"
             os.makedirs(RESULTS_DIR, exist_ok=True)
             
             # Check if data file exists
@@ -787,7 +796,7 @@ if __name__ == "__main__":
                 # Load data
                 print("📊 Loading dataset...")
                 df = pd.read_json(LABELLED_DATA_PATH)
-                df = df.sample(n=15, random_state=42)  # Uncomment to test on subset
+                # df = df.sample(n=15, random_state=42)  # Uncomment to test on subset
                 # DONKEY PATCH: Please fix this. We should be calling these success rate probes
                 # df.rename(columns={
                 #     'predicted_difficulty_sigmoid': 'predicted_success_rate_sigmoid',
@@ -808,6 +817,7 @@ if __name__ == "__main__":
                 
                 # Create router with the chosen cascade configuration
                 cascade_config = get_example_cascade_tiny()  # or get_example_cascade_with_reasoning()
+                # cascade_config = get_example_cascade_with_reasoning()  
                 router = PIKARouter(cascade_config)
     
                 # Run baseline (you might want to load this from cache)
@@ -946,7 +956,7 @@ if __name__ == "__main__":
                         f"📂 {RESULTS_DIR}"
                     )
                     send_notification(
-                        f"⚡️PIKA Router⚡️ - {DATASET_NAME} ({PROBE_SOURCE})",
+                        f"PIKA Router - {DATASET_NAME} ({PROBE_SOURCE})",
                         notification_msg
                     )
                 except Exception as e:
@@ -974,7 +984,7 @@ if __name__ == "__main__":
                     )
 
                 send_notification(
-                        f"⚡️PIKA Router⚡️ - {DATASET_NAME} ({PROBE_SOURCE})",
+                        f"PIKA Router - {DATASET_NAME} ({PROBE_SOURCE})",
                         notification_error_msg
                     )
                 
@@ -1026,7 +1036,7 @@ if __name__ == "__main__":
                 f"📂 Results: PIKA_ROUTER_EXPERIMENTS/"
             )
             send_notification(
-                "⚡️PIKA Router⚡️ - All Evaluations Complete",
+                "PIKA Router - All Evaluations Complete",
                 final_msg
             )
         except:
