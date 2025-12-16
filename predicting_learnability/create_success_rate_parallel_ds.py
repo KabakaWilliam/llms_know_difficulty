@@ -60,7 +60,7 @@ CONFIG = {
     "memory_util": 0.70,
     
     # Dataset settings
-    "datasets": ["MATH_X_GSM8K"],  # List of datasets to process, e.g., ["MATH", "GSM8K"]
+    "datasets": ["MATH"],  # List of datasets to process, e.g., ["MATH", "GSM8K"]
     "splits": ["train", "test"],
     
     # Generation settings

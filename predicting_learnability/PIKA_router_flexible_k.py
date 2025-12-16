@@ -42,7 +42,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 NOTIFICATION_CONFIG = {
     "enabled": True,
-    "url": "https://ntfy.sh/router_runs_lugoloobi"
+    "url": "https://ntfy.sh/flexible_router_runs_lugoloobi"
 }
 
 def send_notification(title: str, message: str):
@@ -122,9 +122,13 @@ class ModelConfig:
     cost_multiplier: float      # Relative cost compared to base model
     max_tokens: int            # Max tokens for generation
     temperature: float = 0.0    # Temperature for this model (0.6 for DeepSeek, 0.0 for others)
+    use_sc: bool = False        # Whether to use self-consistency for this specific model
+    sc_samples: int = 1         # Number of SC samples for this model (if use_sc=True)
+    sc_temp: Optional[float] = None  # SC temperature for this model (if None, uses cascade default)
     
     def __repr__(self):
-        return f"{self.display_name} (threshold={self.threshold:.2f}, cost={self.cost_multiplier}x, temp={self.temperature})"
+        sc_str = f", SC×{self.sc_samples}" if self.use_sc else ""
+        return f"{self.display_name} (threshold={self.threshold:.2f}, cost={self.cost_multiplier}x, temp={self.temperature}{sc_str})"
 
 
 @dataclass
@@ -132,9 +136,8 @@ class CascadeConfig:
     """Configuration for the full model cascade"""
     models: List[ModelConfig]    # Ordered list: cheapest to most expensive
     abstain_threshold: float     # If predicted_success < this, abstain with "IDK" (too hard)
-    greedy_temp: float = 0.0
-    sc_temp: float = 0.6
-    num_sc_samples: int = 1      # Can enable SC for specific models if >1.
+    greedy_temp: float = 0.0     # Default temperature for greedy decoding
+    default_sc_temp: float = 0.6  # Default SC temperature (used if model doesn't specify)
     probe_column: str = "predicted_difficulty_sigmoid"  # Misnomer: actually contains success rates!
     enable_abstain: bool = True  # If False, always route to a model (never abstain)
     
@@ -195,7 +198,7 @@ class PIKARouter:
         self.config = config
         self.llm_cache: Dict[str, LLM] = {}
         
-    def load_model(self, model_name: str, gpu_memory_util: float = 0.45) -> LLM:
+    def load_model(self, model_name: str, gpu_memory_util: float = 0.60) -> LLM:
         """Lazy load models as needed"""
         if model_name not in self.llm_cache:
             print(f"🔄 Loading model: {model_name}")
@@ -292,9 +295,13 @@ class PIKARouter:
         # Load model
         llm = self.load_model(model_config.name)
         
-        # Generate
-        num_samples = self.config.num_sc_samples if use_sc else 1
-        temp = self.config.sc_temp if use_sc else self.config.greedy_temp
+        # Generate - use model-specific SC settings
+        if model_config.use_sc:
+            num_samples = model_config.sc_samples
+            temp = model_config.sc_temp if model_config.sc_temp is not None else self.config.default_sc_temp
+        else:
+            num_samples = 1
+            temp = model_config.temperature if model_config.temperature > 0 else self.config.greedy_temp
         
         params = SamplingParams(
             temperature=temp,
@@ -443,16 +450,15 @@ class PIKARouter:
             print(f"⚡ Processing {len(batch)} questions with {model_config.display_name}...")
             
             # Load model once (with reduced memory usage for batching)
-            llm = self.load_model(model_config.name, gpu_memory_util=0.45)
+            llm = self.load_model(model_config.name, gpu_memory_util=0.60)
             
-            # Prepare batch prompts
-            num_samples = self.config.num_sc_samples  # Can make this per-model
-            
-            # Use model-specific temperature if set, otherwise fall back to config defaults
-            if model_config.temperature > 0:
-                temp = model_config.temperature
+            # Prepare batch prompts - use model-specific SC settings
+            if model_config.use_sc:
+                num_samples = model_config.sc_samples
+                temp = model_config.sc_temp if model_config.sc_temp is not None else self.config.default_sc_temp
             else:
-                temp = self.config.sc_temp if num_samples > 1 else self.config.greedy_temp
+                num_samples = 1
+                temp = model_config.temperature if model_config.temperature > 0 else self.config.greedy_temp
             
             params = SamplingParams(
                 temperature=temp,
@@ -628,8 +634,14 @@ class PIKARouter:
         router_recall = None     # Not directly applicable
         router_accuracy = None   # Not directly applicable
         
-        # Pass@k metrics
-        pass_k_metrics = calculate_pass_at_k(results, max_k=self.config.num_sc_samples)
+        # Pass@k metrics - use maximum SC samples from any model
+        max_sc_samples = max([m.sc_samples if m.use_sc else 1 for m in self.config.models])
+        pass_k_metrics = calculate_pass_at_k(results, max_k=max_sc_samples)
+        
+        # Calculate fraction of questions that actually used SC
+        # (questions where num_samples > 1)
+        questions_with_sc = sum(1 for r in results if r.num_samples_used > 1)
+        fraction_routed_to_sc = questions_with_sc / len(results) if len(results) > 0 else 0.0
         
         # ROI calculation
         roi = None
@@ -643,7 +655,7 @@ class PIKARouter:
             overall_accuracy=overall_accuracy,
             baseline_accuracy=baseline_accuracy,
             accuracy_gain=accuracy_gain,
-            fraction_routed_to_sc=0.0,  # Not using SC by default
+            fraction_routed_to_sc=fraction_routed_to_sc,  # Actual fraction using SC
             avg_samples_per_question=avg_samples,
             total_tokens=total_tokens,
             router_accuracy=router_accuracy,
@@ -682,6 +694,8 @@ class PIKARouter:
 # ============================================================================
 def get_math_cascade_tiny() -> CascadeConfig:
     """
+    3-model cascade: Qwen-Inst-1.5B → Qwen-Math-1.5B → Qwen-Math-7B
+    All models use greedy decoding by default (no SC)
     """
     return CascadeConfig(
         models=[
@@ -690,23 +704,25 @@ def get_math_cascade_tiny() -> CascadeConfig:
                 display_name="Qwen-Inst-1.5B",
                 threshold=0.9,  # Use for easy questions (success_rate >= 90%)
                 cost_multiplier=1.0,  # Base cost
-                max_tokens=3000
+                max_tokens=3000,
+                use_sc=False  # Greedy for easy questions
             ),
             ModelConfig(
                 name="Qwen/Qwen2.5-Math-1.5B-Instruct",
                 display_name="Qwen-Math-1.5B",
-                threshold=0.4,  # Use for easy questions (success_rate >= 40%)
-                cost_multiplier=1.5,  # Base cost
-                max_tokens=3000
+                threshold=0.4,  # Use for medium questions (success_rate >= 40%)
+                cost_multiplier=1.5,
+                max_tokens=3000,
+                use_sc=False  # Greedy for medium questions
             ),
             ModelConfig(
                 name="Qwen/Qwen2.5-Math-7B-Instruct",
                 display_name="Qwen-Math-7B",
-                threshold=0.0,  # Use for harder questions (success_rate >= 00%)
-                cost_multiplier=3.0,  # ~4x more expensive
-                max_tokens=3000
+                threshold=0.0,  # Use for hard questions (all remaining)
+                cost_multiplier=3.0,
+                max_tokens=3000,
+                use_sc=False  # Can enable SC for hard questions if needed
             ),
-            # Add more models here as needed
         ],
         abstain_threshold=0.2,  # If success_rate < 20%, say "IDK" (too hard)
         greedy_temp=0.0,
@@ -716,6 +732,8 @@ def get_math_cascade_tiny() -> CascadeConfig:
 
 def get_math_cascade_reasoning() -> CascadeConfig:
     """
+    3-model cascade with reasoning model: Qwen-Math-1.5B → Qwen-Math-7B → DeepSeek-R1
+    Uses SC on the reasoning model for hardest questions
     """
     return CascadeConfig(
         models=[
@@ -724,28 +742,117 @@ def get_math_cascade_reasoning() -> CascadeConfig:
                 display_name="Qwen-Math-1.5B",
                 threshold=0.9,  # Use for easy questions (success_rate >= 90%)
                 cost_multiplier=1.0,  # Base cost
-                max_tokens=3000
+                max_tokens=3000,
+                use_sc=False  # Greedy for easy questions
             ),
             ModelConfig(
                 name="Qwen/Qwen2.5-Math-7B-Instruct",
                 display_name="Qwen-Math-7B",
-                threshold=0.4,  # Use for easy questions (success_rate >= 40%)
-                cost_multiplier=1.5,  # Base cost
-                max_tokens=3000
+                threshold=0.4,  # Use for medium questions (success_rate >= 40%)
+                cost_multiplier=1.5,
+                max_tokens=3000,
+                use_sc=False  # Greedy for medium questions
             ),
             ModelConfig(
                 name="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
                 display_name="DS-Qwen-8B",
-                threshold=0.0,  # Use for harder questions (success_rate >= 00%)
-                cost_multiplier=3.0,  # ~4x more expensive
-                max_tokens=32768
+                threshold=0.0,  # Use for hard questions (all remaining)
+                cost_multiplier=3.0,
+                max_tokens=32768,
+                temperature=0.6,  # DeepSeek-specific temperature
+                use_sc=True,  # Enable SC for hard questions with reasoning model
+                sc_samples=5,  # Use 5 samples for self-consistency
+                sc_temp=0.6   # DeepSeek works well with 0.6
             ),
-            # Add more models here as needed
         ],
         abstain_threshold=0.2,  # If success_rate < 20%, say "IDK" (too hard)
         greedy_temp=0.0,
         probe_column="predicted_difficulty_sigmoid",  # Misnomer: actually success rates!
         enable_abstain=False  # Disabled by default - route everything
+    )
+
+
+def get_math_cascade_sc_all() -> CascadeConfig:
+    """
+    3-model cascade with varying SC amounts per model.
+    Easy questions: greedy, Medium: SC×3, Hard: SC×8
+    """
+    return CascadeConfig(
+        models=[
+            ModelConfig(
+                name="Qwen/Qwen2.5-1.5B-Instruct",
+                display_name="Qwen-Inst-1.5B",
+                threshold=0.8,  # Easy questions
+                cost_multiplier=1.0,
+                max_tokens=3000,
+                use_sc=False  # Greedy only for very easy questions
+            ),
+            ModelConfig(
+                name="Qwen/Qwen2.5-Math-1.5B-Instruct",
+                display_name="Qwen-Math-1.5B",
+                threshold=0.4,  # Medium questions
+                cost_multiplier=1.5,
+                max_tokens=3000,
+                use_sc=True,
+                sc_samples=3,  # Light SC for medium difficulty
+                sc_temp=0.6
+            ),
+            ModelConfig(
+                name="Qwen/Qwen2.5-Math-7B-Instruct",
+                display_name="Qwen-Math-7B",
+                threshold=0.0,  # Hard questions
+                cost_multiplier=3.0,
+                max_tokens=3000,
+                use_sc=True,
+                sc_samples=8,  # Heavy SC for hardest questions
+                sc_temp=0.6
+            ),
+        ],
+        abstain_threshold=0.2,
+        greedy_temp=0.0,
+        probe_column="predicted_difficulty_sigmoid",
+        enable_abstain=False
+    )
+def get_math_cascade_sc_all_reasoning() -> CascadeConfig:
+    """
+    3-model cascade with varying SC amounts per model.
+    Easy questions: greedy, Medium: SC×3, Hard: SC×8
+    """
+    return CascadeConfig(
+        models=[
+            ModelConfig(
+                name="Qwen/Qwen2.5-Math-1.5B-Instruct",
+                display_name="Qwen-Math-1.5B",
+                threshold=0.8,  # Easy questions
+                cost_multiplier=1.0,
+                max_tokens=3000,
+                use_sc=False  # Greedy only for very easy questions
+            ),
+            ModelConfig(
+                name="Qwen/Qwen2.5-Math-7B-Instruct",
+                display_name="Qwen-Math-7B",
+                threshold=0.2,  # Medium questions
+                cost_multiplier=1.5,
+                max_tokens=3000,
+                use_sc=True,
+                sc_samples=3,  # Light SC for medium difficulty
+                sc_temp=0.6
+            ),
+            ModelConfig(
+                name="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+                display_name="DS-Qwen3-8B",
+                threshold=0.0,  # Hard questions
+                cost_multiplier=3.0,
+                max_tokens=32768,
+                use_sc=True,
+                sc_samples=5,  # Heavy SC for hardest questions
+                sc_temp=0.6
+            ),
+        ],
+        abstain_threshold=0.2,
+        greedy_temp=0.0,
+        probe_column="predicted_difficulty_sigmoid",
+        enable_abstain=False
     )
 
 
@@ -866,7 +973,7 @@ if __name__ == "__main__":
         
         # Self-consistency settings
         "use_sc": True,  # Enable self-consistency sampling
-        "sc_num_samples": 10,  # Number of samples for SC (if enabled)
+        "sc_num_samples": 5,  # Number of samples for SC (if enabled)
         "sc_temp": 0.6,  # Temperature for SC sampling
         
         "results_dir_path": "../predicting_learnability/PIKA_ROUTER_EXPERIMENTS_TINY_MATH_REVAMPED"
@@ -959,19 +1066,32 @@ if __name__ == "__main__":
                 print(df["predicted_difficulty_sigmoid"].describe())
                 
                 # Create router with the chosen cascade configuration
-                # cascade_config = get_example_cascade_tiny()  # or get_example_cascade_with_reasoning()
-                # cascade_config = get_example_cascade_with_reasoning()  
-                # cascade_config = get_math_cascade_tiny()
-                cascade_config = get_math_cascade_reasoning()
+                # cascade_config = get_math_cascade_tiny()  # All greedy
+                # cascade_config = get_math_cascade_reasoning()  # SC only on reasoning model
+                # cascade_config = get_math_cascade_sc_all()  # SC with varying amounts per model
+                cascade_config = get_math_cascade_sc_all_reasoning()  # SC with varying amounts per model
                 
-                # Override SC settings from EXPERIMENT_CONFIG
+                # Optional: Override SC settings from EXPERIMENT_CONFIG
                 if EXPERIMENT_CONFIG.get("use_sc", False):
-                    cascade_config.num_sc_samples = EXPERIMENT_CONFIG["sc_num_samples"]
-                    cascade_config.sc_temp = EXPERIMENT_CONFIG["sc_temp"]
-                    print(f"🔀 Self-Consistency ENABLED: {cascade_config.num_sc_samples} samples @ temp={cascade_config.sc_temp}")
+                    # Apply SC settings to specific models (e.g., only hardest model)
+                    sc_samples = EXPERIMENT_CONFIG["sc_num_samples"]
+                    sc_temp = EXPERIMENT_CONFIG["sc_temp"]
+                    # Enable SC on the most expensive model (last one)
+                    cascade_config.models[-1].use_sc = True
+                    cascade_config.models[-1].sc_samples = sc_samples
+                    cascade_config.models[-1].sc_temp = sc_temp
+                    print(f"🔀 Self-Consistency ENABLED on {cascade_config.models[-1].display_name}: {sc_samples} samples @ temp={sc_temp}")
                 else:
-                    cascade_config.num_sc_samples = 1
-                    print("⚡ Self-Consistency DISABLED: Using greedy decoding")
+                    print("⚡ Using per-model SC configuration from cascade config")
+                
+                # Print SC summary
+                sc_models = [m for m in cascade_config.models if m.use_sc]
+                if sc_models:
+                    print("🔀 SC-enabled models:")
+                    for m in sc_models:
+                        print(f"  → {m.display_name}: {m.sc_samples} samples @ temp={m.sc_temp if m.sc_temp else cascade_config.default_sc_temp}")
+                else:
+                    print("⚡ All models using greedy decoding")
                 
                 router = PIKARouter(cascade_config)
                 
@@ -1133,12 +1253,21 @@ if __name__ == "__main__":
                     for r in results
                 ])
                 
-                # Add SC suffix to filename if enabled
-                sc_suffix = f"_sc{cascade_config.num_sc_samples}" if cascade_config.num_sc_samples > 1 else ""
+                # Add SC suffix to filename if any model uses SC
+                sc_models = [m for m in cascade_config.models if m.use_sc]
+                if sc_models:
+                    # Create suffix showing which models use SC
+                    sc_parts = [f"{m.display_name.replace('-', '')}sc{m.sc_samples}" for m in sc_models]
+                    sc_suffix = f"_{'_'.join(sc_parts)}"
+                else:
+                    sc_suffix = ""
                 results_df.to_csv(f"{RESULTS_DIR}/PIKA_router_results{sc_suffix}.csv", index=False)
                 print(f"\n💾 Results saved to {RESULTS_DIR}/")
                 
                 # Track this evaluation
+                sc_models = [m for m in cascade_config.models if m.use_sc]
+                sc_info = ", ".join([f"{m.display_name}×{m.sc_samples}" for m in sc_models]) if sc_models else None
+                
                 all_evaluations.append({
                     "dataset": DATASET_NAME,
                     "probe_source": PROBE_SOURCE,
@@ -1154,8 +1283,8 @@ if __name__ == "__main__":
                     "accuracy_gain": metrics.accuracy_gain,
                     "token_multiplier": metrics.token_multiplier,
                     "total_cost": metrics.total_cost,
-                    "used_sc": cascade_config.num_sc_samples > 1,
-                    "sc_num_samples": cascade_config.num_sc_samples if cascade_config.num_sc_samples > 1 else None,
+                    "used_sc": len(sc_models) > 0,
+                    "sc_config": sc_info,  # Which models use SC and how many samples
                     "results_dir": RESULTS_DIR
                 })
                 
@@ -1227,6 +1356,14 @@ if __name__ == "__main__":
                             f"🤖 Router: {metrics.overall_accuracy:.2%} ({metrics.accuracy_gain:+.2%} vs baseline, {router_vs_upper:+.2%} vs upper)"
                         )
                     
+                    # Build SC info for notification
+                    sc_models_notif = [m for m in cascade_config.models if m.use_sc]
+                    if sc_models_notif:
+                        sc_info_str = ", ".join([f"{m.display_name}×{m.sc_samples}" for m in sc_models_notif])
+                        sc_msg = f"🔀 SC: {sc_info_str}\n"
+                    else:
+                        sc_msg = "⚡ All greedy\n"
+                    
                     notification_msg = (
                         f"✅ PIKA Router evaluation complete!\n"
                         f"📊 Dataset: {DATASET_NAME} ({len(df)} questions)\n"
@@ -1235,8 +1372,7 @@ if __name__ == "__main__":
                         f"⚡ Token Multiplier: {metrics.token_multiplier:.2f}x\n"
                         f"{cost_sign} Router Cost: ${metrics.total_cost:.5f}\n"
                         f"💵 Cost Diff: {cost_diff_str}\n"
-                        f"🌡️ Temp: {cascade_config.greedy_temp} (greedy) / {cascade_config.sc_temp} (SC)\n"
-                        f"🔀 SC Samples: {cascade_config.num_sc_samples}\n"
+                        f"{sc_msg}"
                         f"🤖 Models: {models_str}\n"
                         f"📈 Routing: {routing_str}\n"
                         f"📂 {RESULTS_DIR}"

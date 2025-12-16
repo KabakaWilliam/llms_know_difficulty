@@ -16,7 +16,7 @@ from utils import parse_answers
 
 # Token pricing (USD per 1M tokens)
 INPUT_TOKEN_PRICE = 0.25   # $0.25 per 1M input tokens
-OUTPUT_TOKEN_PRICE = 1.00  # $1.00 per 1M output tokens
+OUTPUT_TOKEN_PRICE = 0.50  # $0.50 per 1M output tokens
 AVG_PROMPT_TOKENS = 100    # Estimated average prompt length
 
 
