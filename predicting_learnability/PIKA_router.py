@@ -22,7 +22,7 @@ from typing import List, Dict, Optional, Tuple
 from enum import Enum
 from vllm import LLM, SamplingParams
 from collections import Counter
-
+from datetime import datetime
 from router_components import (
     SolverResult,
     EvaluationMetrics,
@@ -33,7 +33,7 @@ from router_components import (
 from utils import parse_answers
 from math_verify import parse, verify
 
-os.environ["CUDA_VISIBLE_DEVICES"] = f"3"
+# os.environ["CUDA_VISIBLE_DEVICES"] = f"1"
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 # ============================================================================
@@ -121,9 +121,10 @@ class ModelConfig:
     threshold: float            # Success rate threshold - use this model if success_rate >= threshold
     cost_multiplier: float      # Relative cost compared to base model
     max_tokens: int            # Max tokens for generation
+    temperature: float = 0.0    # Temperature for this model (0.6 for DeepSeek, 0.0 for others)
     
     def __repr__(self):
-        return f"{self.display_name} (threshold={self.threshold:.2f}, cost={self.cost_multiplier}x)"
+        return f"{self.display_name} (threshold={self.threshold:.2f}, cost={self.cost_multiplier}x, temp={self.temperature})"
 
 
 @dataclass
@@ -284,7 +285,8 @@ class PIKARouter:
                 responses=["IDK"],
                 token_lengths=[0],
                 predicted_score=predicted_success,
-                individual_correct=[False]
+                individual_correct=[False],
+                cost_multiplier=0.0  # No cost for abstention
             )
         
         # Load model
@@ -348,7 +350,8 @@ class PIKARouter:
             responses=responses,
             token_lengths=token_lengths,
             predicted_score=predicted_success,
-            individual_correct=individual_correct
+            individual_correct=individual_correct,
+            cost_multiplier=model_config.cost_multiplier
         )
     
     def evaluate(
@@ -356,14 +359,14 @@ class PIKARouter:
         df: pd.DataFrame,
         baseline_accuracy: float,
         baseline_cost: Optional[float] = None,
-        baseline_tokens: Optional[int] = None
-    ) -> Tuple[EvaluationMetrics, List[SolverResult], Dict[str, int]]:
+        baseline_tokens: Optional[List[int]] = None
+    ) -> Tuple[EvaluationMetrics, List[SolverResult], Dict[str, int], Dict[str, float]]:
         """
         Evaluate the PIKA routing strategy on a dataset.
         Uses batched inference for significant speedup.
         
         Returns:
-            Tuple of (metrics, results, routing_stats)
+            Tuple of (metrics, results, routing_stats, model_hypothetical_costs)
         """
         from tqdm import tqdm
         
@@ -427,7 +430,8 @@ class PIKARouter:
                     responses=["IDK"],
                     token_lengths=[0],
                     predicted_score=item['predicted_success'],
-                    individual_correct=[False]
+                    individual_correct=[False],
+                    cost_multiplier=0.0  # No cost for abstention
                 )
         
         # Process each model's batch
@@ -443,7 +447,12 @@ class PIKARouter:
             
             # Prepare batch prompts
             num_samples = self.config.num_sc_samples  # Can make this per-model
-            temp = self.config.sc_temp if num_samples > 1 else self.config.greedy_temp
+            
+            # Use model-specific temperature if set, otherwise fall back to config defaults
+            if model_config.temperature > 0:
+                temp = model_config.temperature
+            else:
+                temp = self.config.sc_temp if num_samples > 1 else self.config.greedy_temp
             
             params = SamplingParams(
                 temperature=temp,
@@ -520,13 +529,14 @@ class PIKARouter:
                     responses=responses,
                     token_lengths=token_lengths,
                     predicted_score=item['predicted_success'],
-                    individual_correct=individual_correct
+                    individual_correct=individual_correct,
+                    cost_multiplier=model_config.cost_multiplier
                 )
             
             # Unload model after processing this batch to free memory
             self.unload_model(model_config.name)
         
-        # Print routing stats
+        # Print routing stats with per-model metrics if M > 2
         print("\n" + "="*80)
         print("📊 ROUTING STATISTICS")
         print("="*80)
@@ -535,6 +545,57 @@ class PIKARouter:
             pct = count / total_questions * 100
             print(f"  {key:40s}: {count:5d} ({pct:5.1f}%)")
         print("="*80 + "\n")
+        
+        # Per-model performance breakdown (if M > 2) and calculate hypothetical costs
+        model_hypothetical_costs = {}  # Store for notification later
+        
+        if len(self.config.models) > 2:
+            print("\n" + "="*80)
+            print("📈 PER-MODEL PERFORMANCE BREAKDOWN")
+            print("="*80)
+            
+            from router_components import INPUT_TOKEN_PRICE, OUTPUT_TOKEN_PRICE, AVG_PROMPT_TOKENS
+            
+            for model_config in self.config.models:
+                # Get results for this model
+                model_results = [r for r in results if r.num_samples_used > 0 and 
+                                routing_stats.get(model_config.name, 0) > 0]
+                
+                # Calculate hypothetical cost if ALL questions ran on this model
+                # Use average output tokens from baseline as approximation
+                if baseline_tokens and isinstance(baseline_tokens, list):
+                    avg_baseline_output = sum(baseline_tokens) / len(baseline_tokens)
+                else:
+                    avg_baseline_output = 500
+                    
+                hypothetical_input = total_questions * AVG_PROMPT_TOKENS
+                hypothetical_output = total_questions * avg_baseline_output
+                hypothetical_cost = (hypothetical_input / 1_000_000) * INPUT_TOKEN_PRICE + \
+                                   (hypothetical_output / 1_000_000) * OUTPUT_TOKEN_PRICE
+                hypothetical_cost = hypothetical_cost * model_config.cost_multiplier
+                model_hypothetical_costs[model_config.name] = hypothetical_cost
+                
+                if not model_results:
+                    continue
+                
+                # Calculate metrics for this model using individual result costs
+                model_correct = sum(r.is_correct for r in model_results)
+                model_total = len(model_results)
+                model_accuracy = model_correct / model_total if model_total > 0 else 0
+                
+                # Sum costs from individual results
+                model_cost = sum(r.total_cost for r in model_results)
+                
+                print(f"\n{model_config.display_name}:")
+                print(f"  Questions handled: {model_total} ({model_total/total_questions*100:.1f}%)")
+                print(f"  Accuracy: {model_accuracy:.2%} ({model_correct}/{model_total})")
+                print(f"  Accuracy vs baseline: {model_accuracy - baseline_accuracy:+.2%}")
+                print(f"  Total cost: ${model_cost:.5f}")
+                print(f"  Cost per question: ${model_cost/model_total:.5f}")
+                print(f"  Cost multiplier: {model_config.cost_multiplier:.2f}x (configured)")
+                print(f"  Temperature: {model_config.temperature if model_config.temperature > 0 else self.config.greedy_temp}")
+            
+            print("\n" + "="*80 + "\n")
         
         # Calculate metrics
         overall_accuracy = np.mean([r.is_correct for r in results])
@@ -554,8 +615,9 @@ class PIKARouter:
         
         # Calculate token multiplier
         token_multiplier = None
-        if baseline_tokens and baseline_tokens > 0:
-            token_multiplier = total_tokens / baseline_tokens
+        if baseline_tokens and len(baseline_tokens) > 0:
+            baseline_total = sum(baseline_tokens) + len(baseline_tokens) * 100  # Approx input tokens
+            token_multiplier = total_tokens / baseline_total
         
         # Router quality metrics (simplified for PIKA routing)
         # "Benefits from routing" = questions where we didn't use base model
@@ -612,12 +674,46 @@ class PIKARouter:
                               if pass_k_metrics['oracle_best_case_accuracy'] > 0 else 0.0,
         )
         
-        return metrics, results, routing_stats
+        return metrics, results, routing_stats, model_hypothetical_costs
 
 
 # ============================================================================
 # EXAMPLE CONFIGURATIONS
 # ============================================================================
+def get_math_cascade_tiny() -> CascadeConfig:
+    """
+    """
+    return CascadeConfig(
+        models=[
+            ModelConfig(
+                name="Qwen/Qwen2.5-1.5B-Instruct",
+                display_name="Qwen-Inst-1.5B",
+                threshold=0.9,  # Use for easy questions (success_rate >= 90%)
+                cost_multiplier=1.0,  # Base cost
+                max_tokens=3000
+            ),
+            ModelConfig(
+                name="Qwen/Qwen2.5-Math-1.5B-Instruct",
+                display_name="Qwen-Math-1.5B",
+                threshold=0.4,  # Use for easy questions (success_rate >= 40%)
+                cost_multiplier=1.5,  # Base cost
+                max_tokens=3000
+            ),
+            ModelConfig(
+                name="Qwen/Qwen2.5-Math-7B-Instruct",
+                display_name="Qwen-Math-7B",
+                threshold=0.0,  # Use for harder questions (success_rate >= 00%)
+                cost_multiplier=3.0,  # ~4x more expensive
+                max_tokens=3000
+            ),
+            # Add more models here as needed
+        ],
+        abstain_threshold=0.2,  # If success_rate < 20%, say "IDK" (too hard)
+        greedy_temp=0.0,
+        probe_column="predicted_difficulty_sigmoid",  # Misnomer: actually success rates!
+        enable_abstain=False  # Disabled by default - route everything
+    )
+
 
 def get_example_cascade_tiny() -> CascadeConfig:
     """
@@ -673,21 +769,24 @@ def get_example_cascade_with_reasoning() -> CascadeConfig:
                 display_name="Qwen-Math-1.5B",
                 threshold=0.8,  # Very easy questions only (>80% success)
                 cost_multiplier=1.0,
-                max_tokens=3000
+                max_tokens=3000,
+                temperature=0.0  # Greedy for Qwen
             ),
             ModelConfig(
                 name="Qwen/Qwen2.5-Math-7B-Instruct",
                 display_name="Qwen-Math-7B",
                 threshold=0.3,  # Medium difficulty (30-80% success)
                 cost_multiplier=4.0,
-                max_tokens=3000
+                max_tokens=3000,
+                temperature=0.0  # Greedy for Qwen
             ),
             ModelConfig(
                 name="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
                 display_name="DeepSeek-R1-1.5B",
                 threshold=0.0,  # Hard problems (00-30% success, use reasoning)
                 cost_multiplier=8.0,  # More expensive due to longer outputs
-                max_tokens=32768
+                max_tokens=32768,
+                temperature=0.6  # DeepSeek-specific temperature
             ),
         ],
         abstain_threshold=0.15,  # Only abstain if success_rate < 15%
@@ -731,7 +830,12 @@ if __name__ == "__main__":
         "probe_max_tokens": 3000,
         "probe_k": 1,
         
-        "results_dir_path": "../predicting_learnability/PIKA_ROUTER_EXPERIMENTS_NEW"
+        # Self-consistency settings
+        "use_sc": True,  # Enable self-consistency sampling
+        "sc_num_samples": 5,  # Number of samples for SC (if enabled)
+        "sc_temp": 0.6,  # Temperature for SC sampling
+        
+        "results_dir_path": "../predicting_learnability/PIKA_ROUTER_EXPERIMENTS_TINY_MATH_REVAMPED"
     }
     
     # ========================================================================
@@ -756,7 +860,12 @@ if __name__ == "__main__":
     # Track overall results
     all_evaluations = []
     
+    # Cache for baseline results (keyed by dataset name)
+    # This avoids re-running baselines for each probe since they don't depend on probe
+    baseline_cache = {}
+    
     for DATASET_NAME in EXPERIMENT_CONFIG["datasets"]:
+        
         for PROBE_SOURCE in EXPERIMENT_CONFIG["probe_sources"]:
             
             # Check GPU memory before starting
@@ -816,12 +925,46 @@ if __name__ == "__main__":
                 print(df["predicted_difficulty_sigmoid"].describe())
                 
                 # Create router with the chosen cascade configuration
-                cascade_config = get_example_cascade_tiny()  # or get_example_cascade_with_reasoning()
+                # cascade_config = get_example_cascade_tiny()  # or get_example_cascade_with_reasoning()
                 # cascade_config = get_example_cascade_with_reasoning()  
+                cascade_config = get_math_cascade_tiny()
+                
+                # Override SC settings from EXPERIMENT_CONFIG
+                if EXPERIMENT_CONFIG.get("use_sc", False):
+                    cascade_config.num_sc_samples = EXPERIMENT_CONFIG["sc_num_samples"]
+                    cascade_config.sc_temp = EXPERIMENT_CONFIG["sc_temp"]
+                    print(f"🔀 Self-Consistency ENABLED: {cascade_config.num_sc_samples} samples @ temp={cascade_config.sc_temp}")
+                else:
+                    cascade_config.num_sc_samples = 1
+                    print("⚡ Self-Consistency DISABLED: Using greedy decoding")
+                
                 router = PIKARouter(cascade_config)
-    
-                # Run baseline (you might want to load this from cache)
-                print("\n🏃 Running baseline...")
+                
+                # Check if we have cached baseline results for this dataset
+                cache_key = f"{DATASET_NAME}_{len(df)}_{cascade_config.models[0].name}"
+                
+                if cache_key in baseline_cache:
+                    print("\n♻️  Using cached baseline results...")
+                    cached = baseline_cache[cache_key]
+                    baseline_accuracy = cached['baseline_accuracy']
+                    baseline_cost = cached['baseline_cost']
+                    baseline_tokens = cached['baseline_tokens']
+                    baseline_total_tokens = cached['baseline_total_tokens']
+                    middle_accuracy = cached.get('middle_accuracy')
+                    middle_cost = cached.get('middle_cost')
+                    upper_accuracy = cached.get('upper_accuracy')
+                    upper_cost = cached.get('upper_cost')
+                    
+                    print(f"✅ Baseline accuracy: {baseline_accuracy:.2%}")
+                    print(f"💰 Baseline cost: ${baseline_cost:.5f}")
+                    if middle_accuracy is not None:
+                        print(f"✅ Middle model accuracy: {middle_accuracy:.2%}")
+                        print(f"💰 Middle model cost: ${middle_cost:.5f}")
+                    if upper_accuracy is not None:
+                        print(f"✅ Upper bound accuracy: {upper_accuracy:.2%}")
+                        print(f"💰 Upper bound cost: ${upper_cost:.5f}")
+                else:
+                    print("\n🏃 Running baseline (will be cached for other probes)...")
                 from router_components import run_greedy_baseline
                 
                 llm = router.load_model(cascade_config.models[0].name)
@@ -829,6 +972,7 @@ if __name__ == "__main__":
                 baseline_responses, baseline_tokens, baseline_correct = run_greedy_baseline(
                     llm, df, cascade_config.greedy_temp, cascade_config.models[0].max_tokens
                 )
+
                 baseline_accuracy = np.mean(baseline_correct)
                 baseline_total_tokens = sum(baseline_tokens) + len(baseline_tokens) * 100  # Approx input tokens
                 
@@ -847,7 +991,36 @@ if __name__ == "__main__":
                 router.unload_model(cascade_config.models[0].name)
                 print("🧹 Baseline model unloaded, GPU memory freed\n")
                 
+                # Run middle model baseline (for 3-model cascades)
+                middle_accuracy = None
+                middle_cost = None
+                if len(cascade_config.models) == 3:
+                    print("\n🏃 Running middle model baseline...")
+                    middle_model = cascade_config.models[1]  # Middle model
+                    llm = router.load_model(middle_model.name)
+                    
+                    middle_responses, middle_tokens, middle_correct = run_greedy_baseline(
+                        llm, df, cascade_config.greedy_temp, middle_model.max_tokens
+                    )
+                    middle_accuracy = np.mean(middle_correct)
+                    
+                    # Calculate middle model cost
+                    middle_input_tokens = len(middle_tokens) * AVG_PROMPT_TOKENS
+                    middle_output_tokens = sum(middle_tokens)
+                    middle_cost = (middle_input_tokens / 1_000_000) * INPUT_TOKEN_PRICE + \
+                                    (middle_output_tokens / 1_000_000) * OUTPUT_TOKEN_PRICE
+                    middle_cost = middle_cost * middle_model.cost_multiplier
+                    
+                    print(f"✅ Middle model accuracy: {middle_accuracy:.2%} ({middle_model.display_name})")
+                    print(f"💰 Middle model cost: ${middle_cost:.5f}")
+                    
+                    # Unload middle model
+                    router.unload_model(middle_model.name)
+                    print("🧹 Middle model unloaded\n")
+                
                 # Run upper bound (most expensive model in cascade)
+                upper_accuracy = None
+                upper_cost = None
                 if len(cascade_config.models) > 1:
                     print("\n🏃 Running upper bound (most expensive model)...")
                     upper_model = cascade_config.models[-1]  # Last model (most expensive)
@@ -858,20 +1031,40 @@ if __name__ == "__main__":
                     )
                     upper_accuracy = np.mean(upper_correct)
                     
+                    # Calculate upper bound cost
+                    upper_input_tokens = len(upper_tokens) * AVG_PROMPT_TOKENS
+                    upper_output_tokens = sum(upper_tokens)
+                    upper_cost = (upper_input_tokens / 1_000_000) * INPUT_TOKEN_PRICE + \
+                                    (upper_output_tokens / 1_000_000) * OUTPUT_TOKEN_PRICE
+                    upper_cost = upper_cost * upper_model.cost_multiplier
+                    
                     print(f"✅ Upper bound accuracy: {upper_accuracy:.2%} ({upper_model.display_name})")
+                    print(f"💰 Upper bound cost: ${upper_cost:.5f}")
                     
                     # Unload upper bound model
                     router.unload_model(upper_model.name)
                     print("🧹 Upper bound model unloaded\n")
                 else:
                     upper_accuracy = baseline_accuracy  # Only one model, so baseline = upper bound
+                    upper_cost = baseline_cost
                 
-                # Evaluate PIKA router
-                metrics, results, routing_stats = router.evaluate(
+                # Cache baseline results for reuse with other probes
+                baseline_cache[cache_key] = {
+                    'baseline_accuracy': baseline_accuracy,
+                    'baseline_cost': baseline_cost,
+                    'baseline_tokens': baseline_tokens,
+                    'baseline_total_tokens': baseline_total_tokens,
+                    'middle_accuracy': middle_accuracy,
+                    'middle_cost': middle_cost,
+                    'upper_accuracy': upper_accuracy,
+                    'upper_cost': upper_cost,
+                }
+                print("💾 Baseline results cached for other probes\n")                # Evaluate PIKA router
+                metrics, results, routing_stats, model_hypothetical_costs = router.evaluate(
                     df=df,
                     baseline_accuracy=baseline_accuracy,
                     baseline_cost=baseline_cost,
-                    baseline_tokens=baseline_total_tokens
+                    baseline_tokens=baseline_tokens
                 )
                 
                 # Print results
@@ -880,6 +1073,17 @@ if __name__ == "__main__":
                 print("="*80)
                 print(metrics)
                 
+                # Print model costs for comparison
+                print("\n" + "="*80)
+                print("💰 MODEL COST COMPARISON")
+                print("="*80)
+                print(f"  Baseline ({cascade_config.models[0].display_name}): ${baseline_cost:.5f}")
+                if middle_cost is not None:
+                    print(f"  Middle ({cascade_config.models[1].display_name}):   ${middle_cost:.5f}")
+                if upper_cost is not None:
+                    print(f"  Upper ({cascade_config.models[-1].display_name}):    ${upper_cost:.5f}")
+                print(f"  Router:                            ${metrics.total_cost:.5f}")
+                print("="*80 + "\n")
                 # Save results
                 results_df = pd.DataFrame([
                     {
@@ -888,12 +1092,15 @@ if __name__ == "__main__":
                         "is_correct": r.is_correct,
                         "final_answer": r.final_answer,
                         "num_samples": r.num_samples_used,
+                        "used_sc": r.used_sc,
                         "total_tokens": sum(r.token_lengths),
                     }
                     for r in results
                 ])
                 
-                results_df.to_csv(f"{RESULTS_DIR}/PIKA_router_results.csv", index=False)
+                # Add SC suffix to filename if enabled
+                sc_suffix = f"_sc{cascade_config.num_sc_samples}" if cascade_config.num_sc_samples > 1 else ""
+                results_df.to_csv(f"{RESULTS_DIR}/PIKA_router_results{sc_suffix}.csv", index=False)
                 print(f"\n💾 Results saved to {RESULTS_DIR}/")
                 
                 # Track this evaluation
@@ -906,6 +1113,8 @@ if __name__ == "__main__":
                     "accuracy_gain": metrics.accuracy_gain,
                     "token_multiplier": metrics.token_multiplier,
                     "total_cost": metrics.total_cost,
+                    "used_sc": cascade_config.num_sc_samples > 1,
+                    "sc_num_samples": cascade_config.num_sc_samples if cascade_config.num_sc_samples > 1 else None,
                     "results_dir": RESULTS_DIR
                 })
                 
@@ -934,21 +1143,57 @@ if __name__ == "__main__":
                     cost_pct = (cost_diff / baseline_cost * 100) if baseline_cost > 0 else 0
                     cost_sign = "💰" if cost_diff < 0 else "💸"
                     
+                    # Enhanced cost comparison for M>2
+                    if len(cascade_config.models) > 2:
+                        cost_vs_parts = []
+                        # Use ACTUAL costs from baseline runs, not hypothetical
+                        actual_costs = {
+                            cascade_config.models[0].name: baseline_cost,
+                            cascade_config.models[1].name: middle_cost if middle_cost is not None else baseline_cost,
+                            cascade_config.models[-1].name: upper_cost if upper_cost is not None else baseline_cost
+                        }
+                        
+                        for i, model in enumerate(cascade_config.models):
+                            actual_cost = actual_costs.get(model.name, baseline_cost)
+                            pct_diff = ((metrics.total_cost - actual_cost) / actual_cost * 100) if actual_cost > 0 else 0
+                            label = "baseline" if i == 0 else ("upper" if i == len(cascade_config.models)-1 else model.display_name)
+                            cost_vs_parts.append(f"{label}:{pct_diff:+.1f}%")
+                        cost_diff_str = f"${cost_diff:+.5f} ({', '.join(cost_vs_parts)})"
+                    else:
+                        cost_diff_str = f"${cost_diff:+.5f} ({cost_pct:+.1f}%)"
+                    
                     # Upper bound comparison
                     upper_bound_acc = upper_accuracy if 'upper_accuracy' in locals() else baseline_accuracy
                     router_vs_upper = metrics.overall_accuracy - upper_bound_acc
                     upper_model_name = cascade_config.models[-1].display_name if len(cascade_config.models) > 1 else "N/A"
                     
+                    # Build accuracy comparison message
+                    if len(cascade_config.models) == 3 and middle_accuracy is not None:
+                        # For 3-model cascades, show all three baselines
+                        router_vs_middle = metrics.overall_accuracy - middle_accuracy
+                        middle_model_name = cascade_config.models[1].display_name
+                        acc_msg = (
+                            f"🎯 Baseline: {baseline_accuracy:.2%} ({cascade_config.models[0].display_name}) - ${baseline_cost:.5f}\n"
+                            f"🎯 Middle: {middle_accuracy:.2%} ({middle_model_name}) - ${middle_cost:.5f}\n"
+                            f"🏆 Upper: {upper_bound_acc:.2%} ({upper_model_name}) - ${upper_cost:.5f}\n"
+                            f"🤖 Router: {metrics.overall_accuracy:.2%} ({metrics.accuracy_gain:+.2%} vs baseline, {router_vs_middle:+.2%} vs middle, {router_vs_upper:+.2%} vs upper)"
+                        )
+                    else:
+                        # For 2-model cascades, use original format
+                        acc_msg = (
+                            f"🎯 Baseline: {baseline_accuracy:.2%} ({cascade_config.models[0].display_name}) - ${baseline_cost:.5f}\n"
+                            f"🏆 Upper: {upper_bound_acc:.2%} ({upper_model_name}) - ${upper_cost:.5f}\n"
+                            f"🤖 Router: {metrics.overall_accuracy:.2%} ({metrics.accuracy_gain:+.2%} vs baseline, {router_vs_upper:+.2%} vs upper)"
+                        )
+                    
                     notification_msg = (
                         f"✅ PIKA Router evaluation complete!\n"
                         f"📊 Dataset: {DATASET_NAME} ({len(df)} questions)\n"
                         f"🔍 Probe: {PROBE_SOURCE}\n"
-                        f"🎯 Baseline Acc: {baseline_accuracy:.2%} ({cascade_config.models[0].display_name})\n"
-                        f"🏆 Upper Bound: {upper_bound_acc:.2%} ({upper_model_name})\n"
-                        f"🤖 Router Acc: {metrics.overall_accuracy:.2%} ({metrics.accuracy_gain:+.2%} vs baseline, {router_vs_upper:+.2%} vs upper)\n"
+                        f"{acc_msg}\n"
                         f"⚡ Token Multiplier: {metrics.token_multiplier:.2f}x\n"
-                        f"{cost_sign} Cost: ${metrics.total_cost:.5f} (baseline: ${baseline_cost:.5f})\n"
-                        f"💵 Cost Diff: ${cost_diff:+.5f} ({cost_pct:+.1f}%)\n"
+                        f"{cost_sign} Router Cost: ${metrics.total_cost:.5f}\n"
+                        f"💵 Cost Diff: {cost_diff_str}\n"
                         f"🌡️ Temp: {cascade_config.greedy_temp} (greedy) / {cascade_config.sc_temp} (SC)\n"
                         f"🔀 SC Samples: {cascade_config.num_sc_samples}\n"
                         f"🤖 Models: {models_str}\n"
@@ -1020,7 +1265,8 @@ if __name__ == "__main__":
         print("=" * 80)
         
         # Save summary
-        summary_path = "../predicting_learnability/PIKA_ROUTER_EXPERIMENTS/evaluation_summary.csv"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        summary_path = f"{RESULT_DIR_PATH}/evaluation_summary_{timestamp}.csv"
         summary_df.to_csv(summary_path, index=False)
         print(f"\n💾 Summary saved to: {summary_path}")
         
@@ -1033,7 +1279,7 @@ if __name__ == "__main__":
                 f"🏆 Best: {best_run['dataset']} ({best_run['probe_source']})\n"
                 f"   → Acc gain: {best_run['accuracy_gain']:+.2%}\n"
                 f"   → Token mult: {best_run['token_multiplier']:.2f}x\n"
-                f"📂 Results: PIKA_ROUTER_EXPERIMENTS/"
+                f"📂 Results: {RESULT_DIR_PATH}/"
             )
             send_notification(
                 "PIKA Router - All Evaluations Complete",

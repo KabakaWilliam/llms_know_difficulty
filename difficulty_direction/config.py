@@ -39,6 +39,25 @@ DATASET_CONFIGS = {
         "k": 1,  # Number of samples (num_samples)
         "temperature": 0.0  # Sampling temperature
     },
+      "predicting_MATH_X_GSM8K_SR": {
+        "dataset_type": "local",
+        "local_path": "/VData/linna4335/llms_know_difficult/predicting_learnability/data/SR_DATASETS",
+        "subdirectory": "MATH_X_GSM8K_SR",
+        "file_pattern": "{model_alias}-SR_{split}_max_{max_tokens}_k_{k}_temp_{temperature}.parquet",
+        "file_format": "parquet",  # parquet, json, csv, etc.
+        "splits": ["train", "test"],
+        "prompt_column": "question",
+        "answer_column": "answer",
+        "has_train_split": True,
+        "max_n_train": 7473,
+        "max_n_test": 1000,
+        "default_n_train": 7473,
+        "default_n_test": 1000,
+        "difficulty_column": "success_rate",
+        "max_tokens": 3000,  # Maximum tokens for generation
+        "k": 1,  # Number of samples (num_samples)
+        "temperature": 0.0  # Sampling temperature
+    },
 
     "predicting_MATH_learnability": {
         "dataset_type": "local",  # 'local' or 'huggingface'
@@ -279,6 +298,10 @@ PROMPT_TEMPLATES = {
     "predicting_GSM8K_SR": {
         "template": None,
         "prompt_column": DATASET_CONFIGS["predicting_GSM8K_SR"]["prompt_column"]
+    },
+    "predicting_MATH_X_GSM8K_SR": {
+        "template": None,
+        "prompt_column": DATASET_CONFIGS["predicting_MATH_X_GSM8K_SR"]["prompt_column"]
     },
     "AIME_2025": {
         "template": AIME_TEMPLATE,

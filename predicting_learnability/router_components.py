@@ -75,6 +75,26 @@ class SolverResult:
     token_lengths: List[int]  # token count for each response
     predicted_score: float  # probe score
     individual_correct: Optional[List[bool]] = None  # correctness of each individual sample for Pass@k
+    # Cost tracking
+    input_tokens: int = 0  # total input tokens used
+    output_tokens: int = 0  # total output tokens used (sum of token_lengths)
+    total_cost: float = 0.0  # total cost in USD
+    cost_multiplier: float = 1.0  # model cost multiplier
+    
+    def __post_init__(self):
+        """Calculate cost metrics after initialization"""
+        if self.output_tokens == 0:  # Not yet calculated
+            self.output_tokens = sum(self.token_lengths)
+        if self.input_tokens == 0:  # Not yet calculated
+            self.input_tokens = self.num_samples_used * AVG_PROMPT_TOKENS
+        if self.total_cost == 0.0:  # Not yet calculated
+            self.total_cost = self.calculate_cost()
+    
+    def calculate_cost(self) -> float:
+        """Calculate the cost for this individual result"""
+        input_cost = (self.input_tokens / 1_000_000) * INPUT_TOKEN_PRICE
+        output_cost = (self.output_tokens / 1_000_000) * OUTPUT_TOKEN_PRICE
+        return (input_cost + output_cost) * self.cost_multiplier
 
 
 @dataclass  
@@ -542,26 +562,24 @@ def calculate_cost_metrics(
     avg_prompt_tokens: int = AVG_PROMPT_TOKENS
 ) -> Dict[str, float]:
     """
-    Calculate token usage and cost metrics for a set of results.
+    Calculate aggregate cost metrics from individual SolverResults.
     
     Args:
-        results: List of SolverResult objects
+        results: List of SolverResult objects (with costs already calculated)
         baseline_cost: Cost of baseline strategy (for comparison)
-        avg_prompt_tokens: Average prompt length in tokens
+        avg_prompt_tokens: Average prompt length in tokens (legacy parameter, not used)
     
     Returns:
         Dict with cost metrics
     """
-    # Input tokens: each sample requires a full prompt
-    total_input_tokens = int(sum(r.num_samples_used * avg_prompt_tokens for r in results))
+    # Aggregate from individual results
+    total_input_tokens = int(sum(r.input_tokens for r in results))
+    total_output_tokens = int(sum(r.output_tokens for r in results))
+    total_cost = sum(r.total_cost for r in results)
     
-    # Output tokens: sum of all generated tokens
-    total_output_tokens = int(sum(sum(r.token_lengths) for r in results))
-    
-    # Calculate costs (per 1M tokens)
+    # Calculate input/output costs for reporting
     input_cost = (total_input_tokens / 1_000_000) * INPUT_TOKEN_PRICE
     output_cost = (total_output_tokens / 1_000_000) * OUTPUT_TOKEN_PRICE
-    total_cost = input_cost + output_cost
     
     # Per-question and per-correct metrics
     num_questions = len(results)

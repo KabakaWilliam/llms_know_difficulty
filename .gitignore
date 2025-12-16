@@ -173,6 +173,9 @@ runs/**/datasplits/**_test.json
 **E2H-Codeforces**
 
 runs
+predicting_learnability/PIKA_ROUTER_EXPERIMENTS_NEW_REASONING
+predicting_learnability/PIKA_ROUTER_EXPERIMENTS_TINY_MATH
+predicting_learnability/PIKA_ROUTER_EXPERIMENTS_TINY_MATH_REVAMPED
 predicting_learnability/data
 predicting_learnability/SMART_ROUTER_EXPERIMENTS
 predicting_learnability/PIKA_ROUTER_EXPERIMENTS

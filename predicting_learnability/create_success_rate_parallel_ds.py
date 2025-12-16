@@ -37,28 +37,36 @@ DATA_SUCCESS_RATE_CONFIGS = {
         "prompt_col": "question",
         "answer_col": "answer",
         "prompt_template": "{question} Let's think step by step and output the final answer after \\boxed{{}}."
-    }
+    },
+    "MATH_X_GSM8K": {
+        "loading_strategy": "local",
+        "path": "predicting_learnability/data/LOCAL/MATH_X_GSM8K",
+        "splits": ["train", "test"],
+        "prompt_col": "question",
+        "answer_col": "answer",
+        "prompt_template": "{question} Let's think step by step and output the final answer after \\boxed{{}}."
+    },
 }
 
 # Experiment Configuration
 CONFIG = {
     # Device settings
-    "device": 3,
+    "device": 2,
     
     # Model settings
-    "model_name": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
-    # "model_name": "Qwen/Qwen2.5-Math-7B-Instruct",
+    # "model_name": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+    "model_name": "Qwen/Qwen2.5-Math-1.5B-Instruct",
     # "model_name": "Qwen/Qwen2.5-1.5B-Instruct",
     "memory_util": 0.70,
     
     # Dataset settings
-    "datasets": ["GSM8K", "MATH"],  # List of datasets to process, e.g., ["MATH", "GSM8K"]
+    "datasets": ["MATH_X_GSM8K"],  # List of datasets to process, e.g., ["MATH", "GSM8K"]
     "splits": ["train", "test"],
     
     # Generation settings
-    "num_rollouts": 5,
-    "max_tokens": 32768, #32768 #3000
-    "temperature": 0.6,
+    "num_rollouts": 1,
+    "max_tokens": 3000, #32768 #3000
+    "temperature": 0.0,
     
     # Batch settings (tune for GPU/memory)
     "batch_questions": 64,   # number of distinct questions per batch
@@ -85,6 +93,9 @@ assert CONFIG["model_chunk"] % CONFIG["num_rollouts"] == 0, \
 
 if CONFIG["num_rollouts"] == 1:
     assert CONFIG["temperature"] == 0.0
+
+if CONFIG["num_rollouts"] > 1:
+    assert CONFIG["temperature"] != 0.0
 
 
 # ============================================================================
