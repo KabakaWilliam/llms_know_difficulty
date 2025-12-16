@@ -16,7 +16,7 @@ from utils import parse_answers
 
 # Token pricing (USD per 1M tokens)
 INPUT_TOKEN_PRICE = 0.25   # $0.25 per 1M input tokens
-OUTPUT_TOKEN_PRICE = 1.00  # $1.00 per 1M output tokens
+OUTPUT_TOKEN_PRICE = 0.50  # $0.50 per 1M output tokens
 AVG_PROMPT_TOKENS = 100    # Estimated average prompt length
 
 
@@ -74,6 +74,27 @@ class SolverResult:
     responses: List[str]  # all generated responses
     token_lengths: List[int]  # token count for each response
     predicted_score: float  # probe score
+    individual_correct: Optional[List[bool]] = None  # correctness of each individual sample for Pass@k
+    # Cost tracking
+    input_tokens: int = 0  # total input tokens used
+    output_tokens: int = 0  # total output tokens used (sum of token_lengths)
+    total_cost: float = 0.0  # total cost in USD
+    cost_multiplier: float = 1.0  # model cost multiplier
+    
+    def __post_init__(self):
+        """Calculate cost metrics after initialization"""
+        if self.output_tokens == 0:  # Not yet calculated
+            self.output_tokens = sum(self.token_lengths)
+        if self.input_tokens == 0:  # Not yet calculated
+            self.input_tokens = self.num_samples_used * AVG_PROMPT_TOKENS
+        if self.total_cost == 0.0:  # Not yet calculated
+            self.total_cost = self.calculate_cost()
+    
+    def calculate_cost(self) -> float:
+        """Calculate the cost for this individual result"""
+        input_cost = (self.input_tokens / 1_000_000) * INPUT_TOKEN_PRICE
+        output_cost = (self.output_tokens / 1_000_000) * OUTPUT_TOKEN_PRICE
+        return (input_cost + output_cost) * self.cost_multiplier
 
 
 @dataclass  
@@ -98,6 +119,17 @@ class EvaluationMetrics:
     # SC effectiveness
     sc_subset_accuracy: Optional[float] = None  # accuracy on questions we SC'd
     greedy_subset_accuracy: Optional[float] = None  # accuracy on questions we didn't SC
+    
+    # Pass@k metrics - measures efficiency of finding correct answers
+    pass_at_k: Optional[Dict[int, float]] = None  # {k: fraction} - success rate with k samples
+    avg_pass_at_1: Optional[float] = None  # Pass@1 rate (individual sample success)
+    avg_first_correct_sample: Optional[float] = None  # Average position of first correct answer
+    total_correct_samples: Optional[int] = None  # Total correct samples generated across all questions
+    
+    # Theoretical best-case / Oracle metrics
+    oracle_best_case_accuracy: Optional[float] = None  # Accuracy if we could always pick the best sample
+    oracle_best_case_gain: Optional[float] = None  # Potential gain over actual accuracy
+    sample_utilization: Optional[float] = None  # actual_accuracy / oracle_best_case_accuracy (efficiency of majority voting)
     
     # Cost metrics
     total_input_tokens: Optional[int] = None
@@ -132,18 +164,47 @@ class EvaluationMetrics:
             # Cheaper AND better = infinite efficiency
             return float('inf')
         return 0.0
-        return self.accuracy_gain / self.avg_samples_per_question
+    
+    def sample_efficiency(self) -> float:
+        """Measures how efficiently we find correct answers per sample
+        Returns the ratio of correct answers found to total samples used"""
+        if self.total_correct_samples and self.avg_samples_per_question:
+            total_samples = self.avg_samples_per_question * (self.total_input_tokens / AVG_PROMPT_TOKENS if self.total_input_tokens else 1)
+            return self.total_correct_samples / total_samples if total_samples > 0 else 0.0
+        return 0.0
     
     def __repr__(self):
+        pass_section = ""
+        if self.pass_at_k:
+            pass_lines = []
+            for k in sorted(self.pass_at_k.keys()):
+                pass_lines.append(f"Pass@{k:>2}: {self.pass_at_k[k]:>6.2%}")
+            pass_text = ' | '.join(pass_lines[:3])
+            avg_first = f"{self.avg_first_correct_sample:.2f}" if self.avg_first_correct_sample != float('inf') else "N/A"
+            oracle_section = ""
+            if self.oracle_best_case_accuracy is not None:
+                oracle_section = f"""║    Best-Case Oracle Accuracy:    {self.oracle_best_case_accuracy:>6.2%} ({self.oracle_best_case_gain:>+6.2%} potential) ║
+║    Sample Utilization:            {self.sample_utilization:>6.2%}                    ║
+"""
+            pass_section = f"""╠═══════════════════════════════════════════════════════════════╣
+║  🎯 PASS@K METRICS:                                           ║
+║    {pass_text:<59} ║
+║    Avg Pass@1:         {self.avg_pass_at_1:>6.2%}                            ║
+║    Avg First Correct:  {avg_first:>6} samples                       ║
+║    Total Correct Samples: {self.total_correct_samples:>5}                          ║
+{oracle_section}"""
+        
         cost_section = ""
         if self.total_cost is not None:
+            input_pct = (self.input_cost/self.total_cost*100 if self.input_cost and self.total_cost else 0)
+            output_pct = (self.output_cost/self.total_cost*100 if self.output_cost and self.total_cost else 0)
             cost_section = f"""╠═══════════════════════════════════════════════════════════════╣
 ║  💰 COST METRICS:                                             ║
 ║    Total Cost:    ${self.total_cost:>8.5f} ({self.cost_increase/self.baseline_cost*100 if self.cost_increase and self.baseline_cost else 0:>+6.1f}% vs baseline)          ║
 ║    Per Question:  ${self.cost_per_question:>8.6f}                               ║
 ║    Per Correct:   ${self.cost_per_correct:>8.6f}                               ║
 ║    ROI:           {'∞ (FREE LUNCH!)' if self.roi and np.isinf(self.roi) else f'{self.roi*100:>6.1f} acc pts/$' if self.roi else '  0.0 acc pts/$'}                  ║
-║    Input/Output:  {self.input_cost/self.total_cost*100 if self.total_cost else 0:>5.1f}% / {self.output_cost/self.total_cost*100 if self.total_cost else 0:>5.1f}%                           ║
+║    Input/Output:  {input_pct:>5.1f}% / {output_pct:>5.1f}%                           ║
 """
         
         return f"""
@@ -157,11 +218,11 @@ class EvaluationMetrics:
 ║  ⚡ Avg Samples: {self.avg_samples_per_question:>5.2f}x  |  Tokens: {self.token_multiplier if self.token_multiplier else 0:>5.2f}x        ║
 ║  🏆 Efficiency (sample): {self.efficiency_score():>6.4f}                         ║
 ║  🎯 Efficiency (token):  {self.token_efficiency():>6.4f}                         ║
-{cost_section}╠═══════════════════════════════════════════════════════════════╣
+{pass_section}{cost_section}╠═══════════════════════════════════════════════════════════════╣
 ║  Router Quality:                                              ║
-║    Accuracy:   {self.router_accuracy:>6.2%}                                 ║
-║    Precision:  {self.router_precision:>6.2%}                                 ║
-║    Recall:     {self.router_recall:>6.2%}                                 ║
+║    Accuracy:   {f'{self.router_accuracy:>6.2%}' if self.router_accuracy is not None else '   N/A'}                                 ║
+║    Precision:  {f'{self.router_precision:>6.2%}' if self.router_precision is not None else '   N/A'}                                 ║
+║    Recall:     {f'{self.router_recall:>6.2%}' if self.router_recall is not None else '   N/A'}                                 ║
 ╚═══════════════════════════════════════════════════════════════╝
 """
 
@@ -271,7 +332,8 @@ def run_self_consistency(llm, prompt: str, gt: str, sc_temp: float, max_tokens: 
     Run self-consistency on a single question
     
     Returns:
-        dict with keys: is_correct, final_answer, responses, token_lengths
+        dict with keys: is_correct, final_answer, responses, token_lengths,
+                       individual_correct (list of bool for each sample)
     """
     params = SamplingParams(temperature=sc_temp, max_tokens=max_tokens)
     prompts = [prompt] * num_samples
@@ -280,12 +342,22 @@ def run_self_consistency(llm, prompt: str, gt: str, sc_temp: float, max_tokens: 
     
     responses = []
     token_lengths = []
+    individual_correct = []  # Track correctness of each sample
     
     for output in outputs:
         response = output.outputs[0].text
         token_length = len(output.outputs[0].token_ids)
         responses.append(response)
         token_lengths.append(token_length)
+        
+        # Check if this individual sample is correct
+        parsed = parse_answers([response])
+        if parsed and len(parsed[0]) > 0:
+            sample_answer = parsed[0][0]
+            sample_correct = verify(parse(f"${gt}$"), sample_answer)
+            individual_correct.append(sample_correct)
+        else:
+            individual_correct.append(False)
     
     # Parse all answers and do majority vote
     parsed_answers_list = parse_answers(responses)
@@ -309,6 +381,7 @@ def run_self_consistency(llm, prompt: str, gt: str, sc_temp: float, max_tokens: 
         "final_answer": final_answer,
         "responses": responses,
         "token_lengths": token_lengths,
+        "individual_correct": individual_correct,
     }
 
 
@@ -350,7 +423,8 @@ def evaluate_routing_strategy(
                 num_samples=num_sc_samples
             )
             
-            results.append(SolverResult(
+            # Store individual correctness for Pass@k calculation
+            result = SolverResult(
                 question_idx=idx,
                 used_sc=True,
                 is_correct=sc_result["is_correct"],
@@ -359,13 +433,16 @@ def evaluate_routing_strategy(
                 responses=sc_result["responses"],
                 token_lengths=sc_result["token_lengths"],
                 predicted_score=row[config.score_column],
-            ))
+            )
+            # Attach individual correctness data for Pass@k
+            result.individual_correct = sc_result["individual_correct"]
+            results.append(result)
         else:
             # Use greedy (cached)
             parsed = parse_answers([row["baseline_response"]])
             final_answer = parsed[0][0] if parsed and len(parsed[0]) > 0 else ""
             
-            results.append(SolverResult(
+            result = SolverResult(
                 question_idx=idx,
                 used_sc=False,
                 is_correct=row["baseline_is_correct"],
@@ -374,7 +451,10 @@ def evaluate_routing_strategy(
                 responses=[row["baseline_response"]],
                 token_lengths=[row["baseline_token_length"]],
                 predicted_score=row[config.score_column],
-            ))
+            )
+            # For greedy, individual_correct is just the single result
+            result.individual_correct = [row["baseline_is_correct"]]
+            results.append(result)
     
     # Compute metrics
     overall_accuracy = np.mean([r.is_correct for r in results])
@@ -435,6 +515,9 @@ def evaluate_routing_strategy(
     # Calculate total tokens (input + output)
     strategy_total_tokens = cost_metrics['total_input_tokens'] + cost_metrics['total_output_tokens']
     
+    # Calculate Pass@k metrics
+    pass_k_metrics = calculate_pass_at_k(results, max_k=min(num_sc_samples, 10))
+    
     metrics = EvaluationMetrics(
         strategy_name=strategy_name,
         overall_accuracy=overall_accuracy,
@@ -461,6 +544,13 @@ def evaluate_routing_strategy(
         roi=None,  # Will be calculated after we have baseline
         baseline_tokens=None,  # Will be set externally
         token_multiplier=None,  # Will be calculated after we have baseline_tokens
+        pass_at_k=pass_k_metrics['pass_at_k'],
+        avg_pass_at_1=pass_k_metrics['avg_pass_at_1'],
+        avg_first_correct_sample=pass_k_metrics['avg_first_correct_sample'],
+        total_correct_samples=pass_k_metrics['total_correct_samples'],
+        oracle_best_case_accuracy=pass_k_metrics['oracle_best_case_accuracy'],
+        oracle_best_case_gain=pass_k_metrics['oracle_best_case_accuracy'] - overall_accuracy,
+        sample_utilization=overall_accuracy / pass_k_metrics['oracle_best_case_accuracy'] if pass_k_metrics['oracle_best_case_accuracy'] > 0 else 0.0,
     )
     
     return metrics, results
@@ -472,31 +562,29 @@ def calculate_cost_metrics(
     avg_prompt_tokens: int = AVG_PROMPT_TOKENS
 ) -> Dict[str, float]:
     """
-    Calculate token usage and cost metrics for a set of results.
+    Calculate aggregate cost metrics from individual SolverResults.
     
     Args:
-        results: List of SolverResult objects
+        results: List of SolverResult objects (with costs already calculated)
         baseline_cost: Cost of baseline strategy (for comparison)
-        avg_prompt_tokens: Average prompt length in tokens
+        avg_prompt_tokens: Average prompt length in tokens (legacy parameter, not used)
     
     Returns:
         Dict with cost metrics
     """
-    # Input tokens: each sample requires a full prompt
-    total_input_tokens = sum(r.num_samples_used * avg_prompt_tokens for r in results)
+    # Aggregate from individual results
+    total_input_tokens = int(sum(r.input_tokens for r in results))
+    total_output_tokens = int(sum(r.output_tokens for r in results))
+    total_cost = sum(r.total_cost for r in results)
     
-    # Output tokens: sum of all generated tokens
-    total_output_tokens = sum(sum(r.token_lengths) for r in results)
-    
-    # Calculate costs (per 1M tokens)
+    # Calculate input/output costs for reporting
     input_cost = (total_input_tokens / 1_000_000) * INPUT_TOKEN_PRICE
     output_cost = (total_output_tokens / 1_000_000) * OUTPUT_TOKEN_PRICE
-    total_cost = input_cost + output_cost
     
     # Per-question and per-correct metrics
     num_questions = len(results)
-    num_correct = sum(r.is_correct for r in results)
-    cost_per_question = total_cost / num_questions if num_questions > 0 else 0
+    num_correct = int(sum(r.is_correct for r in results))
+    cost_per_question = total_cost / num_questions if num_questions > 0 else 0.0
     cost_per_correct = total_cost / num_correct if num_correct > 0 else float('inf')
     
     # ROI calculation (accuracy points per dollar)
@@ -513,6 +601,79 @@ def calculate_cost_metrics(
         'cost_per_correct': cost_per_correct,
         'baseline_cost': baseline_cost,
         'cost_increase': cost_increase,
+    }
+
+
+def calculate_pass_at_k(results: List[SolverResult], max_k: int = 10) -> Dict:
+    """
+    Calculate Pass@k metrics - measures success rate with k samples.
+    
+    Pass@k: Probability that at least one of k samples is correct.
+    
+    Args:
+        results: List of SolverResult objects with individual_correct attribute
+        max_k: Maximum k to calculate (default: 10)
+    
+    Returns:
+        Dict with pass_at_k metrics
+    """
+    pass_at_k = {}
+    total_correct_samples = 0
+    pass_at_1_sum = 0
+    first_correct_positions = []
+    num_questions = len(results)
+    
+    for result in results:
+        if not hasattr(result, 'individual_correct') or result.individual_correct is None:
+            continue
+            
+        individual_correct = result.individual_correct
+        num_samples = len(individual_correct)
+        
+        # Count total correct samples
+        correct_count = sum(individual_correct)
+        total_correct_samples += correct_count
+        
+        # Pass@1: probability that a random sample is correct
+        if num_samples > 0:
+            pass_at_1_sum += correct_count / num_samples
+        
+        # Find position of first correct sample (1-indexed)
+        if correct_count > 0:
+            first_correct_idx = next(i for i, c in enumerate(individual_correct) if c)
+            first_correct_positions.append(first_correct_idx + 1)
+        else:
+            first_correct_positions.append(float('inf'))  # Never found
+        
+        # Calculate Pass@k for different k values
+        for k in range(1, min(max_k, num_samples) + 1):
+            # Pass@k: at least one correct in first k samples
+            has_correct_in_k = any(individual_correct[:k])
+            
+            if k not in pass_at_k:
+                pass_at_k[k] = []
+            pass_at_k[k].append(has_correct_in_k)
+    
+    # Average Pass@k across all questions
+    pass_at_k_avg = {k: np.mean(successes) for k, successes in pass_at_k.items()}
+    
+    # Average Pass@1 (individual sample success rate)
+    avg_pass_at_1 = pass_at_1_sum / num_questions if num_questions > 0 else 0.0
+    
+    # Average position of first correct answer
+    valid_positions = [p for p in first_correct_positions if p != float('inf')]
+    avg_first_correct = np.mean(valid_positions) if valid_positions else float('inf')
+    
+    # Theoretical best-case oracle accuracy: if we could always pick the best sample (at least one correct)
+    oracle_best_case_correct = sum(1 for p in first_correct_positions if p != float('inf'))
+    oracle_best_case_accuracy = oracle_best_case_correct / num_questions if num_questions > 0 else 0.0
+    
+    return {
+        'pass_at_k': pass_at_k_avg,
+        'avg_pass_at_1': avg_pass_at_1,
+        'avg_first_correct_sample': avg_first_correct,
+        'total_correct_samples': total_correct_samples,
+        'oracle_best_case_accuracy': oracle_best_case_accuracy,
     }
 
 
@@ -535,6 +696,6 @@ def get_strategy_color(strategy_name: str) -> str:
     elif 'all_sc' in strategy_name.lower():
         return '#9E9E9E'  # Gray for all_sc
     elif 'all_greedy' in strategy_name.lower():
-        return '#757575'  # Dark gray for all_greedy
+        return "#FA0606"  # Dark red for all_greedy
     else:
         return '#BDBDBD'  # Light gray for others

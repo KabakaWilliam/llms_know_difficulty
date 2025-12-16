@@ -1,10 +1,27 @@
 from math_verify import parse, verify
 
+def _make_hashable(obj):
+    """Convert unhashable types (like SymPy matrices) to hashable equivalents."""
+    try:
+        # Check if it's a SymPy matrix
+        if hasattr(obj, '__class__') and 'Matrix' in obj.__class__.__name__:
+            # Convert matrix to tuple of tuples
+            return tuple(tuple(row) for row in obj.tolist())
+        # If it's a list, convert to tuple recursively
+        elif isinstance(obj, list):
+            return tuple(_make_hashable(item) for item in obj)
+        # Otherwise return as-is
+        return obj
+    except Exception:
+        return obj
+
 def parse_answers(responses):
     PARSED_ANSWER_LIST = []
     for response in responses:
         try:
             parsed_anwer = parse(response)
+            # Make the parsed answer hashable if needed
+            parsed_anwer = _make_hashable(parsed_anwer)
             PARSED_ANSWER_LIST.append(parsed_anwer)
         except Exception:
             # Append empty list instead of unparsed response to avoid verification bottleneck
@@ -25,11 +42,17 @@ def verify_answer(ground_truth, response):
     """
     try:
         parsed_ans = parse(response)
+        # Make the parsed answer hashable if needed
+        parsed_ans = _make_hashable(parsed_ans)
     except Exception:
         parsed_ans = response
     
     try:
-        if verify(parse(f"${ground_truth}$"), parsed_ans):
+        parsed_gt = parse(f"${ground_truth}$")
+        # Make the ground truth hashable if needed
+        parsed_gt = _make_hashable(parsed_gt)
+        
+        if verify(parsed_gt, parsed_ans):
             return 1
         else:
             return 0
