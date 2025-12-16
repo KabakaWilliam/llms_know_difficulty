@@ -6,7 +6,7 @@ from vllm import LLM, SamplingParams
 from datasets import load_dataset
 
 # MODEL_NAME = "HuggingFaceTB/FineMath-Llama-3B"
-MODEL_NAME = "Qwen/Qwen2-1.5B-Instruct"
+MODEL_NAME = "Qwen/Qwen3-4B"
 # MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
 
 NUM_ROLLOUTS_PER_QUESTION = 50
