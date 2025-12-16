@@ -11,6 +11,7 @@ from torch.utils.data import Dataset, DataLoader
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from tqdm import tqdm
+import wandb
 
 # -----------------------------
 # Data
@@ -154,6 +155,14 @@ def extract_layer_features(
             feats.append(summed / denom)
         return torch.stack(feats, dim=1)  # [B, L, D]
 
+    elif pool == "all_sequence_positions":
+        # Zero out masked positions
+        hs_list_masked = []
+        for hs in hs_list:
+            hs_list_masked.append(hs * attention_mask.unsqueeze(-1))  # [B,T,D]
+
+        return torch.stack(hs_list, dim=1)  # [B, L, T, D]
+
     else:
         raise ValueError(f"Unknown pool={pool}")
 
@@ -221,8 +230,14 @@ def train_probe(
         probe = LinearProbeConcat(d_model, n_layers=len(layer_indices)).to(device)
     elif layer_mode == "weighted_sum":
         probe = LinearProbeWeightedSum(d_model, n_layers=len(layer_indices)).to(device)
+    elif layer_mode == "concat_all_sequence_positions":
+        probe = LinearProbeConcatAllSequencePositions(d_model, n_layers=len(layer_indices), seq_length=max_length).to(device)
     else:
         raise ValueError(f"Unknown layer_mode={layer_mode}")
+
+    # print num parameters in probe
+    num_params = sum(p.numel() for p in probe.parameters())
+    print(f"Initialized probe with {num_params} parameters.")
 
     train_ds = TextNumberDataset(hf_dataset=hf_dataset, hf_dataset_split="train", scores_path=train_scores_path)
     val_ds = TextNumberDataset(hf_dataset=hf_dataset, hf_dataset_split="test", scores_path=val_scores_path)
@@ -329,6 +344,35 @@ def train_probe(
             metrics[f"precision_bin_{b}"] = precision
             metrics[f"recall_bin_{b}"] = recall
 
+        # learnability is defined as ys * (1-ys)
+        learnability_ys = ys * (1.0 - ys)
+        learnability_preds = preds * (1.0 - preds)
+        # take the top 25% most learnable samples as estimated by the probe
+        n_learnable = int(0.25 * ys.size(0))
+        _, learnable_indices = torch.topk(learnability_preds, n_learnable)
+        _, best_possible_learnable_indices = torch.topk(learnability_ys, n_learnable)
+        learnability_selected = learnability_ys[learnable_indices]
+        best_possible_learnability = learnability_ys[best_possible_learnable_indices]
+        metrics["learnability_ys_mean"] = learnability_ys.mean().item()
+        metrics["learnability_selected_mean"] = learnability_selected.mean().item()
+        metrics["learnability_best_possible_mean"] = best_possible_learnability.mean().item()
+
+        # compute kendall's tau as well
+        # since we have lots of ties spearmans may be misleading
+        n = y.size(0)
+        num_concordant = 0
+        num_discordant = 0
+        for i in range(n):
+            for j in range(i + 1, n):
+                concordant = ( (y[i] - y[j]) * (p[i] - p[j]) ) > 0
+                discordant = ( (y[i] - y[j]) * (p[i] - p[j]) ) < 0
+                if concordant:
+                    num_concordant += 1
+                elif discordant:
+                    num_discordant += 1
+        kendall_tau = (num_concordant - num_discordant) / (0.5 * n * (n - 1) + 1e-12)
+        metrics["kendall_tau"] = kendall_tau
+
         return metrics
 
 
@@ -349,20 +393,27 @@ def train_probe(
             bs = ys.size(0)
             running += loss.item() * bs
             n += bs
-            step += 1
-            print(f"{step=}")
+
+            wandb.log({"train/batch_mse": loss.item()}, step=step)
 
             if step % 25 == 0:
                 print(f"  step {step} | batch_mse={loss.item():.6f}")
                 metrics = evaluate()
+                metrics["epoch"] = epoch
                 pprint.pprint(metrics)
+                wandb.log(metrics, step=step)
+
+            step += 1
+            print(f"{step=}")
 
         train_mse = running / max(n, 1)
         msg = f"epoch {epoch:03d} | train_mse={train_mse:.6f}"
 
         if val_loader is not None:
             metrics = evaluate()
+            metrics["epoch"] = epoch
             pprint.pprint(metrics)
+            wandb.log(metrics, step=step)
 
         if layer_mode == "weighted_sum":
             with torch.no_grad():
@@ -394,6 +445,25 @@ def main():
     ap.add_argument("--weight_decay", type=float, default=0.0)
     ap.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
+
+    wandb.init(
+        project="llms_know_difficulty",
+        config={
+            "model": args.model,
+            "hf_dataset": args.hf_dataset,
+            "train_scores_path": args.train_scores_path,
+            "val_scores_path": args.val_scores_path,
+            "layers": args.layers,
+            "layer_mode": args.layer_mode,
+            "pool": args.pool,
+            "max_length": args.max_length,
+            "batch_size": args.batch_size,
+            "lr": args.lr,
+            "epochs": args.epochs,
+            "weight_decay": args.weight_decay,
+            "device": args.device,
+        }
+    )
 
     # example usage: python predict_success_rate.py --model gpt2 --
 

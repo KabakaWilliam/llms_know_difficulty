@@ -6,6 +6,6 @@ python predict_success_rate.py \
     --layers all \
     --layer_mode concat \
     --max_length 512 \
-    --lr 1e-4 \
+    --lr 1e-5 \
     --batch_size 128 \
 
