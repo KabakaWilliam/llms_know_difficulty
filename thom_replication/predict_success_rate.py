@@ -345,8 +345,10 @@ def train_probe(
             metrics[f"recall_bin_{b}"] = recall
 
         # learnability is defined as ys * (1-ys)
-        learnability_ys = ys * (1.0 - ys)
-        learnability_preds = preds * (1.0 - preds)
+        clipped_ys = ys.clamp(min=0.0, max=1.0)
+        clipped_preds = preds.clamp(min=0.0, max=1.0)
+        learnability_ys = clipped_ys * (1.0 - clipped_ys)
+        learnability_preds = clipped_preds * (1.0 - clipped_preds)
         # take the top 25% most learnable samples as estimated by the probe
         n_learnable = int(0.25 * ys.size(0))
         _, learnable_indices = torch.topk(learnability_preds, n_learnable)
