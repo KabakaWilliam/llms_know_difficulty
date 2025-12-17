@@ -172,6 +172,9 @@ runs/**/datasplits/**_test.json
 **E2H_Codeforces**
 **E2H-Codeforces**
 
+will_replication/activations
+will_replication/results/*/all_predictions.json
+
 runs
 predicting_learnability/PIKA_ROUTER_EXPERIMENTS_NEW_REASONING
 predicting_learnability/PIKA_ROUTER_EXPERIMENTS_TINY_MATH

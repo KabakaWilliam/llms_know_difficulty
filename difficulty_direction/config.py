@@ -19,6 +19,26 @@ from dataclass_wizard import YAMLWizard
 #   /data/DIRECT/MATH_ModelName-SR_train_max_3000_k_1_temp_0.0.parquet
 #
 DATASET_CONFIGS = {
+    "predicting_THOMS_MATH_SR":{
+        "dataset_type": "local",  # 'local' or 'huggingface'
+        "local_path": "/VData/linna4335/llms_know_difficult/predicting_learnability/data/SR_DATASETS",
+        "subdirectory": "THOMS_MATH",  # Optional subdirectory within local_path
+        "file_pattern": "MATH_{split}-Qwen-Qwen2-1.5B-Instruct_lorem.parquet",
+        "file_format": "parquet",  # parquet, json, csv, etc.
+        "splits": ["train", "test"],
+        "prompt_column": "question",
+        "answer_column": "answer",
+        "has_train_split": True,
+        "max_n_train": 7500,
+        "max_n_test": 5000,
+        "default_n_train": 7500,
+        "default_n_test": 5000,
+        "difficulty_column": "success_rate",
+        # Success rate calculation parameters - these are used in file_pattern
+        "max_tokens": 3000,  # Maximum tokens for generation
+        "k": 1,  # Number of samples (num_samples)
+        "temperature": 0.0  # Sampling temperature
+    },
     "predicting_GSM8K_SR":{
         "dataset_type": "local",  # 'local' or 'huggingface'
         "local_path": "/VData/linna4335/llms_know_difficult/predicting_learnability/data/SR_DATASETS",
@@ -294,6 +314,10 @@ PROMPT_TEMPLATES = {
     "predicting_MATH_learnability": {
         "template": None,
         "prompt_column": DATASET_CONFIGS["predicting_MATH_learnability"]["prompt_column"]
+    },
+    "predicting_THOMS_MATH_SR": {
+        "template": None,
+        "prompt_column": DATASET_CONFIGS["predicting_THOMS_MATH_SR"]["prompt_column"]
     },
     "predicting_GSM8K_SR": {
         "template": None,

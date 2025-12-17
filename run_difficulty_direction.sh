@@ -6,7 +6,7 @@
 
 CHOSEN_DEVICE=2
 CUDA_VISIBLE_DEVICES=$CHOSEN_DEVICE python3 -m difficulty_direction.run \
-    --model_path Qwen/Qwen2.5-Math-7B-Instruct \
+    --model_path Qwen/Qwen2-1.5B-Instruct \
     --use_k_fold \
     --batch_size 32 \
     --n_train 14946 \

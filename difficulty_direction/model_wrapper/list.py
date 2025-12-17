@@ -22,7 +22,7 @@ def get_supported_model_class(model_name, device_override=None):
         return Qwen2Model(model_name)
     elif "qwen3" in model_name.lower():
         return Qwen3Model(model_name)
-    elif "qwen2.5" in model_name.lower():
+    elif "qwen2.5" in model_name.lower() or "qwen2" in model_name.lower():
         return Qwen2_5Model(model_name)
     elif "neox" in model_name.lower() or "pythia" in model_name.lower() or "chessgpt" in model_name.lower():
         return GPTNeoXModel(model_name)

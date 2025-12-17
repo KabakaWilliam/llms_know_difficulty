@@ -4,10 +4,22 @@
 # source $(conda info --base)/etc/profile.d/conda.sh
 # conda activate diff-direction
 
+# CHOSEN_DEVICE=1 #not run yet
+# CUDA_VISIBLE_DEVICES=$CHOSEN_DEVICE python3 -m difficulty_direction.run \
+#     --model_path Qwen/Qwen2-1.5B-Instruct \
+#     --use_k_fold \
+#     --batch_size 16 \
+#     --n_train 7500 \
+#     --n_test 5000 \
+#     --subset_datasets predicting_THOMS_MATH_SR \
+#     --subdirectory THOMS_MATH \
+#     --evaluation_datasets AIME_2025\
+#     --generation_batch_size 8 \
+#     --max_new_tokens 2000 \
 
-CHOSEN_DEVICE=1 #not run yet
+CHOSEN_DEVICE=1 #not run yet ##Qwen/Qwen2.5-Math-1.5B-Instruct
 CUDA_VISIBLE_DEVICES=$CHOSEN_DEVICE python3 -m difficulty_direction.run \
-    --model_path Qwen/Qwen2.5-Math-1.5B-Instruct \
+    --model_path Qwen/Qwen2-1.5B-Instruct \
     --use_k_fold \
     --batch_size 16 \
     --n_train 12000 \
@@ -15,11 +27,9 @@ CUDA_VISIBLE_DEVICES=$CHOSEN_DEVICE python3 -m difficulty_direction.run \
     --subset_datasets predicting_MATH_learnability \
     --subdirectory MATH \
     --max_tokens 3000 \
-    --k 5 \
+    --k 1 \
     --temperature 0.0 \
     --evaluation_datasets AIME_2025\
-    --generation_batch_size 8 \
-    --max_new_tokens 2000 \
 
 # MATH Probe config
 # CHOSEN_DEVICE=2

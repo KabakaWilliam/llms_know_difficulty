@@ -51,11 +51,12 @@ DATA_SUCCESS_RATE_CONFIGS = {
 # Experiment Configuration
 CONFIG = {
     # Device settings
-    "device": 2,
+    "device": 1,
     
     # Model settings
     # "model_name": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
-    "model_name": "Qwen/Qwen2.5-Math-1.5B-Instruct",
+    # "model_name": "Qwen/Qwen2.5-Math-1.5B-Instruct",
+    "model_name": "Qwen/Qwen2-1.5B-Instruct",
     # "model_name": "Qwen/Qwen2.5-1.5B-Instruct",
     "memory_util": 0.70,
     

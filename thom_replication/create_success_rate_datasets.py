@@ -4,6 +4,8 @@
 import os
 from vllm import LLM, SamplingParams
 from datasets import load_dataset
+from transformers import AutoTokenizer
+
 
 # MODEL_NAME = "HuggingFaceTB/FineMath-Llama-3B"
 MODEL_NAME = "Qwen/Qwen2-1.5B-Instruct"
@@ -12,6 +14,12 @@ MODEL_NAME = "Qwen/Qwen2-1.5B-Instruct"
 NUM_ROLLOUTS_PER_QUESTION = 50
 MAX_QUESTIONS_PER_SPLIT = None
 MAX_RESPONSE_LEN = 1024 #3000
+OUTPUT_DIR = "../will_replication/DATA/SR_DATA"
+TEMPERATURE=1
+TOP_P=1
+TOP_K=-1
+N=1
+CONFIG_STR = f"max_tok_{MAX_RESPONSE_LEN}_temp_{TEMPERATURE}_k_{NUM_ROLLOUTS_PER_QUESTION}"
 
 PROMPT = "Let's think step by step and output the final answer within \\boxed{}."
 
@@ -34,8 +42,11 @@ def get_task(name):
 
 def main():
 
-    sampling_params = SamplingParams(max_tokens=MAX_RESPONSE_LEN, temperature=1, top_p=1, top_k=-1, n=1)
+    sampling_params = SamplingParams(max_tokens=MAX_RESPONSE_LEN, temperature=TEMPERATURE, top_p=TOP_P, top_k=TOP_K, n=N)
     llm = LLM(model=MODEL_NAME)
+
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+
 
     ds, compute_score = get_task('MATH')
 
@@ -43,17 +54,24 @@ def main():
     inputs = []
     for split in ds:
         for idx, item in enumerate(ds[split]):
-            prompt = item['problem'] + ' ' + PROMPT
+            # prompt = item['problem'] + ' ' + PROMPT
+            messages = [{"role": "user", "content": item['problem'] + ' ' + PROMPT}]
+            formatted_prompt = tokenizer.apply_chat_template(
+                messages, 
+                tokenize=False, 
+                add_generation_prompt=True
+            )
             for _ in range(NUM_ROLLOUTS_PER_QUESTION):
                 inputs.append({
                     'split': split,
                     'idx': idx,
-                    'prompt': prompt,
+                    'problem': item['problem'],
+                    'formatted_prompt': formatted_prompt,
                 })
             if MAX_QUESTIONS_PER_SPLIT is not None and idx > MAX_QUESTIONS_PER_SPLIT:
                 break
 
-    outputs = llm.generate([inp['prompt'] for inp in inputs], sampling_params)
+    outputs = llm.generate([inp['formatted_prompt'] for inp in inputs], sampling_params)
 
     # collect results
     results = {split: dict() for split in ds}
@@ -61,12 +79,15 @@ def main():
         split = inp['split']
         idx = inp['idx']
         ground_truth = ds[split][idx]['extracted_solution']
+        formatted_prompt = inp['formatted_prompt']
         generated_text = output.outputs[0].text
 
         if idx not in results[split]:
             results[split][idx] = {
                 'generated_solutions': [],
-                'ground_truth': ground_truth
+                'ground_truth': ground_truth,
+                'formatted_prompt': formatted_prompt,
+                'problem': inp['problem']
             }
 
         score = compute_score(generated_text, ground_truth)
@@ -97,7 +118,7 @@ def main():
     for split in results:
         results_df = pd.DataFrame.from_dict(results[split], orient='index')
         MODEL_ALIAS = MODEL_NAME.replace("/", "-")
-        results_df.to_parquet(f"MATH_{split}-{MODEL_ALIAS}.parquet")
+        results_df.to_parquet(f"{OUTPUT_DIR}/MATH_{split}-{MODEL_ALIAS}.parquet")
 
 if __name__ == "__main__":
     main()
