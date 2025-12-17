@@ -173,8 +173,9 @@ runs/**/datasplits/**_test.json
 **E2H-Codeforces**
 
 will_replication/activations
-will_replication/results/*/best_probe_predictions.json
-**best_probe_predictions.json
+# ignore the below files
+**all_predictions.json
+**performance.json
 
 
 runs
@@ -191,6 +192,7 @@ predicting_learnability/checkpoints
 predicting_learnability/MAJORITY_VOTE_DATA_COPY
 difficulty_direction/dataset/processed
 difficulty_direction/dataset/raw
+
 # runs/*
 # !runs/*/config.yaml
 # git add -f runs/DeepSeek-R1-Distill-Qwen-1.5B/config.yaml runs/DeepSeek-R1-Distill-Qwen-7B/config.yaml runs/Qwen2.5-Math-1.5B-Instruct/config.yaml runs/Qwen2.5-Math-1.5B/config.yaml runs/Qwen2.5-Math-7B/config.yaml

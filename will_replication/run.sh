@@ -4,14 +4,16 @@
 set -e  # Exit on error
 
 # Configuration
-MODEL="Qwen/Qwen2-1.5B-Instruct"
+MODEL="Qwen/Qwen2.5-Math-1.5B-Instruct"
+# MODEL="Qwen/Qwen2-1.5B-Instruct"
 # MODEL="Qwen/Qwen2.5-Math-7B-Instruct"
 # MODEL="Qwen/Qwen3-4B-Instruct-2507"
-MODEL_ALIAS="${MODEL##*/}"
+MODEL_ALIAS="${MODEL//\//-}"
 MAX_LEN=3000
-K=1  
-TEMPERATURE=0.0
-GENERATION_STR=${MODEL_ALIAS}_maxlen_${MAX_LEN}_k_${K}_temp_${TEMPERATURE}
+K=5  
+TEMPERATURE=1.0
+GEN_OPTIONS=maxlen_${MAX_LEN}_k_${K}_temp_${TEMPERATURE}
+GENERATION_STR=${MODEL_ALIAS}_${GEN_OPTIONS}
 
 MAIN_DATA_DIR="DATA"
 DATASET_DIR="${MAIN_DATA_DIR}/SR_DATA/MATH"
@@ -19,7 +21,7 @@ TRAIN_DATASET="${DATASET_DIR}/train-${GENERATION_STR}.parquet"
 TEST_DATASET="${DATASET_DIR}/test-${GENERATION_STR}.parquet"
 
 ACTIVATIONS_DIR="${MAIN_DATA_DIR}/activations"
-RESULTS_DIR="results/${DATASET_DIR}/${MODEL_ALIAS}_${GENERATION_STR}"
+RESULTS_DIR="probe_results/${DATASET_DIR}/${MODEL_ALIAS}_${GEN_OPTIONS}"
 TRAIN_ACTIVATIONS="${ACTIVATIONS_DIR}/${GENERATION_STR}_train.pt"
 TEST_ACTIVATIONS="${ACTIVATIONS_DIR}/${GENERATION_STR}_test.pt"
 
@@ -27,7 +29,7 @@ QUESTION_COL="formatted_prompt"
 LABEL_COL="success_rate"
 LAYERS="all"
 BATCH_SIZE=32
-GPU=2
+GPU=0
 
 # Create output directories
 mkdir -p "${ACTIVATIONS_DIR}"
@@ -75,4 +77,4 @@ echo "Pipeline complete!"
 echo "Results saved to: ${RESULTS_DIR}"
 echo "========================================="
 
-curl -d "Finished replication pipeline for ${MODEL_ALIAS}_${GENERATION_STR}" ntfy.sh/wills-linear-probe
+curl -d "Finished replication pipeline for ${MODEL_ALIAS}_${GEN_OPTIONS}" ntfy.sh/wills-linear-probe

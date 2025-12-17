@@ -9,13 +9,16 @@ from transformers import AutoTokenizer
 
 # MODEL_NAME = "HuggingFaceTB/FineMath-Llama-3B"
 # MODEL_NAME = "Qwen/Qwen2-1.5B-Instruct"
-MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
+# MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
+# MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct"
+MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B"
 
 MEMORY_UTIL=0.6
 NUM_ROLLOUTS_PER_QUESTION = 5
 MAX_QUESTIONS_PER_SPLIT = None
 MAX_RESPONSE_LEN = 3000 #3000
-OUTPUT_DIR = "../will_replication/DATA/SR_DATA"
+DATASET_NAME = "MATH"
+OUTPUT_DIR = f"../will_replication/DATA/SR_DATA/{DATASET_NAME}"
 TEMPERATURE=1.0
 TOP_P=1
 TOP_K=-1
@@ -116,10 +119,16 @@ def main():
     # then save to disk as parquet
     import pandas as pd
 
+    # Create output directory if it doesn't exist
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
     for split in results:
         results_df = pd.DataFrame.from_dict(results[split], orient='index')
         MODEL_ALIAS = MODEL_NAME.replace("/", "-")
-        results_df.to_parquet(f"{OUTPUT_DIR}/MATH_{split}-{MODEL_ALIAS}_{CONFIG_STR}.parquet")
+        output_filename = f"{split}-{MODEL_ALIAS}_maxlen_{MAX_RESPONSE_LEN}_k_{NUM_ROLLOUTS_PER_QUESTION}_temp_{TEMPERATURE}.parquet"
+        output_path = os.path.join(OUTPUT_DIR, output_filename)
+        results_df.to_parquet(output_path)
+        print(f"Saved {split} split to {output_path}")
 
 if __name__ == "__main__":
     main()

@@ -127,7 +127,7 @@ def main():
 
     for split in results:
         results_df = pd.DataFrame.from_dict(results[split], orient='index')
-        MODEL_ALIAS = MODEL_NAME.split("/")[-1]  # Extract just the model name
+        MODEL_ALIAS = MODEL_NAME.replace("/", "-")
         output_filename = f"{split}-{MODEL_ALIAS}_maxlen_{MAX_RESPONSE_LEN}_k_1_temp_0.0.parquet"
         output_path = os.path.join(OUTPUT_DIR, output_filename)
         results_df.to_parquet(output_path)
