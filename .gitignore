@@ -173,7 +173,7 @@ runs/**/datasplits/**_test.json
 **E2H-Codeforces**
 
 will_replication/activations
-will_replication/results/*/all_predictions.json
+will_replication/results/*/best_probe_predictions.json
 **best_probe_predictions.json
 
 

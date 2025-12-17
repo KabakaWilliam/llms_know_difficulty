@@ -8,7 +8,7 @@ from transformers import AutoTokenizer
 
 # MODEL_NAME = "HuggingFaceTB/FineMath-Llama-3B"
 # MODEL_NAME = "Qwen/Qwen2-1.5B-Instruct"
-MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
+# MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
 MODEL_NAME = "Qwen/Qwen3-4B-Instruct-2507"
 # MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct"
 
