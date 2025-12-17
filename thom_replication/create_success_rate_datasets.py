@@ -8,18 +8,19 @@ from transformers import AutoTokenizer
 
 
 # MODEL_NAME = "HuggingFaceTB/FineMath-Llama-3B"
-MODEL_NAME = "Qwen/Qwen2-1.5B-Instruct"
-# MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
+# MODEL_NAME = "Qwen/Qwen2-1.5B-Instruct"
+MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
 
-NUM_ROLLOUTS_PER_QUESTION = 50
+MEMORY_UTIL=0.6
+NUM_ROLLOUTS_PER_QUESTION = 5
 MAX_QUESTIONS_PER_SPLIT = None
-MAX_RESPONSE_LEN = 1024 #3000
+MAX_RESPONSE_LEN = 3000 #3000
 OUTPUT_DIR = "../will_replication/DATA/SR_DATA"
-TEMPERATURE=1
+TEMPERATURE=1.0
 TOP_P=1
 TOP_K=-1
 N=1
-CONFIG_STR = f"max_tok_{MAX_RESPONSE_LEN}_temp_{TEMPERATURE}_k_{NUM_ROLLOUTS_PER_QUESTION}"
+CONFIG_STR = f"maxlen_{MAX_RESPONSE_LEN}_k_{NUM_ROLLOUTS_PER_QUESTION}_temp_{TEMPERATURE}"
 
 PROMPT = "Let's think step by step and output the final answer within \\boxed{}."
 
@@ -43,7 +44,7 @@ def get_task(name):
 def main():
 
     sampling_params = SamplingParams(max_tokens=MAX_RESPONSE_LEN, temperature=TEMPERATURE, top_p=TOP_P, top_k=TOP_K, n=N)
-    llm = LLM(model=MODEL_NAME)
+    llm = LLM(model=MODEL_NAME, gpu_memory_utilization=MEMORY_UTIL)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
@@ -118,7 +119,7 @@ def main():
     for split in results:
         results_df = pd.DataFrame.from_dict(results[split], orient='index')
         MODEL_ALIAS = MODEL_NAME.replace("/", "-")
-        results_df.to_parquet(f"{OUTPUT_DIR}/MATH_{split}-{MODEL_ALIAS}.parquet")
+        results_df.to_parquet(f"{OUTPUT_DIR}/MATH_{split}-{MODEL_ALIAS}_{CONFIG_STR}.parquet")
 
 if __name__ == "__main__":
     main()
