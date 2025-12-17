@@ -10,8 +10,8 @@ MODEL="Qwen/Qwen2.5-Math-1.5B-Instruct"
 # MODEL="Qwen/Qwen3-4B-Instruct-2507"
 MODEL_ALIAS="${MODEL//\//-}"
 MAX_LEN=3000
-K=1  
-TEMPERATURE=0.0
+K=5  
+TEMPERATURE=1.0
 GEN_OPTIONS=maxlen_${MAX_LEN}_k_${K}_temp_${TEMPERATURE}
 GENERATION_STR=${MODEL_ALIAS}_${GEN_OPTIONS}
 
@@ -34,7 +34,7 @@ GPU=1
 # Regularization parameters
 # Set ALPHA_GRID to enable grid search (recommended for proper model selection)
 # Leave empty to use fixed ALPHA value
-# ALPHA_GRID="0,0.001,0.01,0.1,1,10,100,1000"  # Grid search (nested CV)
+ALPHA_GRID="0,0.001,0.01,0.1,1,10,100,1000"  # Grid search (nested CV)
 # ALPHA_GRID=""  # Uncomment to disable grid search and use fixed alpha
 ALPHA=1000  # Used only if ALPHA_GRID is empty
 
