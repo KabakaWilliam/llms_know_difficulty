@@ -9,7 +9,7 @@ import argparse
 import json
 import os
 import random
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -59,6 +59,71 @@ def make_cv(y: np.ndarray, n_splits: int, shuffle: bool, random_state: int):
         )
 
 
+def select_best_alpha(
+    x_train: np.ndarray,
+    y_train: np.ndarray,
+    task_type: str,
+    alpha_grid: List[float],
+    n_folds: int = 5,
+    random_state: int = 42,
+) -> Tuple[float, dict]:
+    """
+    Select best alpha via nested cross-validation.
+    
+    Returns:
+        best_alpha, alpha_scores (dict mapping alpha -> mean CV score)
+    """
+    cv = make_cv(y_train, n_splits=n_folds, shuffle=True, random_state=random_state)
+    alpha_scores = {}
+    
+    for alpha in alpha_grid:
+        fold_scores = []
+        
+        for train_idx, val_idx in cv.split(x_train, y_train):
+            x_train_fold = x_train[train_idx]
+            x_val_fold = x_train[val_idx]
+            y_train_fold = y_train[train_idx]
+            y_val_fold = y_train[val_idx]
+            
+            if task_type == "regression":
+                model = Ridge(alpha=alpha, fit_intercept=False)
+                model.fit(x_train_fold, y_train_fold)
+                y_pred = model.predict(x_val_fold)
+                
+                corr_result = spearmanr(y_val_fold, y_pred)
+                score = corr_result[0] if isinstance(corr_result, tuple) else corr_result.correlation
+                
+            else:  # classification
+                if alpha == 0:
+                    # No regularization
+                    model = LogisticRegression(
+                        penalty=None,
+                        fit_intercept=False,
+                        solver="lbfgs",
+                        max_iter=1000,
+                    )
+                else:
+                    model = LogisticRegression(
+                        penalty="l2",
+                        C=1.0 / alpha,
+                        fit_intercept=False,
+                        solver="lbfgs",
+                        max_iter=1000,
+                    )
+                model.fit(x_train_fold, y_train_fold)
+                y_proba = model.predict_proba(x_val_fold)[:, 1]
+                score = roc_auc_score(y_val_fold, y_proba)
+            
+            fold_scores.append(score)
+        
+        alpha_scores[alpha] = float(np.mean(fold_scores))
+    
+    # Select alpha with best mean CV score
+    best_alpha = max(alpha_scores.keys(), key=lambda a: alpha_scores[a])
+    
+    return best_alpha, alpha_scores
+
+
 def train_single_layer_probe(
     x_train: np.ndarray,
     y_train: np.ndarray,
@@ -66,20 +131,30 @@ def train_single_layer_probe(
     y_test: np.ndarray,
     task_type: str,
     alpha: float = 1.0,
+    alpha_grid: Optional[List[float]] = None,
     k_fold: bool = False,
     n_folds: int = 5,
     random_state: int = 42,
 ):
     """
-    Train a single linear probe.
+    Train a single linear probe with optional alpha selection via nested CV.
     
     Returns:
-        train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf, final_model
+        train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf, final_model, selected_alpha, alpha_scores
     """
+    selected_alpha = alpha
+    alpha_scores = None
+    
+    # Alpha selection via nested CV
+    if alpha_grid is not None and len(alpha_grid) > 1:
+        selected_alpha, alpha_scores = select_best_alpha(
+            x_train, y_train, task_type, alpha_grid, n_folds, random_state
+        )
+    
     cv_preds = None
     cv_perf = None
     
-    # Cross-validation
+    # Cross-validation (using selected_alpha)
     if k_fold:
         cv = make_cv(y_train, n_splits=n_folds, shuffle=True, random_state=random_state)
         cv_scores = []
@@ -92,7 +167,7 @@ def train_single_layer_probe(
             y_val_fold = y_train[val_idx]
             
             if task_type == "regression":
-                model_fold = Ridge(alpha=alpha, fit_intercept=False)
+                model_fold = Ridge(alpha=selected_alpha, fit_intercept=False)
                 model_fold.fit(x_train_fold, y_train_fold)
                 y_pred_val = model_fold.predict(x_val_fold)
                 cv_preds[val_idx] = y_pred_val
@@ -101,13 +176,22 @@ def train_single_layer_probe(
                 val_perf = corr_result[0] if isinstance(corr_result, tuple) else corr_result.correlation
                 
             else:  # classification
-                model_fold = LogisticRegression(
-                    penalty="l2",
-                    C=1.0 ,
-                    fit_intercept=False,
-                    solver="lbfgs",
-                    max_iter=1000,
-                )
+                if selected_alpha == 0:
+                    # No regularization
+                    model_fold = LogisticRegression(
+                        penalty=None,
+                        fit_intercept=False,
+                        solver="lbfgs",
+                        max_iter=1000,
+                    )
+                else:
+                    model_fold = LogisticRegression(
+                        penalty="l2",
+                        C=1.0 / selected_alpha,
+                        fit_intercept=False,
+                        solver="lbfgs",
+                        max_iter=1000,
+                    )
                 model_fold.fit(x_train_fold, y_train_fold)
                 y_proba_val = model_fold.predict_proba(x_val_fold)[:, 1]
                 cv_preds[val_idx] = y_proba_val
@@ -118,9 +202,9 @@ def train_single_layer_probe(
         
         cv_perf = float(np.mean(cv_scores))
     
-    # Train final model on full training set
+    # Train final model on full training set with selected alpha
     if task_type == "regression":
-        final_model = Ridge(alpha=alpha, fit_intercept=False)
+        final_model = Ridge(alpha=selected_alpha, fit_intercept=False)
         final_model.fit(x_train, y_train)
         
         train_preds = final_model.predict(x_train)
@@ -133,13 +217,22 @@ def train_single_layer_probe(
         test_perf = test_corr[0] if isinstance(test_corr, tuple) else test_corr.correlation
         
     else:  # classification
-        final_model = LogisticRegression(
-            penalty="l2",
-            C=1.0 / alpha,
-            fit_intercept=False,
-            solver="lbfgs",
-            max_iter=1000,
-        )
+        if selected_alpha == 0:
+            # No regularization
+            final_model = LogisticRegression(
+                penalty=None,
+                fit_intercept=False,
+                solver="lbfgs",
+                max_iter=1000,
+            )
+        else:
+            final_model = LogisticRegression(
+                penalty="l2",
+                C=1.0 / selected_alpha,
+                fit_intercept=False,
+                solver="lbfgs",
+                max_iter=1000,
+            )
         final_model.fit(x_train, y_train)
         
         train_preds = final_model.predict_proba(x_train)[:, 1]
@@ -148,7 +241,7 @@ def train_single_layer_probe(
         train_perf = roc_auc_score(y_train, train_preds)
         test_perf = roc_auc_score(y_test, test_preds)
     
-    return train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf, final_model
+    return train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf, final_model, selected_alpha, alpha_scores
 
 
 def train_probes(
@@ -157,11 +250,12 @@ def train_probes(
     output_dir: str,
     task_type: str = "auto",
     alpha: float = 1.0,
+    alpha_grid: Optional[List[float]] = None,
     k_fold: bool = False,
     n_folds: int = 5,
     seed: int = 42,
 ):
-    """Train linear probes on all layers and positions."""
+    """Train linear probes on all layers and positions with optional alpha selection."""
     set_seed(seed)
     os.makedirs(output_dir, exist_ok=True)
     
@@ -196,8 +290,15 @@ def train_probes(
     
     all_predictions = {}  # (pos_idx, layer_idx) -> {train_preds, test_preds, cv_preds}
     all_probe_weights = {}  # (pos_idx, layer_idx) -> probe weights
+    all_selected_alphas = {}  # (pos_idx, layer_idx) -> selected alpha
+    all_alpha_scores = {}  # (pos_idx, layer_idx) -> {alpha: score}
     
     positions = train_data.get('positions', list(range(-n_positions, 0)))
+    
+    # Print alpha selection info
+    if alpha_grid is not None and len(alpha_grid) > 1:
+        print(f"\nPerforming alpha grid search with values: {alpha_grid}")
+        print(f"This will do nested CV for each (position, layer) combination\\n")
     
     for pos_idx in range(n_positions):
         pos = positions[pos_idx]
@@ -212,13 +313,13 @@ def train_probes(
             x_train = train_activations[:, layer_idx, pos_idx, :].numpy()  # [N, D]
             x_test = test_activations[:, layer_idx, pos_idx, :].numpy()  # [M, D]
             
-            # Train probe
-            train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf, probe_model = \
-                train_single_layer_probe(
+            # Train probe with optional alpha selection
+            train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf, probe_model, selected_alpha, alpha_scores = train_single_layer_probe(
                     x_train, train_labels,
                     x_test, test_labels,
                     task_type=task_type,
                     alpha=alpha,
+                    alpha_grid=alpha_grid,
                     k_fold=k_fold,
                     n_folds=n_folds,
                     random_state=seed,
@@ -243,6 +344,11 @@ def train_probes(
                 if weights.ndim == 2 and weights.shape[0] == 1:
                     weights = weights[0]  # Flatten from [1, D] to [D]
                 all_probe_weights[(pos_idx, layer_idx)] = weights.tolist()
+            
+            # Store alpha selection results
+            all_selected_alphas[(pos_idx, layer_idx)] = float(selected_alpha)
+            if alpha_scores is not None:
+                all_alpha_scores[(pos_idx, layer_idx)] = {str(k): v for k, v in alpha_scores.items()}
         
         layer_performance["train"].append(pos_train_performance)
         layer_performance["test"].append(pos_test_performance)
@@ -262,7 +368,17 @@ def train_probes(
         "k_fold": k_fold,
         "n_folds": n_folds if k_fold else None,
         "alpha": alpha,
+        "alpha_grid": alpha_grid,
+        "selected_alphas": {f"pos_{positions[pi]}_layer_{li}": a 
+                           for (pi, li), a in all_selected_alphas.items()},
     }
+    
+    # Save alpha scores if grid search was performed
+    if alpha_grid is not None and len(alpha_grid) > 1:
+        performance_data["alpha_cv_scores"] = {
+            f"pos_{positions[pi]}_layer_{li}": scores 
+            for (pi, li), scores in all_alpha_scores.items()
+        }
     
     with open(f"{output_dir}/performance.json", 'w') as f:
         json.dump(performance_data, f, indent=2)
@@ -279,6 +395,11 @@ def train_probes(
         print(f"\n{'='*60}")
         print(f"Position {pos}: Best layer by test {metric_name}: Layer {best_layer_by_test}")
         print(f"Test {metric_name}: {best_test:.4f}")
+        
+        # Show selected alpha if grid search was performed
+        if alpha_grid is not None and len(alpha_grid) > 1:
+            selected_alpha_best = all_selected_alphas[(pos_idx, best_layer_by_test)]
+            print(f"Selected alpha: {selected_alpha_best}")
         
         if k_fold:
             cv_scores = np.array(layer_performance["cv"][pos_idx])
@@ -316,6 +437,9 @@ def train_probes(
             print(f"Position {best_pos}, Layer {best_layer_idx}")
             print(f"CV {metric_name}: {best_cv_overall:.4f}")
             print(f"Test {metric_name}: {test_at_best_cv:.4f}")
+            if alpha_grid is not None and len(alpha_grid) > 1:
+                best_alpha = all_selected_alphas[(best_pos_idx, best_layer_idx)]
+                print(f"Selected alpha: {best_alpha}")
             print(f"{'='*60}")
             
             # Save best probe predictions
@@ -325,6 +449,8 @@ def train_probes(
                 "best_layer": best_layer_idx,
                 "cv_score": best_cv_overall,
                 "test_score": test_at_best_cv,
+                "selected_alpha": all_selected_alphas.get((best_pos_idx, best_layer_idx)),
+                "alpha_cv_scores": all_alpha_scores.get((best_pos_idx, best_layer_idx)),
                 "train_actual": train_labels.tolist(),
                 "test_actual": test_labels.tolist(),
                 "train_predictions": all_predictions[(best_pos_idx, best_layer_idx)]["train_predictions"],
@@ -399,7 +525,9 @@ def main():
                         choices=["auto", "regression", "classification"],
                         help="Task type")
     parser.add_argument("--alpha", type=float, default=1.0,
-                        help="Regularization strength for Ridge/Logistic regression")
+                        help="Regularization strength (used if --alpha_grid not specified)")
+    parser.add_argument("--alpha_grid", type=str, default=None,
+                        help="Comma-separated list of alpha values for grid search (e.g., '0.001,0.01,0.1,1,10,100')")
     parser.add_argument("--k_fold", action="store_true",
                         help="Enable k-fold cross-validation")
     parser.add_argument("--n_folds", type=int, default=5,
@@ -409,12 +537,19 @@ def main():
     
     args = parser.parse_args()
     
+    # Parse alpha grid
+    alpha_grid = None
+    if args.alpha_grid is not None:
+        alpha_grid = [float(x.strip()) for x in args.alpha_grid.split(",")]
+        print(f"Using alpha grid: {alpha_grid}")
+    
     train_probes(
         train_activations_path=args.train_activations,
         test_activations_path=args.test_activations,
         output_dir=args.output_dir,
         task_type=args.task_type,
         alpha=args.alpha,
+        alpha_grid=alpha_grid,
         k_fold=args.k_fold,
         n_folds=args.n_folds,
         seed=args.seed,

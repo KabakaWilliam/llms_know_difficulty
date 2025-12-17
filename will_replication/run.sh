@@ -10,8 +10,8 @@ MODEL="Qwen/Qwen2.5-Math-1.5B-Instruct"
 # MODEL="Qwen/Qwen3-4B-Instruct-2507"
 MODEL_ALIAS="${MODEL//\//-}"
 MAX_LEN=3000
-K=5  
-TEMPERATURE=1.0
+K=1  
+TEMPERATURE=0.0
 GEN_OPTIONS=maxlen_${MAX_LEN}_k_${K}_temp_${TEMPERATURE}
 GENERATION_STR=${MODEL_ALIAS}_${GEN_OPTIONS}
 
@@ -29,7 +29,14 @@ QUESTION_COL="formatted_prompt"
 LABEL_COL="success_rate"
 LAYERS="all"
 BATCH_SIZE=32
-GPU=0
+GPU=1
+
+# Regularization parameters
+# Set ALPHA_GRID to enable grid search (recommended for proper model selection)
+# Leave empty to use fixed ALPHA value
+# ALPHA_GRID="0,0.001,0.01,0.1,1,10,100,1000"  # Grid search (nested CV)
+# ALPHA_GRID=""  # Uncomment to disable grid search and use fixed alpha
+ALPHA=1000  # Used only if ALPHA_GRID is empty
 
 # Create output directories
 mkdir -p "${ACTIVATIONS_DIR}"
@@ -64,12 +71,26 @@ echo ""
 echo "========================================="
 echo "Step 3: Training probes..."
 echo "========================================="
-python3 -m scripts.train_probe\
-    --train_activations "${TRAIN_ACTIVATIONS}" \
-    --test_activations "${TEST_ACTIVATIONS}" \
-    --output_dir "${RESULTS_DIR}" \
+
+# Build train_probe command
+TRAIN_CMD="python3 -m scripts.train_probe \
+    --train_activations \"${TRAIN_ACTIVATIONS}\" \
+    --test_activations \"${TEST_ACTIVATIONS}\" \
+    --output_dir \"${RESULTS_DIR}\" \
     --k_fold \
-    --n_folds 5
+    --n_folds 5"
+
+# Add alpha grid if specified
+if [ -n "${ALPHA_GRID}" ]; then
+    echo "Using alpha grid search: ${ALPHA_GRID}"
+    TRAIN_CMD="${TRAIN_CMD} --alpha_grid \"${ALPHA_GRID}\""
+else
+    echo "Using fixed alpha: ${ALPHA}"
+    TRAIN_CMD="${TRAIN_CMD} --alpha ${ALPHA}"
+fi
+
+# Execute
+eval ${TRAIN_CMD}
 
 echo ""
 echo "========================================="
