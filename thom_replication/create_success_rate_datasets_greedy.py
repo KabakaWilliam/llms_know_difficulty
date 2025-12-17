@@ -7,11 +7,12 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 # MODEL_NAME = "HuggingFaceTB/FineMath-Llama-3B"
-MODEL_NAME = "Qwen/Qwen2-1.5B-Instruct"
+# MODEL_NAME = "Qwen/Qwen2-1.5B-Instruct"
 # MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
+MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct"
 
 NUM_ROLLOUTS_PER_QUESTION = 1  # Greedy: only one generation per question
-MEMORY_UTIL = 0.6
+MEMORY_UTIL = 0.5
 MAX_QUESTIONS_PER_SPLIT = None
 MAX_RESPONSE_LEN = 3000
 DATASET_NAME = "MATH"  # Used for output directory structure

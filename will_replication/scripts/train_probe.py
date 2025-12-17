@@ -69,12 +69,12 @@ def train_single_layer_probe(
     k_fold: bool = False,
     n_folds: int = 5,
     random_state: int = 42,
-) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], float, float, Optional[float]]:
+):
     """
     Train a single linear probe.
     
     Returns:
-        train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf
+        train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf, final_model
     """
     cv_preds = None
     cv_perf = None
@@ -103,7 +103,7 @@ def train_single_layer_probe(
             else:  # classification
                 model_fold = LogisticRegression(
                     penalty="l2",
-                    C=1.0 / alpha,
+                    C=1.0 ,
                     fit_intercept=False,
                     solver="lbfgs",
                     max_iter=1000,
@@ -148,7 +148,7 @@ def train_single_layer_probe(
         train_perf = roc_auc_score(y_train, train_preds)
         test_perf = roc_auc_score(y_test, test_preds)
     
-    return train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf
+    return train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf, final_model
 
 
 def train_probes(
@@ -195,6 +195,7 @@ def train_probes(
     }
     
     all_predictions = {}  # (pos_idx, layer_idx) -> {train_preds, test_preds, cv_preds}
+    all_probe_weights = {}  # (pos_idx, layer_idx) -> probe weights
     
     positions = train_data.get('positions', list(range(-n_positions, 0)))
     
@@ -212,7 +213,7 @@ def train_probes(
             x_test = test_activations[:, layer_idx, pos_idx, :].numpy()  # [M, D]
             
             # Train probe
-            train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf = \
+            train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf, probe_model = \
                 train_single_layer_probe(
                     x_train, train_labels,
                     x_test, test_labels,
@@ -235,6 +236,13 @@ def train_probes(
                 "test_predictions": test_preds.tolist(),
                 "cv_predictions": cv_preds.tolist() if cv_preds is not None else None,
             }
+            
+            # Store probe weights (coefficients)
+            if hasattr(probe_model, 'coef_'):
+                weights = probe_model.coef_
+                if weights.ndim == 2 and weights.shape[0] == 1:
+                    weights = weights[0]  # Flatten from [1, D] to [D]
+                all_probe_weights[(pos_idx, layer_idx)] = weights.tolist()
         
         layer_performance["train"].append(pos_train_performance)
         layer_performance["test"].append(pos_test_performance)
@@ -322,6 +330,7 @@ def train_probes(
                 "train_predictions": all_predictions[(best_pos_idx, best_layer_idx)]["train_predictions"],
                 "test_predictions": all_predictions[(best_pos_idx, best_layer_idx)]["test_predictions"],
                 "cv_predictions": all_predictions[(best_pos_idx, best_layer_idx)]["cv_predictions"],
+                "probe_weights": all_probe_weights.get((best_pos_idx, best_layer_idx)),
                 "task_type": task_type,
                 "metric": metric_name,
             }
