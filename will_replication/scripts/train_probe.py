@@ -8,6 +8,7 @@ from post-instruction tokens, replicating the methodology from get_directions_st
 import argparse
 import json
 import os
+import wandb
 import random
 from typing import List, Optional, Tuple
 
@@ -254,21 +255,69 @@ def train_probes(
     k_fold: bool = False,
     n_folds: int = 5,
     seed: int = 42,
+    use_wandb: bool = False,
+    wandb_project: str = "diff_probe_training",
+    wandb_name: Optional[str] = None,
 ):
     """Train linear probes on all layers and positions with optional alpha selection."""
     set_seed(seed)
     os.makedirs(output_dir, exist_ok=True)
     
-    # Load activations
+    # Load activations and extract metadata
     print("Loading training activations...")
     train_data = torch.load(train_activations_path)
     train_activations = train_data['activations']  # [N, L, P, D]
     train_labels = train_data['labels'].numpy()  # [N]
     
+    # Extract metadata from filename
+    train_filename = os.path.basename(train_activations_path)
+    # Parse filename: Model_maxlen_X_k_Y_temp_Z_split.pt
+    import re
+    match = re.search(r'(.+?)_maxlen_(\d+)_k_(\d+(?:\.\d+)?)_temp_(\d+(?:\.\d+)?)_(train|test)\.pt', train_filename)
+    if match:
+        model_name_from_file = match.group(1)
+        max_len = int(match.group(2))
+        k_samples = float(match.group(3))
+        temperature = float(match.group(4))
+    else:
+        # Fallback if pattern doesn't match
+        model_name_from_file = train_data.get('model_name', 'unknown')
+        max_len = None
+        k_samples = None
+        temperature = None
+    
     print("Loading test activations...")
     test_data = torch.load(test_activations_path)
     test_activations = test_data['activations']  # [M, L, P, D]
     test_labels = test_data['labels'].numpy()  # [M]
+    
+    # Initialize wandb if requested
+    if use_wandb:
+        config = {
+            "train_activations": train_activations_path,
+            "test_activations": test_activations_path,
+            "alpha": alpha,
+            "alpha_grid": alpha_grid,
+            "k_fold": k_fold,
+            "n_folds": n_folds,
+            "seed": seed,
+        }
+        
+        # Add parsed metadata from filename
+        if max_len is not None:
+            config["max_length"] = max_len
+        if k_samples is not None:
+            config["k_samples"] = k_samples
+        if temperature is not None:
+            config["temperature"] = temperature
+        if model_name_from_file != 'unknown':
+            config["model_name"] = model_name_from_file
+        
+        wandb.init(
+            project=wandb_project,
+            name=wandb_name,
+            config=config
+        )
     
     n_train, n_layers, n_positions, d_model = train_activations.shape
     n_test = test_activations.shape[0]
@@ -330,6 +379,17 @@ def train_probes(
             pos_test_performance.append(float(test_perf))
             if k_fold:
                 pos_cv_performance.append(float(cv_perf))
+            
+            # Log to wandb
+            if use_wandb:
+                log_dict = {
+                    f"pos_{pos}/layer_{layer_idx}/train_{metric_name}": train_perf,
+                    f"pos_{pos}/layer_{layer_idx}/test_{metric_name}": test_perf,
+                    f"pos_{pos}/layer_{layer_idx}/selected_alpha": selected_alpha,
+                }
+                if k_fold:
+                    log_dict[f"pos_{pos}/layer_{layer_idx}/cv_{metric_name}"] = cv_perf
+                wandb.log(log_dict)
             
             # Store predictions
             all_predictions[(pos_idx, layer_idx)] = {
@@ -442,6 +502,18 @@ def train_probes(
                 print(f"Selected alpha: {best_alpha}")
             print(f"{'='*60}")
             
+            # Log best probe to wandb
+            if use_wandb:
+                wandb.log({
+                    "best_probe/position": best_pos,
+                    "best_probe/layer": best_layer_idx,
+                    f"best_probe/cv_{metric_name}": best_cv_overall,
+                    f"best_probe/test_{metric_name}": test_at_best_cv,
+                    "best_probe/selected_alpha": all_selected_alphas.get((best_pos_idx, best_layer_idx)),
+                    "task_type": task_type,
+                "metric": metric_name,
+                })
+            
             # Save best probe predictions
             best_probe_data = {
                 "best_position": best_pos,
@@ -507,6 +579,10 @@ def train_probes(
         json.dump(all_preds_output, f, indent=2)
     
     print(f"All predictions saved to {output_dir}/all_predictions.json")
+    
+    # Finish wandb run
+    if use_wandb:
+        wandb.finish()
 
 
 def main():
@@ -535,6 +611,14 @@ def main():
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed")
     
+    # Wandb args
+    parser.add_argument("--wandb", action="store_true",
+                        help="Enable wandb logging")
+    parser.add_argument("--wandb_project", type=str, default="diff_probe_training",
+                        help="Wandb project name")
+    parser.add_argument("--wandb_name", type=str, default=None,
+                        help="Wandb run name")
+    
     args = parser.parse_args()
     
     # Parse alpha grid
@@ -553,6 +637,9 @@ def main():
         k_fold=args.k_fold,
         n_folds=args.n_folds,
         seed=args.seed,
+        use_wandb=args.wandb,
+        wandb_project=args.wandb_project,
+        wandb_name=args.wandb_name,
     )
 
 

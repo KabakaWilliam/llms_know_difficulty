@@ -40,6 +40,11 @@ ALPHA_GRID="100,1000, 10000, 100000, 1000000"  # Grid search (nested CV)
 # ALPHA_GRID=""  # Uncomment to disable grid search and use fixed alpha
 ALPHA=1000  # Used only if ALPHA_GRID is empty
 
+# Wandb logging
+USE_WANDB=true  # Set to true to enable wandb logging
+WANDB_PROJECT="llms-know-difficulty-probes"
+WANDB_NAME="${MODEL_ALIAS}_${GEN_OPTIONS}"
+
 # Create output directories
 mkdir -p "${ACTIVATIONS_DIR}"
 mkdir -p "${RESULTS_DIR}"
@@ -89,6 +94,12 @@ if [ -n "${ALPHA_GRID}" ]; then
 else
     echo "Using fixed alpha: ${ALPHA}"
     TRAIN_CMD="${TRAIN_CMD} --alpha ${ALPHA}"
+fi
+
+# Add wandb if enabled
+if [ "${USE_WANDB}" = "true" ]; then
+    echo "Wandb logging enabled: ${WANDB_PROJECT}/${WANDB_NAME}"
+    TRAIN_CMD="${TRAIN_CMD} --wandb --wandb_project \"${WANDB_PROJECT}\" --wandb_name \"${WANDB_NAME}\""
 fi
 
 # Execute
