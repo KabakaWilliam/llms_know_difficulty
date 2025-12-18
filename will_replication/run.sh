@@ -4,14 +4,14 @@
 set -e  # Exit on error
 
 # Configuration
-# MODEL="Qwen/Qwen2.5-Math-1.5B-Instruct"
+MODEL="Qwen/Qwen2.5-Math-1.5B-Instruct"
 # MODEL="Qwen/Qwen2-1.5B-Instruct"
-MODEL="Qwen/Qwen2.5-Math-7B-Instruct"
+# MODEL="Qwen/Qwen2.5-Math-7B-Instruct"
 # MODEL="Qwen/Qwen3-4B-Instruct-2507"
 MODEL_ALIAS="${MODEL//\//-}"
 MAX_LEN=3000
-K=1  
-TEMPERATURE=0.0
+K=5  
+TEMPERATURE=1.0
 GEN_OPTIONS=maxlen_${MAX_LEN}_k_${K}_temp_${TEMPERATURE}
 GENERATION_STR=${MODEL_ALIAS}_${GEN_OPTIONS}
 
@@ -22,8 +22,8 @@ TEST_DATASET="${DATASET_DIR}/test-${GENERATION_STR}.parquet"
 
 ACTIVATIONS_DIR="${MAIN_DATA_DIR}/activations"
 RESULTS_DIR="probe_results/${DATASET_DIR}/${MODEL_ALIAS}_${GEN_OPTIONS}"
-TRAIN_ACTIVATIONS="${ACTIVATIONS_DIR}/${GENERATION_STR}_train.pt"
-TEST_ACTIVATIONS="${ACTIVATIONS_DIR}/${GENERATION_STR}_test.pt"
+TRAIN_ACTIVATIONS="${ACTIVATIONS_DIR}/${GENERATION_STR}_train_with_topic.pt"
+TEST_ACTIVATIONS="${ACTIVATIONS_DIR}/${GENERATION_STR}_test_with_topic.pt"
 
 QUESTION_COL="formatted_prompt"
 LABEL_COL="success_rate"
@@ -36,6 +36,7 @@ GPU=1
 # Leave empty to use fixed ALPHA value
 # ALPHA_GRID="0,0.001,0.01,0.1,1,10,100,1000"  # Grid search (nested CV)
 ALPHA_GRID="100,1000, 10000, 100000, 1000000"  # Grid search (nested CV)
+ALPHA_GRID="0, 0.001, 0.01, 0.1, 1, 10, 100,1000, 10000, 100000, 1000000"  # Grid search (nested CV)
 
 # ALPHA_GRID=""  # Uncomment to disable grid search and use fixed alpha
 ALPHA=1000  # Used only if ALPHA_GRID is empty
@@ -49,30 +50,30 @@ WANDB_NAME="${MODEL_ALIAS}_${GEN_OPTIONS}"
 mkdir -p "${ACTIVATIONS_DIR}"
 mkdir -p "${RESULTS_DIR}"
 
-echo "========================================="
-echo "Step 1: Extracting training activations..."
-echo "========================================="
-CUDA_VISIBLE_DEVICES=${GPU} python3 -m scripts.extract_activations\
-    --model "${MODEL}" \
-    --dataset_path "${TRAIN_DATASET}" \
-    --output_path "${TRAIN_ACTIVATIONS}" \
-    --layers "${LAYERS}" \
-    --batch_size ${BATCH_SIZE} \
-    --question_column "${QUESTION_COL}" \
-    --label_column "${LABEL_COL}"
+# echo "========================================="
+# echo "Step 1: Extracting training activations..."
+# echo "========================================="
+# CUDA_VISIBLE_DEVICES=${GPU} python3 -m scripts.extract_activations\
+#     --model "${MODEL}" \
+#     --dataset_path "${TRAIN_DATASET}" \
+#     --output_path "${TRAIN_ACTIVATIONS}" \
+#     --layers "${LAYERS}" \
+#     --batch_size ${BATCH_SIZE} \
+#     --question_column "${QUESTION_COL}" \
+#     --label_column "${LABEL_COL}"
 
-echo ""
-echo "========================================="
-echo "Step 2: Extracting test activations..."
-echo "========================================="
-CUDA_VISIBLE_DEVICES=${GPU} python3 -m scripts.extract_activations\
-    --model "${MODEL}" \
-    --dataset_path "${TEST_DATASET}" \
-    --output_path "${TEST_ACTIVATIONS}" \
-    --layers "${LAYERS}" \
-    --batch_size ${BATCH_SIZE} \
-    --question_column "${QUESTION_COL}" \
-    --label_column "${LABEL_COL}"
+# echo ""
+# echo "========================================="
+# echo "Step 2: Extracting test activations..."
+# echo "========================================="
+# CUDA_VISIBLE_DEVICES=${GPU} python3 -m scripts.extract_activations\
+#     --model "${MODEL}" \
+#     --dataset_path "${TEST_DATASET}" \
+#     --output_path "${TEST_ACTIVATIONS}" \
+#     --layers "${LAYERS}" \
+#     --batch_size ${BATCH_SIZE} \
+#     --question_column "${QUESTION_COL}" \
+#     --label_column "${LABEL_COL}"
 
 echo ""
 echo "========================================="

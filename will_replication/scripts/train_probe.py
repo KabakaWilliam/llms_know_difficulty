@@ -136,13 +136,23 @@ def train_single_layer_probe(
     k_fold: bool = False,
     n_folds: int = 5,
     random_state: int = 42,
+    aux_features_train: Optional[np.ndarray] = None,
+    aux_features_test: Optional[np.ndarray] = None,
 ):
     """
     Train a single linear probe with optional alpha selection via nested CV.
     
+    Args:
+        aux_features_train: Optional auxiliary features to concatenate with activations [N, F]
+        aux_features_test: Optional auxiliary features for test set [M, F]
+    
     Returns:
         train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf, final_model, selected_alpha, alpha_scores
     """
+    # Concatenate auxiliary features if provided
+    if aux_features_train is not None:
+        x_train = np.concatenate([x_train, aux_features_train], axis=1)
+        x_test = np.concatenate([x_test, aux_features_test], axis=1)
     selected_alpha = alpha
     alpha_scores = None
     
@@ -269,6 +279,16 @@ def train_probes(
     train_activations = train_data['activations']  # [N, L, P, D]
     train_labels = train_data['labels'].numpy()  # [N]
     
+    # Load auxiliary features if available (e.g., topic_num)
+    aux_features_train = train_data.get('aux_features', None)  # [N, F] or None
+    if aux_features_train is not None:
+        if isinstance(aux_features_train, torch.Tensor):
+            aux_features_train = aux_features_train.numpy()
+        # Ensure 2D shape
+        if aux_features_train.ndim == 1:
+            aux_features_train = aux_features_train.reshape(-1, 1)
+        print(f"Found auxiliary features with shape: {aux_features_train.shape}")
+    
     # Extract metadata from filename
     train_filename = os.path.basename(train_activations_path)
     # Parse filename: Model_maxlen_X_k_Y_temp_Z_split.pt
@@ -291,6 +311,15 @@ def train_probes(
     test_activations = test_data['activations']  # [M, L, P, D]
     test_labels = test_data['labels'].numpy()  # [M]
     
+    # Load auxiliary features for test set
+    aux_features_test = test_data.get('aux_features', None)  # [M, F] or None
+    if aux_features_test is not None:
+        if isinstance(aux_features_test, torch.Tensor):
+            aux_features_test = aux_features_test.numpy()
+        if aux_features_test.ndim == 1:
+            aux_features_test = aux_features_test.reshape(-1, 1)
+        print(f"Found auxiliary features (test) with shape: {aux_features_test.shape}")
+    
     # Initialize wandb if requested
     if use_wandb:
         config = {
@@ -312,6 +341,13 @@ def train_probes(
             config["temperature"] = temperature
         if model_name_from_file != 'unknown':
             config["model_name"] = model_name_from_file
+        
+        # Add auxiliary features info
+        if aux_features_train is not None:
+            config["aux_features_dim"] = aux_features_train.shape[1]
+            config["using_aux_features"] = True
+        else:
+            config["using_aux_features"] = False
         
         wandb.init(
             project=wandb_project,
@@ -362,7 +398,7 @@ def train_probes(
             x_train = train_activations[:, layer_idx, pos_idx, :].numpy()  # [N, D]
             x_test = test_activations[:, layer_idx, pos_idx, :].numpy()  # [M, D]
             
-            # Train probe with optional alpha selection
+            # Train probe with optional alpha selection and auxiliary features
             train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf, probe_model, selected_alpha, alpha_scores = train_single_layer_probe(
                     x_train, train_labels,
                     x_test, test_labels,
@@ -372,6 +408,8 @@ def train_probes(
                     k_fold=k_fold,
                     n_folds=n_folds,
                     random_state=seed,
+                    aux_features_train=aux_features_train,
+                    aux_features_test=aux_features_test,
                 )
             
             # Store performance
@@ -382,14 +420,30 @@ def train_probes(
             
             # Log to wandb
             if use_wandb:
+                # Per-layer metrics with step for easy plotting
+                step = pos_idx * n_layers + layer_idx
                 log_dict = {
-                    f"pos_{pos}/layer_{layer_idx}/train_{metric_name}": train_perf,
-                    f"pos_{pos}/layer_{layer_idx}/test_{metric_name}": test_perf,
-                    f"pos_{pos}/layer_{layer_idx}/selected_alpha": selected_alpha,
+                    f"pos_{pos}/train_{metric_name}": train_perf,
+                    f"pos_{pos}/test_{metric_name}": test_perf,
+                    f"pos_{pos}/selected_alpha": selected_alpha,
+                    f"pos_{pos}/layer": layer_idx,
+                    # Global metrics across all positions
+                    f"layer_{layer_idx}/train_{metric_name}": train_perf,
+                    f"layer_{layer_idx}/test_{metric_name}": test_perf,
                 }
                 if k_fold:
-                    log_dict[f"pos_{pos}/layer_{layer_idx}/cv_{metric_name}"] = cv_perf
-                wandb.log(log_dict)
+                    log_dict[f"pos_{pos}/cv_{metric_name}"] = cv_perf
+                    log_dict[f"layer_{layer_idx}/cv_{metric_name}"] = cv_perf
+                    # Generalization gap: train - cv
+                    log_dict[f"pos_{pos}/train_cv_gap"] = train_perf - cv_perf
+                    log_dict[f"pos_{pos}/cv_test_gap"] = cv_perf - test_perf
+                
+                # Log alpha scores if grid search was performed
+                if alpha_scores is not None:
+                    for alpha_val, score in alpha_scores.items():
+                        log_dict[f"pos_{pos}/alpha_{alpha_val}_cv_score"] = score
+                
+                wandb.log(log_dict, step=step)
             
             # Store predictions
             all_predictions[(pos_idx, layer_idx)] = {
@@ -414,6 +468,26 @@ def train_probes(
         layer_performance["test"].append(pos_test_performance)
         if k_fold:
             layer_performance["cv"].append(pos_cv_performance)
+        
+        # Log per-position summary to wandb
+        if use_wandb:
+            pos_test_arr = np.array(pos_test_performance)
+            best_layer_idx = int(np.nanargmax(pos_test_arr))
+            summary_dict = {
+                f"summary/pos_{pos}/best_layer": best_layer_idx,
+                f"summary/pos_{pos}/best_test_{metric_name}": float(pos_test_arr[best_layer_idx]),
+                f"summary/pos_{pos}/mean_test_{metric_name}": float(np.nanmean(pos_test_arr)),
+                f"summary/pos_{pos}/std_test_{metric_name}": float(np.nanstd(pos_test_arr)),
+            }
+            if k_fold:
+                pos_cv_arr = np.array(pos_cv_performance)
+                best_cv_layer_idx = int(np.nanargmax(pos_cv_arr))
+                summary_dict.update({
+                    f"summary/pos_{pos}/best_cv_layer": best_cv_layer_idx,
+                    f"summary/pos_{pos}/best_cv_{metric_name}": float(pos_cv_arr[best_cv_layer_idx]),
+                    f"summary/pos_{pos}/mean_cv_{metric_name}": float(np.nanmean(pos_cv_arr)),
+                })
+            wandb.log(summary_dict)
     
     # Save performance metrics
     performance_data = {
@@ -504,15 +578,37 @@ def train_probes(
             
             # Log best probe to wandb
             if use_wandb:
-                wandb.log({
+                train_scores_for_pos = np.array(layer_performance["train"][best_pos_idx])
+                train_at_best_cv = float(train_scores_for_pos[best_layer_idx])
+                
+                best_probe_summary = {
                     "best_probe/position": best_pos,
                     "best_probe/layer": best_layer_idx,
+                    f"best_probe/train_{metric_name}": train_at_best_cv,
                     f"best_probe/cv_{metric_name}": best_cv_overall,
                     f"best_probe/test_{metric_name}": test_at_best_cv,
+                    "best_probe/train_cv_gap": train_at_best_cv - best_cv_overall,
+                    "best_probe/cv_test_gap": best_cv_overall - test_at_best_cv,
                     "best_probe/selected_alpha": all_selected_alphas.get((best_pos_idx, best_layer_idx)),
+                    "best_probe/using_aux_features": aux_features_train is not None,
                     "task_type": task_type,
-                "metric": metric_name,
-                })
+                    "metric": metric_name,
+                }
+                
+                # Add alpha scores if available
+                if (best_pos_idx, best_layer_idx) in all_alpha_scores:
+                    best_alpha_scores = all_alpha_scores[(best_pos_idx, best_layer_idx)]
+                    for alpha_val, score in best_alpha_scores.items():
+                        best_probe_summary[f"best_probe/alpha_{alpha_val}_cv_score"] = score
+                
+                wandb.log(best_probe_summary)
+                
+                # Create summary table for wandb
+                wandb.run.summary["best_position"] = best_pos
+                wandb.run.summary["best_layer"] = best_layer_idx
+                wandb.run.summary[f"best_train_{metric_name}"] = train_at_best_cv
+                wandb.run.summary[f"best_cv_{metric_name}"] = best_cv_overall
+                wandb.run.summary[f"best_test_{metric_name}"] = test_at_best_cv
             
             # Save best probe predictions
             best_probe_data = {
@@ -579,6 +675,41 @@ def train_probes(
         json.dump(all_preds_output, f, indent=2)
     
     print(f"All predictions saved to {output_dir}/all_predictions.json")
+    
+    # Log overall statistics to wandb
+    if use_wandb:
+        # Aggregate statistics across all positions and layers
+        all_test_scores = []
+        all_train_scores = []
+        all_cv_scores = [] if k_fold else None
+        
+        for pos_idx in range(n_positions):
+            all_test_scores.extend(layer_performance["test"][pos_idx])
+            all_train_scores.extend(layer_performance["train"][pos_idx])
+            if k_fold:
+                all_cv_scores.extend(layer_performance["cv"][pos_idx])
+        
+        overall_stats = {
+            f"overall/mean_test_{metric_name}": float(np.nanmean(all_test_scores)),
+            f"overall/std_test_{metric_name}": float(np.nanstd(all_test_scores)),
+            f"overall/max_test_{metric_name}": float(np.nanmax(all_test_scores)),
+            f"overall/min_test_{metric_name}": float(np.nanmin(all_test_scores)),
+            f"overall/mean_train_{metric_name}": float(np.nanmean(all_train_scores)),
+            f"overall/std_train_{metric_name}": float(np.nanstd(all_train_scores)),
+        }
+        
+        if k_fold:
+            overall_stats.update({
+                f"overall/mean_cv_{metric_name}": float(np.nanmean(all_cv_scores)),
+                f"overall/std_cv_{metric_name}": float(np.nanstd(all_cv_scores)),
+                f"overall/mean_train_cv_gap": float(np.nanmean(np.array(all_train_scores) - np.array(all_cv_scores))),
+                f"overall/mean_cv_test_gap": float(np.nanmean(np.array(all_cv_scores) - np.array(all_test_scores))),
+            })
+        
+        wandb.log(overall_stats)
+        
+        # Update run summary with overall stats
+        wandb.run.summary.update(overall_stats)
     
     # Finish wandb run
     if use_wandb:
