@@ -9,12 +9,12 @@ from transformers import AutoTokenizer
 
 # MODEL_NAME = "HuggingFaceTB/FineMath-Llama-3B"
 # MODEL_NAME = "Qwen/Qwen2-1.5B-Instruct"
-MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
+# MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
 # MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct"
-# MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B"
+MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B"
 
 MEMORY_UTIL=0.6
-NUM_ROLLOUTS_PER_QUESTION = 5
+NUM_ROLLOUTS_PER_QUESTION = 50
 MAX_QUESTIONS_PER_SPLIT = None
 MAX_RESPONSE_LEN = 3000 #3000
 DATASET_NAME = "MATH"
