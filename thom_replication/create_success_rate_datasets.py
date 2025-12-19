@@ -1,21 +1,13 @@
 # Largely the same as predicting_learnability/rollout_success_rate.py but a bit cleaner
 # and uses our own verification functions
 
-import os
-from vllm import LLM, SamplingParams
-from datasets import load_dataset
-
-# MODEL_NAME = "HuggingFaceTB/FineMath-Llama-3B"
-MODEL_NAME = "Qwen/Qwen3-4B"
-# MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
-
-NUM_ROLLOUTS_PER_QUESTION = 50
-MAX_QUESTIONS_PER_SPLIT = None
-MAX_RESPONSE_LEN = 1024 #3000
-
-PROMPT = "Let's think step by step and output the final answer within \\boxed{}."
 
 def get_task(name):
+    import os
+    from vllm import LLM, SamplingParams
+    from datasets import load_dataset
+    from transformers import AutoTokenizer
+
     if name == 'MATH':
 
         from utils.verification_math import compute_score, extract_solution
@@ -32,10 +24,23 @@ def get_task(name):
     raise ValueError(f"Unknown task {name}")
 
 
-def main():
+def main(
+        model_name,
+        max_response_len=3000,
+        temperature=1.0,
+        prompt_suffix="Let's think step by step and output the final answer within \\boxed{}.",
+        num_rollouts_per_question=50,
+        max_questions_per_split=None,
+        tensor_parallel_size=1,
+):
+    import os
+    from vllm import LLM, SamplingParams
+    from datasets import load_dataset
+    from transformers import AutoTokenizer
 
-    sampling_params = SamplingParams(max_tokens=MAX_RESPONSE_LEN, temperature=1, top_p=1, top_k=-1, n=1)
-    llm = LLM(model=MODEL_NAME)
+    sampling_params = SamplingParams(max_tokens=max_response_len, temperature=temperature, top_p=1, top_k=-1, n=1)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    llm = LLM(model=model_name, tensor_parallel_size=tensor_parallel_size)
 
     ds, compute_score = get_task('MATH')
 
@@ -43,15 +48,24 @@ def main():
     inputs = []
     for split in ds:
         for idx, item in enumerate(ds[split]):
-            prompt = item['problem'] + ' ' + PROMPT
-            for _ in range(NUM_ROLLOUTS_PER_QUESTION):
+            if max_questions_per_split is not None and idx >= max_questions_per_split:
+                break
+
+            prompt = item['problem'] + ' ' + prompt_suffix
+            messages = [
+                {"role": "user", "content": prompt}
+            ]
+            prompt = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+            for _ in range(num_rollouts_per_question):
                 inputs.append({
                     'split': split,
                     'idx': idx,
                     'prompt': prompt,
                 })
-            if MAX_QUESTIONS_PER_SPLIT is not None and idx > MAX_QUESTIONS_PER_SPLIT:
-                break
 
     outputs = llm.generate([inp['prompt'] for inp in inputs], sampling_params)
 
@@ -96,8 +110,21 @@ def main():
 
     for split in results:
         results_df = pd.DataFrame.from_dict(results[split], orient='index')
-        MODEL_ALIAS = MODEL_NAME.replace("/", "-")
-        results_df.to_parquet(f"MATH_{split}-{MODEL_ALIAS}.parquet")
+        model_alias = model_name.replace("/", "-")
+        results_df.to_parquet(f"data/MATH_{split}_{len(results[split])}-{model_alias}-{temperature=}.parquet")
 
 if __name__ == "__main__":
-    main()
+
+    main(
+        model_name="Qwen/Qwen2.5-Math-72B-Instruct",
+        max_questions_per_split=100,
+        tensor_parallel_size=8
+    )
+
+
+# Add command line args
+# Make as a slurm script
+# Run all the other permutations on h200_lowest
+# - temperature 0, 0.5, 1.0
+# - gpt-oss, qwen base models
+# - other datasets

@@ -31,7 +31,7 @@ def make_collate_fn(tokenizer: AutoTokenizer, cfg: CollateConfig):
         enc = tokenizer(
             list(texts),
             return_tensors="pt",
-            padding=True,
+            padding='max_length',
             truncation=True,
             max_length=cfg.max_length,
         )
@@ -288,7 +288,7 @@ def train_probe(
 
             wandb.log({"train/batch_mse": loss.item()}, step=step)
 
-            if step % 25 == 0:
+            if step % 100 == 0:
                 print(f"  step {step} | batch_mse={loss.item():.6f}")
                 metrics = evaluate()
                 metrics["epoch"] = epoch
@@ -327,9 +327,9 @@ def main():
     ap.add_argument("--layers", type=str, default="-1",
                     help='Layer indices over hidden_states tuple. "all" or e.g. "-1" or "0,1,2". Note 0=embeddings.')
     ap.add_argument("--layer_mode", type=str, default="single",
-                    choices=["single", "concat", "weighted_sum"])
+                    choices=["single", "concat", "weighted_sum", "concat_all_sequence_positions"])
 
-    ap.add_argument("--pool", type=str, default="last_token", choices=["last_token", "mean"])
+    ap.add_argument("--pool", type=str, default="last_token", choices=["last_token", "mean", "all_sequence_positions"])
     ap.add_argument("--max_length", type=int, default=256)
     ap.add_argument("--batch_size", type=int, default=16)
     ap.add_argument("--lr", type=float, default=3e-4)

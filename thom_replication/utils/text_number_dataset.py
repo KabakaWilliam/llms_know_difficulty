@@ -3,6 +3,16 @@ import torch
 from datasets import load_dataset
 
 class TextNumberDataset(Dataset):
+    """
+    A dataset that pairs text inputs with numerical targets.
+
+    Usage:
+    ```
+    train_ds = TextNumberDataset(hf_dataset=hf_dataset, hf_dataset_split="train", scores_path=train_scores_path)
+    collate_fn = make_collate_fn(tokenizer, CollateConfig(max_length=max_length))
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
+    ```
+    """
     def __init__(
             self, 
             hf_dataset: str,
