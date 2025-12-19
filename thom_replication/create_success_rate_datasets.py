@@ -11,7 +11,7 @@ from transformers import AutoTokenizer
 # MODEL_NAME = "Qwen/Qwen2-1.5B-Instruct"
 # MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
 # MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct"
-MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B"
+MODEL_NAME = "Qwen/Qwen2.5-Math-7B"
 
 MEMORY_UTIL=0.6
 NUM_ROLLOUTS_PER_QUESTION = 50
@@ -53,6 +53,10 @@ def main():
 
 
     ds, compute_score = get_task('MATH')
+    # # Sample 1k examples per split
+    # for split in ds:
+    #     if len(ds[split]) > 1000:
+    #         ds[split] = ds[split].shuffle(seed=42).select(range(1000))
 
     # for eaach split, generate NUM_ROLLOUTS_PER_QUESTION solutions
     inputs = []
