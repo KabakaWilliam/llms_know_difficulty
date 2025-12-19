@@ -5,7 +5,7 @@ set -e  # Exit on error
 
 # Configuration
 # MODEL="Qwen/Qwen2.5-Math-1.5B-Instruct"
-MODEL="Qwen/Qwen2.5-Math-1.5B"
+MODEL="Qwen/Qwen2.5-Math-7B"
 # MODEL="Qwen/Qwen2-1.5B-Instruct"
 # MODEL="Qwen/Qwen2.5-Math-7B-Instruct"
 # MODEL="Qwen/Qwen3-4B-Instruct-2507"
