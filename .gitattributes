@@ -44,3 +44,4 @@ thom_replication/data/MATH_train_1000-Qwen-Qwen2.5-Math-7B-Instruct-temperature=
 thom_replication/data/MATH_test_1000-Qwen-Qwen2.5-1.5B-Instruct-temperature=0.5.parquet filter=lfs diff=lfs merge=lfs -text
 thom_replication/data/MATH_test_1000-Qwen-Qwen2.5-Math-1.5B-Instruct-temperature=0.5.parquet filter=lfs diff=lfs merge=lfs -text
 thom_replication/data/MATH_test_1000-Qwen-Qwen2.5-Math-1.5B-Instruct-temperature=1.0.parquet filter=lfs diff=lfs merge=lfs -text
+thom_replication/data/*.parquet filter=lfs diff=lfs merge=lfs -text
