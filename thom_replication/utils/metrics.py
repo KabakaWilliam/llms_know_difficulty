@@ -50,7 +50,7 @@ def compute_metrics(ys: torch.Tensor, preds: torch.Tensor) -> dict:
         metrics[f"count_bin_{b}"] = count.item()
         metrics[f"acc_bin_{b}"] = (correct / count.clamp_min(1)).item()
 
-    # do precision, recall and num predictions for each class
+    # do precision, recall, f1 and num predictions for each class
     for b in range(5):
         true_positives = ((binned_preds == b) & (binned_ys == b)).float().sum()
         predicted_positives = (binned_preds == b).float().sum()
@@ -60,9 +60,11 @@ def compute_metrics(ys: torch.Tensor, preds: torch.Tensor) -> dict:
 
         precision = (true_positives / predicted_positives.clamp_min(1)).item()
         recall = (true_positives / actual_positives.clamp_min(1)).item()
+        f1 = 2 * precision * recall / (precision + recall + 1e-12)
 
         metrics[f"precision_bin_{b}"] = precision
         metrics[f"recall_bin_{b}"] = recall
+        metrics[f"f1_bin_{b}"] = f1
 
     # learnability is defined as ys * (1-ys)
     clipped_ys = ys.clamp(min=0.0, max=1.0)

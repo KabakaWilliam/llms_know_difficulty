@@ -608,6 +608,18 @@ def train_probes(
             print(f"  Binned Accuracy (5 bins): {detailed_test_metrics['acc_all']:.4f}")
             print(f"  Learnability (selected top 25%): {detailed_test_metrics['learnability_selected_mean']:.4f}")
             print(f"  Learnability (best possible): {detailed_test_metrics['learnability_best_possible_mean']:.4f}")
+            
+            # Print per-bin metrics
+            print(f"\n  Per-Bin Metrics (Test Set):")
+            for b in range(5):
+                count = int(detailed_test_metrics[f'count_bin_{b}'])
+                num_pred = int(detailed_test_metrics[f'num_predicted_bin_{b}'])
+                acc = detailed_test_metrics[f'acc_bin_{b}']
+                prec = detailed_test_metrics[f'precision_bin_{b}']
+                rec = detailed_test_metrics[f'recall_bin_{b}']
+                f1 = detailed_test_metrics[f'f1_bin_{b}']
+                print(f"    Bin {b}: count={count:4d}, pred={num_pred:4d}, acc={acc:.3f}, prec={prec:.3f}, rec={rec:.3f}, f1={f1:.3f}")
+            
             print(f"{'='*60}")
             
             # Log best probe to wandb
@@ -656,7 +668,9 @@ def train_probes(
                     best_probe_summary[f"best_probe/test_acc_bin_{b}"] = detailed_test_metrics[f'acc_bin_{b}']
                     best_probe_summary[f"best_probe/test_precision_bin_{b}"] = detailed_test_metrics[f'precision_bin_{b}']
                     best_probe_summary[f"best_probe/test_recall_bin_{b}"] = detailed_test_metrics[f'recall_bin_{b}']
+                    best_probe_summary[f"best_probe/test_f1_bin_{b}"] = detailed_test_metrics[f'f1_bin_{b}']
                     best_probe_summary[f"best_probe/test_count_bin_{b}"] = detailed_test_metrics[f'count_bin_{b}']
+                    best_probe_summary[f"best_probe/test_num_predicted_bin_{b}"] = detailed_test_metrics[f'num_predicted_bin_{b}']
                 
                 # Add alpha scores if available
                 if (best_pos_idx, best_layer_idx) in all_alpha_scores:
