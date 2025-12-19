@@ -2,21 +2,9 @@
 data
 verl
 # Exception: allow hard_rl/data directory and its contents
-!hard_rl/data/
-!hard_rl/data/**
-!runs/Llama-3.2-3B/config.yaml
-!runs/Llama-3.2-3B-Instruct/config.yaml
-!runs/Qwen2.5-Math-1.5B/config.yaml
-!runs/FineMath-Llama-3B/config.yaml
-!runs/Qwen2.5-Math-1.5B
-dataset/*
-runs/*/probes
 legacy/results
-GRPO-LEAD/*
-runs/DeepSeek-R1-Distill-Qwen-7B/completions/**/*.json
-hard_rl/checkpoints/*
-hard_rl/wandb/*
-hard_rl/outputs
+
+old_codebase/hard_rl
 
 # Model files and checkpoints
 **/*.pt
@@ -151,14 +139,12 @@ tensorflow/my_graph/*
 
 # data files
 *.parquet
-# Exception: allow parquet files in hard_rl/data
-!hard_rl/data/**/*.parquet
+
 
 # Python wheel files
 *.whl
 
-hard_rl/data/MATH/logs*
-hard_rl/data/MATH/variance*
+
 
 
 converted_hf_models
@@ -172,20 +158,28 @@ runs/**/datasplits/**_test.json
 **E2H_Codeforces**
 **E2H-Codeforces**
 
+will_replication/activations
+# ignore the below files
+**all_predictions.json
+**performance.json
+
+
 runs
-predicting_learnability/PIKA_ROUTER_EXPERIMENTS_NEW_REASONING
-predicting_learnability/PIKA_ROUTER_EXPERIMENTS_TINY_MATH
-predicting_learnability/PIKA_ROUTER_EXPERIMENTS_TINY_MATH_REVAMPED
-predicting_learnability/data
-predicting_learnability/SMART_ROUTER_EXPERIMENTS
-predicting_learnability/PIKA_ROUTER_EXPERIMENTS
-predicting_learnability/PIKA_ROUTER_EXPERIMENTS_15
-predicting_learnability/TEST_SELF_CONCISTENCY_EXPERIMENTS
-predicting_learnability/ROUTER_SELF_CONCISTENCY_EXPERIMENTS
-predicting_learnability/checkpoints
-predicting_learnability/MAJORITY_VOTE_DATA_COPY
-difficulty_direction/dataset/processed
-difficulty_direction/dataset/raw
+sandbox-fusion_server-20250609.sif
+old_codebase/predicting_learnability/PIKA_ROUTER_EXPERIMENTS_NEW_REASONING
+old_codebase/predicting_learnability/PIKA_ROUTER_EXPERIMENTS_TINY_MATH
+old_codebase/predicting_learnability/PIKA_ROUTER_EXPERIMENTS_TINY_MATH_REVAMPED
+old_codebase/predicting_learnability/data
+old_codebase/predicting_learnability/SMART_ROUTER_EXPERIMENTS
+old_codebase/predicting_learnability/PIKA_ROUTER_EXPERIMENTS
+old_codebase/predicting_learnability/PIKA_ROUTER_EXPERIMENTS_15
+old_codebase/predicting_learnability/TEST_SELF_CONCISTENCY_EXPERIMENTS
+old_codebase/predicting_learnability/ROUTER_SELF_CONCISTENCY_EXPERIMENTS
+old_codebase/predicting_learnability/checkpoints
+old_codebase/predicting_learnability/MAJORITY_VOTE_DATA_COPY
+old_codebase/difficulty_direction/dataset/processed
+old_codebase/difficulty_direction/dataset/raw
+
 # runs/*
 # !runs/*/config.yaml
 # git add -f runs/DeepSeek-R1-Distill-Qwen-1.5B/config.yaml runs/DeepSeek-R1-Distill-Qwen-7B/config.yaml runs/Qwen2.5-Math-1.5B-Instruct/config.yaml runs/Qwen2.5-Math-1.5B/config.yaml runs/Qwen2.5-Math-7B/config.yaml
