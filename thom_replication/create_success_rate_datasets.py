@@ -122,7 +122,8 @@ def main(
     for split in results:
         results_df = pd.DataFrame.from_dict(results[split], orient='index')
         model_alias = model_name.replace("/", "-")
-        results_df.to_parquet(f"data/MATH_{split}_{len(results[split])}-{model_alias}-{temperature=}.parquet")
+        results_df.to_parquet(f"data/MATH_{split}_{len(results[split])}-{model_alias}-maxlen_{max_response_len}_k_{num_rollouts_per_question}_temp_{temperature}.parquet")
+
 
 if __name__ == "__main__":
 

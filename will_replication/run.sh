@@ -4,8 +4,8 @@
 set -e  # Exit on error
 
 # Configuration
-# MODEL="Qwen/Qwen2.5-Math-1.5B-Instruct"
-MODEL="Qwen/Qwen2.5-Math-7B"
+MODEL="Qwen/Qwen2.5-7B" #not run
+# MODEL="Qwen/Qwen2.5-Math-7B"
 # MODEL="Qwen/Qwen2-1.5B-Instruct"
 # MODEL="Qwen/Qwen2.5-Math-7B-Instruct"
 # MODEL="Qwen/Qwen3-4B-Instruct-2507"
@@ -30,14 +30,14 @@ QUESTION_COL="formatted_prompt"
 LABEL_COL="success_rate"
 LAYERS="all"
 BATCH_SIZE=32
-GPU=1
+GPU=0
 
 # Regularization parameters
 # Set ALPHA_GRID to enable grid search (recommended for proper model selection)
 # Leave empty to use fixed ALPHA value
 # ALPHA_GRID="0,0.001,0.01,0.1,1,10,100,1000"  # Grid search (nested CV)
 ALPHA_GRID="100,1000, 10000, 100000, 1000000"  # Grid search (nested CV)
-ALPHA_GRID="0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000"  # Grid search (nested CV)
+ALPHA_GRID="0, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000"  # Grid search (nested CV)
 
 # ALPHA_GRID=""  # Uncomment to disable grid search and use fixed alpha
 ALPHA=1000  # Used only if ALPHA_GRID is empty

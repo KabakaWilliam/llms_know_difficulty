@@ -22,8 +22,10 @@ from sklearn.utils.multiclass import type_of_target
 from tqdm import tqdm
 
 import sys
-sys.path.append("../../")
-from thom_replication.utils import compute_metrics
+from pathlib import Path
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from thom_replication.utils.metrics import compute_metrics
 
 
 def set_seed(seed: int = 42):
