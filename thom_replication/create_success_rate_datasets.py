@@ -113,7 +113,7 @@ def main(
     import pandas as pd
 
     # Create output directory if it doesn't exist
-    OUTPUT_DIR="data/MATH"
+    OUTPUT_DIR="../will_replication/DATA/SR_DATA/MATH"
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     for split in results:
