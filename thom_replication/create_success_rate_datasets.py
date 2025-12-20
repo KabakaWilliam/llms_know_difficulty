@@ -43,15 +43,11 @@ def main(
     llm = LLM(model=model_name, tensor_parallel_size=tensor_parallel_size)
 
     ds, compute_score = get_task('MATH')
-    # # Sample 1k examples per split
-    # for split in ds:
-    #     if len(ds[split]) > 1000:
-    #         ds[split] = ds[split].shuffle(seed=42).select(range(1000))
 
-    # for eaach split, generate NUM_ROLLOUTS_PER_QUESTION solutions
     inputs = []
     for split in ds:
         for idx, item in enumerate(ds[split]):
+
             if max_questions_per_split is not None and idx >= max_questions_per_split:
                 break
 
@@ -69,7 +65,7 @@ def main(
                     'split': split,
                     'idx': idx,
                     'problem': item['problem'],
-                    'formatted_prompt': formatted_prompt,
+                    'formatted_prompt': prompt,
                 })
 
     outputs = llm.generate([inp['formatted_prompt'] for inp in inputs], sampling_params)
@@ -117,21 +113,60 @@ def main(
     import pandas as pd
 
     # Create output directory if it doesn't exist
+    OUTPUT_DIR="data/MATH"
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     for split in results:
         results_df = pd.DataFrame.from_dict(results[split], orient='index')
         model_alias = model_name.replace("/", "-")
-        results_df.to_parquet(f"data/MATH_{split}_{len(results[split])}-{model_alias}-maxlen_{max_response_len}_k_{num_rollouts_per_question}_temp_{temperature}.parquet")
-
+        
+        # Include number of questions in filename only if max_questions_per_split was specified
+        if max_questions_per_split is not None:
+            FILEPATH = f"{OUTPUT_DIR}/{split}-{len(results[split])}-{model_alias}_maxlen_{max_response_len}_k_{num_rollouts_per_question}_temp_{temperature}.parquet"
+        else:
+            FILEPATH = f"{OUTPUT_DIR}/{split}-{model_alias}_maxlen_{max_response_len}_k_{num_rollouts_per_question}_temp_{temperature}.parquet"
+        
+        results_df.to_parquet(FILEPATH)
+        print(f"Saved {split} split to: {FILEPATH}")
 
 if __name__ == "__main__":
+    import time
+    import gc
+    
+    MODELS_TO_RUN = [
+    #  "Qwen/Qwen2-1.5B",
+    # "Qwen/Qwen2-1.5B-Instruct",
+    # "Qwen/Qwen2.5-7B",
+    # "Qwen/Qwen2.5-7B-Instruct"
 
-    main(
-        model_name="Qwen/Qwen2.5-Math-72B-Instruct",
-        max_questions_per_split=100,
-        tensor_parallel_size=8
-    )
+    "Qwen/Qwen2.5-Math-1.5B-Instruct",
+    "Qwen/Qwen2.5-1.5B",
+    "Qwen/Qwen2.5-1.5B-Instruct",
+    "Qwen/Qwen2.5-Math-7B-Instruct"
+    ]
+    
+    for i, MODEL_TO_ROLLOUT in enumerate(MODELS_TO_RUN):
+        print(f"\n{'='*60}")
+        print(f"Processing model {i+1}/{len(MODELS_TO_RUN)}: {MODEL_TO_ROLLOUT}")
+        print(f"{'='*60}\n")
+        
+        main(
+            model_name=MODEL_TO_ROLLOUT,
+            max_questions_per_split=None,
+            tensor_parallel_size=1,
+        )
+        
+        print(f"\nFinished processing {MODEL_TO_ROLLOUT}")
+        
+        # Clean up and wait for vLLM to die before loading next model
+        if i < len(MODELS_TO_RUN) - 1:  # Don't wait after the last model
+            print("Cleaning up and waiting for vLLM to release resources...")
+            gc.collect()
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            time.sleep(10)  # Wait 10 seconds for vLLM to fully shutdown
+            print(f"Ready to load next model: {MODELS_TO_RUN[i+1]}\n")
 
 
 # Add command line args

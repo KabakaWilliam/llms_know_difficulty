@@ -606,6 +606,7 @@ def train_probes(
             print(f"  Spearman: {detailed_test_metrics['spearman']:.4f}")
             print(f"  Kendall Tau: {detailed_test_metrics['kendall_tau']:.4f}")
             print(f"  Binned Accuracy (5 bins): {detailed_test_metrics['acc_all']:.4f}")
+            print(f"  Learnability (mean): {detailed_test_metrics['learnability_ys_mean']:.4f}")
             print(f"  Learnability (selected top 25%): {detailed_test_metrics['learnability_selected_mean']:.4f}")
             print(f"  Learnability (best possible): {detailed_test_metrics['learnability_best_possible_mean']:.4f}")
             
@@ -645,6 +646,7 @@ def train_probes(
                     "best_probe/test_spearman": detailed_test_metrics['spearman'],
                     "best_probe/test_kendall_tau": detailed_test_metrics['kendall_tau'],
                     "best_probe/test_acc_all": detailed_test_metrics['acc_all'],
+                    "best_probe/test_learnability_mean": detailed_test_metrics['learnability_ys_mean'],
                     "best_probe/test_learnability_selected": detailed_test_metrics['learnability_selected_mean'],
                     "best_probe/test_learnability_best_possible": detailed_test_metrics['learnability_best_possible_mean'],
                     # Add detailed train metrics
