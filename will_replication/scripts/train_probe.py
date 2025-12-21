@@ -401,8 +401,12 @@ def train_probes(
         
         for layer_idx in tqdm(range(n_layers), desc=f"Layer progress for position {pos}"):
             # Extract activations for this layer and position
-            x_train = train_activations[:, layer_idx, pos_idx, :].numpy()  # [N, D]
-            x_test = test_activations[:, layer_idx, pos_idx, :].numpy()  # [M, D]
+            try:
+                x_train = train_activations[:, layer_idx, pos_idx, :].numpy()  # [N, D]
+                x_test = test_activations[:, layer_idx, pos_idx, :].numpy()  # [M, D]
+            except:
+                x_train = train_activations[:, layer_idx, pos_idx, :].detach().to(torch.float16).cpu().numpy()  # [N, D]
+                x_test = test_activations[:, layer_idx, pos_idx, :].detach().to(torch.float16).cpu().numpy()  # [M, D]
             
             # Train probe with optional alpha selection and auxiliary features
             train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf, probe_model, selected_alpha, alpha_scores = train_single_layer_probe(

@@ -34,22 +34,32 @@ def main(
         tensor_parallel_size=1,
 ):
     import os
+    import random
     from vllm import LLM, SamplingParams
     from datasets import load_dataset
     from transformers import AutoTokenizer
-
+    seed = 42                        
+    rng = random.Random(seed)
     sampling_params = SamplingParams(max_tokens=max_response_len, temperature=temperature, top_p=1, top_k=-1, n=1)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     llm = LLM(model=model_name, tensor_parallel_size=tensor_parallel_size)
 
     ds, compute_score = get_task('MATH')
 
+    selected_indices = {}
+    for split in ds:
+        n = len(ds[split])
+        if max_questions_per_split is None:
+            selected_indices[split] = list(range(n))          # full split
+        else:
+            k = min(max_questions_per_split, n)
+            selected_indices[split] = rng.sample(range(n), k) # random subset
+
     inputs = []
     for split in ds:
-        for idx, item in enumerate(ds[split]):
+        for idx in selected_indices[split]:
+            item = ds[split][idx]
 
-            if max_questions_per_split is not None and idx >= max_questions_per_split:
-                break
 
             prompt = item['problem'] + ' ' + prompt_suffix
             messages = [
@@ -134,15 +144,15 @@ if __name__ == "__main__":
     import gc
     
     MODELS_TO_RUN = [
-    #  "Qwen/Qwen2-1.5B",
+     "Qwen/Qwen2-1.5B",
     # "Qwen/Qwen2-1.5B-Instruct",
     # "Qwen/Qwen2.5-7B",
     # "Qwen/Qwen2.5-7B-Instruct"
-
-    "Qwen/Qwen2.5-Math-1.5B-Instruct",
-    "Qwen/Qwen2.5-1.5B",
-    "Qwen/Qwen2.5-1.5B-Instruct",
-    "Qwen/Qwen2.5-Math-7B-Instruct"
+    # "Qwen/Qwen2.5-Math-1.5B-Instruct",
+    # "Qwen/Qwen2.5-1.5B",
+    # "Qwen/Qwen2.5-1.5B-Instruct",
+    # "Qwen/Qwen2.5-Math-7B-Instruct"
+    # "openai/gpt-oss-20b"
     ]
     
     for i, MODEL_TO_ROLLOUT in enumerate(MODELS_TO_RUN):
@@ -152,7 +162,7 @@ if __name__ == "__main__":
         
         main(
             model_name=MODEL_TO_ROLLOUT,
-            max_questions_per_split=None,
+            max_questions_per_split=1000,
             tensor_parallel_size=1,
         )
         

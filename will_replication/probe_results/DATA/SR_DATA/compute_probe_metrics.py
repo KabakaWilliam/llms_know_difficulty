@@ -190,6 +190,9 @@ def generate_latex_table(base_dir, dataset_name):
                 temp = "?"
                 config = "-"
             
+            if "Instruct" in model:
+                model = model.replace("Instruct", "I")
+            
             # Get metrics
             spearman = data['test_score']
             

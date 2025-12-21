@@ -5,16 +5,18 @@ set -e  # Exit on error
 
 # List of models to process
 MODELS=(
-    # "Qwen/Qwen2.5-Math-1.5B" #✅
-    # "Qwen/Qwen2.5-Math-1.5B-Instruct" #x
-    # "Qwen/Qwen2.5-1.5B" #x
-    # "Qwen/Qwen2.5-1.5B-Instruct" #x
-    # "Qwen/Qwen2.5-Math-7B" #✅
+    # "Qwen/Qwen2.5-Math-1.5B-Instruct" #✅
+    # "Qwen/Qwen2.5-1.5B"
+    # # "openai/gpt-oss-20b"#✅
+    # "Qwen/Qwen2.5-1.5B-Instruct", #x
     # "Qwen/Qwen2.5-Math-7B-Instruct" #x
+    "Qwen/Qwen2.5-Math-1.5B" #❌
+    # "Qwen/Qwen2.5-1.5B" #x
+    # "Qwen/Qwen2.5-Math-7B" #✅
     # "Qwen/Qwen2-1.5B" #✅
     # "Qwen/Qwen2-1.5B-Instruct" #✅
     # "Qwen/Qwen2.5-7B" #✅
-    "Qwen/Qwen2.5-7B-Instruct" #NOT RUN THESE YET
+    # "Qwen/Qwen2.5-7B-Instruct" #✅
 )
 
 # Configuration (same for all models)
@@ -24,16 +26,17 @@ TEMPERATURE=1.0
 GEN_OPTIONS=maxlen_${MAX_LEN}_k_${K}_temp_${TEMPERATURE}
 
 MAIN_DATA_DIR="DATA"
-DATASET_DIR="${MAIN_DATA_DIR}/SR_DATA/MATH"
+CHOSEN_DATASET="MATH"
+DATASET_DIR="${MAIN_DATA_DIR}/SR_DATA/${CHOSEN_DATASET}"
 
 QUESTION_COL="formatted_prompt"
 LABEL_COL="success_rate"
 LAYERS="all"
 BATCH_SIZE=32
-GPU=2
+GPU=0
 
 # Skip activation extraction if they already exist
-SKIP_ACTIVATIONS=true  # Set to true to skip extraction and reuse existing activations
+SKIP_ACTIVATIONS=false  # Set to true to skip extraction and reuse existing activations
 
 # Regularization parameters
 ALPHA_GRID="0, 0.001,0.01,0.1,1,10,100,1000,10000"  # Grid search (nested CV)
@@ -57,10 +60,10 @@ for MODEL in "${MODELS[@]}"; do
     TRAIN_DATASET="${DATASET_DIR}/train-${GENERATION_STR}.parquet"
     TEST_DATASET="${DATASET_DIR}/test-${GENERATION_STR}.parquet"
     
-    ACTIVATIONS_DIR="${MAIN_DATA_DIR}/activations"
+    ACTIVATIONS_DIR="${MAIN_DATA_DIR}/activations/${CHOSEN_DATASET}"
     RESULTS_DIR="probe_results/${DATASET_DIR}/${MODEL_ALIAS}_${GEN_OPTIONS}"
-    TRAIN_ACTIVATIONS="${ACTIVATIONS_DIR}/${GENERATION_STR}.pt"
-    TEST_ACTIVATIONS="${ACTIVATIONS_DIR}/${GENERATION_STR}.pt"
+    TRAIN_ACTIVATIONS="${ACTIVATIONS_DIR}/${GENERATION_STR}_train.pt"
+    TEST_ACTIVATIONS="${ACTIVATIONS_DIR}/${GENERATION_STR}_test.pt"
     
     WANDB_NAME="${MODEL_ALIAS}_${GEN_OPTIONS}"
     
