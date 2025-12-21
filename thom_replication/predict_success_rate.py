@@ -2,6 +2,7 @@
 import argparse
 import json
 from dataclasses import dataclass
+import math
 from typing import List, Tuple, Optional
 
 import pprint
@@ -12,6 +13,10 @@ from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from tqdm import tqdm
 import wandb
+from dotenv import load_dotenv
+import os
+import einops
+
 
 # -----------------------------
 # Data
@@ -106,6 +111,24 @@ class LinearProbeWeightedSum(nn.Module):
         x = (xs * w.view(1, -1, 1)).sum(dim=1)            # [B, D]
         return self.linear(x).squeeze(-1)
 
+class AttnLite(nn.Module):
+    
+    def __init__(self, d_model: int):
+        super().__init__()
+        self.scale = math.sqrt(d_model)
+        self.context_query = nn.Linear(d_model, 1)
+        self.classifier = nn.Linear(d_model, 1)
+
+    def forward(self, xs): # xs: [B, T, D]
+        attn_scores = self.context_query(xs).squeeze(-1) / self.scale        
+        attn_weights = torch.softmax(attn_scores, dim=-1)
+        context = einops.einsum(
+            attn_weights, xs, "batch seq, batch seq embed -> batch embed"
+        )
+        sequence_logits = self.classifier(context).squeeze(-1)
+
+        return sequence_logits
+
 
 # -----------------------------
 # Activation extraction
@@ -198,6 +221,7 @@ def train_probe(
     epochs: int,
     weight_decay: float,
     device: str,
+    trim_train_set: int = -1,
 ):
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
     if tokenizer.pad_token is None:
@@ -219,7 +243,7 @@ def train_probe(
         dummy = {k: v.to(device) for k, v in dummy.items()}
         out = model(**dummy, output_hidden_states=True, use_cache=False)
         num_hidden_states = len(out.hidden_states)
-
+    
     layer_indices = parse_layers_arg(layers_arg, num_hidden_states)
 
     if layer_mode == "single":
@@ -232,6 +256,8 @@ def train_probe(
         probe = LinearProbeWeightedSum(d_model, n_layers=len(layer_indices)).to(device)
     elif layer_mode == "concat_all_sequence_positions":
         probe = LinearProbeConcatAllSequencePositions(d_model, n_layers=len(layer_indices), seq_length=max_length).to(device)
+    elif layer_mode == "attn_lite":
+        probe = AttnLite(d_model).to(device)
     else:
         raise ValueError(f"Unknown layer_mode={layer_mode}")
 
@@ -244,6 +270,10 @@ def train_probe(
     val_ds.items = val_ds.items[:1000]  # limit val set size for speed
 
     print(f"Loaded train set of size {len(train_ds)} and val set of size {len(val_ds)}")
+
+    if trim_train_set != -1:
+        train_ds = train_ds.select(range(trim_train_set))
+        print(f'Trimmed train set to {len(train_ds)} samples')
 
     collate_fn = make_collate_fn(tokenizer, CollateConfig(max_length=max_length))
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
@@ -266,6 +296,11 @@ def train_probe(
         if layer_mode == "single":
             x = feats[:, 0, :]          # [B,D]
             preds = probe(x)
+        if layer_mode == "attn_lite":
+            assert pool == "all_sequence_positions", "Expected pool=all_sequence_positions for attn_lite"
+            assert len(layer_indices) == 1, "Expected single layer for attn_lite"
+            x = feats[:, 0, :, :]
+            preds = probe(x) # Takes [B, T, D] and returns [B]
         else:
             preds = probe(feats)        # [B]
         return preds
@@ -437,20 +472,29 @@ def main():
     ap.add_argument("--layers", type=str, default="-1",
                     help='Layer indices over hidden_states tuple. "all" or e.g. "-1" or "0,1,2". Note 0=embeddings.')
     ap.add_argument("--layer_mode", type=str, default="single",
-                    choices=["single", "concat", "weighted_sum"])
-
-    ap.add_argument("--pool", type=str, default="last_token", choices=["last_token", "mean"])
+                    choices=["single", "concat", "weighted_sum", "attn_lite"])
+    ap.add_argument("--pool", type=str, default="last_token", choices=["last_token", "mean", "all_sequence_positions"])
     ap.add_argument("--max_length", type=int, default=256)
     ap.add_argument("--batch_size", type=int, default=16)
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--epochs", type=int, default=10)
     ap.add_argument("--weight_decay", type=float, default=0.0)
     ap.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    ap.add_argument("--wandb_run_name", type=str, default=None,
+                    help="Name for the wandb run. If not provided, wandb will generate a name automatically.")
+    ap.add_argument("--trim_train_set", type=int, default=-1,
+                    help="Trim the train set to the first N samples. If not provided, the full train set will be used.")
     args = ap.parse_args()
 
-    wandb.init(
-        project="llms_know_difficulty",
-        config={
+    # Load the .env file
+    load_dotenv()
+    wandb_key = os.getenv("WANDB_API_KEY")
+    if wandb_key:
+        wandb.login(key=wandb_key)
+
+    wandb_kwargs = {
+        "project": "llms_know_difficulty",
+        "config": {
             "model": args.model,
             "hf_dataset": args.hf_dataset,
             "train_scores_path": args.train_scores_path,
@@ -465,7 +509,11 @@ def main():
             "weight_decay": args.weight_decay,
             "device": args.device,
         }
-    )
+    }
+    if args.wandb_run_name:
+        wandb_kwargs["name"] = args.wandb_run_name
+    
+    wandb.init(**wandb_kwargs)
 
     # example usage: python predict_success_rate.py --model gpt2 --
 
