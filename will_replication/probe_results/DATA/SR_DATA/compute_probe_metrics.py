@@ -1,8 +1,10 @@
 import json
+import numpy as np
 import os
 import sys
 from pathlib import Path
 import torch
+import numpy
 
 # Add parent directory to path for imports
 # We're in probe_results/DATA/SR_DATA, need to go up to will_replication, then up to llms_know_difficult
@@ -84,6 +86,7 @@ def process_probe_results_directory(base_dir):
             detailed_test_metrics = {}
             
             # Basic metrics
+            detailed_test_metrics['benchmark_mean_score'] = np.mean(test_actual)
             detailed_test_metrics['mse'] = float(metrics['mse'])
             detailed_test_metrics['mae'] = float(metrics['mae'])
             detailed_test_metrics['spearman'] = float(metrics['spearman'])

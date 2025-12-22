@@ -34185,5 +34185,6 @@
     "learnability_selected_mean": 0.040033917874097824,
     "learnability_best_possible_mean": 0.0556098148226738,
     "kendall_tau": 0.35277884162332757
-  }
+  },
+  "avg_benchmark_score": 0.016919999705255033
 }
