@@ -8,15 +8,15 @@ MODELS=(
     # "Qwen/Qwen2.5-Math-1.5B-Instruct" #✅
     # "Qwen/Qwen2.5-1.5B"
     # # "openai/gpt-oss-20b"#✅
-    # "Qwen/Qwen2.5-1.5B-Instruct", #x
-    # "Qwen/Qwen2.5-Math-7B-Instruct" #x
-    "Qwen/Qwen2.5-Math-1.5B" #❌
+    # "Qwen/Qwen2.5-1.5B-Instruct" #xx
+    "Qwen/Qwen2.5-Math-7B-Instruct" #x
+    # "Qwen/Qwen2.5-Math-1.5B" #❌
     # "Qwen/Qwen2.5-1.5B" #x
     # "Qwen/Qwen2.5-Math-7B" #✅
-    # "Qwen/Qwen2-1.5B" #✅
-    # "Qwen/Qwen2-1.5B-Instruct" #✅
-    # "Qwen/Qwen2.5-7B" #✅
-    # "Qwen/Qwen2.5-7B-Instruct" #✅
+    # "Qwen/Qwen2-1.5B" #❌
+    # "Qwen/Qwen2-1.5B-Instruct" #❌
+    # "Qwen/Qwen2.5-7B" #❌
+    # "Qwen/Qwen2.5-7B-Instruct" #❌
 )
 
 # Configuration (same for all models)
@@ -33,7 +33,7 @@ QUESTION_COL="formatted_prompt"
 LABEL_COL="success_rate"
 LAYERS="all"
 BATCH_SIZE=32
-GPU=0
+GPU=1
 
 # Skip activation extraction if they already exist
 SKIP_ACTIVATIONS=false  # Set to true to skip extraction and reuse existing activations
