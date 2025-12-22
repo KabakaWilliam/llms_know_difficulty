@@ -695,6 +695,7 @@ def train_probes(
             
             # Save best probe predictions
             best_probe_data = {
+                "avg_benchmark_score": np.mean(test_labels.tolist()),
                 "best_position": best_pos,
                 "best_position_idx": best_pos_idx,
                 "best_layer": best_layer_idx,

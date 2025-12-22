@@ -86,7 +86,6 @@ def process_probe_results_directory(base_dir):
             detailed_test_metrics = {}
             
             # Basic metrics
-            detailed_test_metrics['benchmark_mean_score'] = np.mean(test_actual)
             detailed_test_metrics['mse'] = float(metrics['mse'])
             detailed_test_metrics['mae'] = float(metrics['mae'])
             detailed_test_metrics['spearman'] = float(metrics['spearman'])
@@ -140,102 +139,99 @@ def process_probe_results_directory(base_dir):
 def generate_latex_table(base_dir, dataset_name):
     """
     Generate LaTeX table for all probe results in base_dir.
-    
-    Args:
-        base_dir: Path to directory containing probe result subdirectories
-        dataset_name: Name to display in table (e.g., 'MATH', 'THOM_MATH')
     """
-    json_files = glob.glob(os.path.join(base_dir, '**/best_probe_predictions.json'), recursive=True)
-    
+    json_files = glob.glob(
+        os.path.join(base_dir, '**/best_probe_predictions.json'),
+        recursive=True
+    )
+
     if not json_files:
         print(f"No probe results found in {base_dir}")
         return
-    
-    print('\\begin{table*}[htbp]')
-    print('\\centering')
-    print(f'\\caption{{Probe Performance on {dataset_name} Dataset}}')
-    print(f'\\label{{tab:probe_results_{dataset_name.lower()}}}')
-    print('\\resizebox{\\textwidth}{!}{%')
-    print('\\begin{tabular}{@{}llcccccccccccc@{}}')
-    print('\\toprule')
-    print('\\multirow{3}{*}{\\textbf{Model}} & \\multirow{3}{*}{\\textbf{Config}} & \\multirow{3}{*}{\\textbf{Temp}} & \\multirow{3}{*}{\\textbf{K}} & \\multirow{3}{*}{\\textbf{Spearman}} & \\multicolumn{5}{c}{\\textbf{Bin Accuracy (\\%)}} & \\multicolumn{3}{c}{\\textbf{Learnability}} \\\\')
-    print('\\cmidrule(lr){6-10} \\cmidrule(lr){11-13}')
-    print('& & & & & \\textbf{B0} & \\textbf{B1} & \\textbf{B2} & \\textbf{B3} & \\textbf{B4} & \\textbf{Avg} & \\textbf{Selected} & \\textbf{Best} \\\\')
-    print('& & & & & & & & & & \\textbf{(Ys)} & \\textbf{(Ys)} & \\textbf{Possible} \\\\')
-    print('\\midrule')
-    
+
+    # ================= TABLE HEADER =================
+    print(r'\begin{table*}[htbp]')
+    print(r'\centering')
+    print(fr'\caption{{Probe Performance on {dataset_name} Dataset}}')
+    print(fr'\label{{tab:probe_results_{dataset_name.lower()}}}')
+    print(r'\resizebox{\textwidth}{!}{%')
+    print(r'\begin{tabular}{@{}lccccccccccc@{}}')
+    print(r'\toprule')
+
+    print(
+        r'\multirow{3}{*}{\textbf{Model}} & '
+        r'\multirow{3}{*}{\textbf{K}} & '
+        r'\multirow{3}{*}{\textbf{Pass@K}} & '
+        r'\multirow{3}{*}{\textbf{Spearman}} & '
+        r'\multicolumn{5}{c}{\textbf{Bin Accuracy (\%)}} & '
+        r'\multicolumn{3}{c}{\textbf{Learnability}} \\'
+    )
+    print(r'\cmidrule(lr){5-9} \cmidrule(lr){10-12}')
+    print(
+        r'& & & & '
+        r'\textbf{B0} & \textbf{B1} & \textbf{B2} & \textbf{B3} & \textbf{B4} & '
+        r'\textbf{Avg} & \textbf{Selected} & \textbf{Best} \\'
+    )
+    print(
+        r'& & & & & & & & & '
+        r'\textbf{(Ys)} & \textbf{(Ys)} & \textbf{Possible} \\'
+    )
+    print(r'\midrule')
+
+    # ================= TABLE ROWS =================
     for json_file in sorted(json_files):
         try:
             with open(json_file, 'r') as f:
                 data = json.load(f)
-            
-            # Extract config from directory name
+
             dir_name = os.path.basename(os.path.dirname(json_file))
-            
-            # Parse model name and config
-            if 'maxlen' in dir_name:
-                # Format: Model_maxlen_X_k_Y_temp_Z
-                parts = dir_name.split('_')
-                model = parts[0].replace('-', ' ')
-                k = parts[parts.index('k') + 1]
-                temp = parts[parts.index('temp') + 1]
-                config = f"maxlen={parts[parts.index('maxlen') + 1]}"
-            elif 'samples' in dir_name:
-                # Format: Model_samples_X_temp_Y
-                parts = dir_name.split('_')
-                model = parts[0].replace('-', ' ')
-                k = parts[parts.index('samples') + 1]
-                temp = parts[parts.index('temp') + 1]
-                config = f"n={k}"
+
+            # ---- Model name cleanup ----
+            model = dir_name.split('_')[0].replace('-', ' ')
+            model = model.replace('Instruct', 'I')
+
+            # ---- Extract K ----
+            if '_k_' in dir_name:
+                k = dir_name.split('_k_')[1].split('_')[0]
             else:
-                model = dir_name
-                k = "?"
-                temp = "?"
-                config = "-"
-            
-            if "Instruct" in model:
-                model = model.replace("Instruct", "I")
-            
-            # Get metrics
-            spearman = data['test_score']
-            
-            if 'detailed_test_metrics' in data:
-                metrics = data['detailed_test_metrics']
-                b0 = metrics['acc_bin_0'] * 100
-                b1 = metrics['acc_bin_1'] * 100
-                b2 = metrics['acc_bin_2'] * 100
-                b3 = metrics['acc_bin_3'] * 100
-                b4 = metrics['acc_bin_4'] * 100
-                learn_avg = metrics['learnability_ys_mean']
-                learn_sel = metrics['learnability_selected_mean']
-                learn_best = metrics['learnability_best_possible_mean']
-            else:
-                # Compute metrics on the fly
-                test_preds = torch.tensor(data['test_predictions'])
-                test_actual = torch.tensor(data['test_actual'])
-                metrics = compute_metrics(test_preds, test_actual)
-                b0 = metrics['acc_bin_0'] * 100
-                b1 = metrics['acc_bin_1'] * 100
-                b2 = metrics['acc_bin_2'] * 100
-                b3 = metrics['acc_bin_3'] * 100
-                b4 = metrics['acc_bin_4'] * 100
-                learn_avg = metrics['learnability_ys_mean']
-                learn_sel = metrics['learnability_selected_mean']
-                learn_best = metrics['learnability_best_possible_mean']
-            
-            print(f'{model} & {config} & {temp} & {k} & {spearman:.3f} & {b0:.1f} & {b1:.1f} & {b2:.1f} & {b3:.1f} & {b4:.1f} & {learn_avg:.3f} & {learn_sel:.3f} & {learn_best:.3f} \\\\')
-            
+                k = '?'
+
+            # ---- Metrics ----
+            pass_k = data.get('avg_benchmark_score', float('nan'))
+            spearman = data.get('test_score', float('nan'))
+
+            metrics = data.get('detailed_test_metrics', {})
+            b = [metrics.get(f'acc_bin_{i}', 0.0) * 100 for i in range(5)]
+
+            learn_avg = metrics.get('learnability_ys_mean', 0.0)
+            learn_sel = metrics.get('learnability_selected_mean', 0.0)
+            learn_best = metrics.get('learnability_best_possible_mean', 0.0)
+
+            # ---- Print row ----
+            print(
+                f'{model} & {k} & {pass_k:.3f} & {spearman:.3f} & '
+                f'{b[0]:.1f} & {b[1]:.1f} & {b[2]:.1f} & {b[3]:.1f} & {b[4]:.1f} & '
+                f'{learn_avg:.3f} & {learn_sel:.3f} & {learn_best:.3f} \\\\'
+            )
+
         except Exception as e:
             print(f'% Error processing {json_file}: {e}')
-    
-    print('\\midrule')
-    print('\\multicolumn{14}{l}{\\footnotesize B0-B4: Difficulty bins (0=hardest, 4=easiest). Avg: Average dataset learnability, Selected: Learnability of probe predictions,}\\\\')
-    print('\\multicolumn{14}{l}{\\footnotesize Best Possible: Optimal learnability achievable with perfect predictions.}\\\\')
-    print('\\bottomrule')
-    print('\\end{tabular}%')
-    print('}')
-    print('\\end{table*}')
 
+    # ================= TABLE FOOTER =================
+    print(r'\midrule')
+    print(
+        r'\multicolumn{12}{l}{\footnotesize '
+        r'B0--B4: Difficulty bins (0=hardest, 4=easiest). '
+        r'Avg: Average dataset learnability, Selected: Learnability of probe predictions,} \\'
+    )
+    print(
+        r'\multicolumn{12}{l}{\footnotesize '
+        r'Best Possible: Optimal learnability achievable with perfect predictions.} \\'
+    )
+    print(r'\bottomrule')
+    print(r'\end{tabular}%')
+    print(r'}')
+    print(r'\end{table*}')
 
 # Process MATH directory
 process_probe_results_directory('MATH')
