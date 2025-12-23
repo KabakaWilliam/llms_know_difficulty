@@ -5,11 +5,12 @@ set -e  # Exit on error
 
 # List of models to process
 MODELS=(
-    # "Qwen/Qwen2.5-Math-1.5B-Instruct" 
+    "Qwen/Qwen2.5-Math-1.5B-Instruct" 
     # "Qwen/Qwen2.5-1.5B"
     # # "openai/gpt-oss-20b"
-    "Qwen/Qwen2.5-1.5B-Instruct" 
-    # "Qwen/Qwen2.5-Math-7B-Instruct" 
+    # "Qwen/Qwen2.5-1.5B-Instruct" 
+    "Qwen/Qwen2-1.5B-Instruct"
+    "Qwen/Qwen2.5-Math-7B-Instruct" 
     # "Qwen/Qwen2.5-Math-1.5B"
     # "Qwen/Qwen2.5-1.5B" 
     # "Qwen/Qwen2.5-Math-7B" 
@@ -22,7 +23,7 @@ MODELS=(
 # Configuration (same for all models)
 MAX_LEN=3000
 K=50  
-TEMPERATURE=1.0
+TEMPERATURE=0.6
 GEN_OPTIONS=maxlen_${MAX_LEN}_k_${K}_temp_${TEMPERATURE}
 
 MAIN_DATA_DIR="DATA"
@@ -33,7 +34,7 @@ QUESTION_COL="formatted_prompt"
 LABEL_COL="success_rate"
 LAYERS="all"
 BATCH_SIZE=32
-GPU=2
+GPU=1
 
 # Skip activation extraction if they already exist
 SKIP_ACTIVATIONS=false  # Set to true to skip extraction and reuse existing activations
@@ -44,7 +45,7 @@ ALPHA_GRID="0, 0.001,0.01,0.1,1,10,100,1000,10000"  # Grid search (nested CV)
 ALPHA=1000  # Used only if ALPHA_GRID is empty
 
 # Wandb logging
-USE_WANDB=true
+USE_WANDB=false
 WANDB_PROJECT="llms-know-difficulty-probes"
 
 # Loop through each model
