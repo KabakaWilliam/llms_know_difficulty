@@ -1,5 +1,5 @@
 from math_verify import parse, verify
-
+import json
 def _make_hashable(obj):
     """Convert unhashable types (like SymPy matrices) to hashable equivalents."""
     try:
@@ -73,3 +73,12 @@ def evaluate_responses(responses, ground_truths):
     is_correct = [verify_answer(gt, resp) for gt, resp in zip(ground_truths, responses)]
     accuracy = sum(is_correct) / len(is_correct) * 100 if is_correct else 0.0
     return is_correct, accuracy, sum(is_correct), len(is_correct)
+
+def load_probe_data(MODEL_NAME, PROBING_DATASET="MATH", K=1, TEMPERATURE=0.0):
+    MODEL_ALIAS= "-".join(MODEL_NAME.split("/"))
+    GEN_STR = f"maxlen_3000_k_{K}_temp_{TEMPERATURE}"
+    PROBE_PATH = f"../probe_results/DATA/SR_DATA/{PROBING_DATASET}/{MODEL_ALIAS}_{GEN_STR}/best_probe_predictions.json"
+
+    with open(PROBE_PATH, "r") as f:
+        probe_data = json.load(f)
+    return probe_data

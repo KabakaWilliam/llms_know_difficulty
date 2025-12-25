@@ -34186,5 +34186,12 @@
     "learnability_selected_mean": 0.09277034550905228,
     "learnability_best_possible_mean": 0.14759916067123413,
     "kendall_tau": 0.4629575498955416
+  },
+  "calibrated_probe": {
+    "best_layer": 18,
+    "best_position": -1,
+    "platt_a": 7.335192680358887,
+    "platt_b": -3.8320374488830566,
+    "K": 50
   }
 }

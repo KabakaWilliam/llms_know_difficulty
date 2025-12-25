@@ -253,12 +253,12 @@ def load_dataset_with_adapter(adapter: DatasetAdapter):
 # Example usage
 # -----------------------------
 if __name__ == "__main__":
-    model_name = "Qwen/Qwen2.5-Math-1.5B-Instruct"
+    model_name = "Qwen/Qwen2.5-Math-7B-Instruct"
 
-    DATASETS = ["gneubig/aime-1983-2024", "DigitalLearningGmbH/MATH-lighteval", "openai/gsm8k"]
+    DATASETS = ["opencompass/AIME2025", "gneubig/aime-1983-2024", "DigitalLearningGmbH/MATH-lighteval", "openai/gsm8k"]
     
-    K=1
-    TEMP=0.0
+    K=50
+    TEMP=1.0
     GEN_STR=f"maxlen_3000_k_{K}_temp_{TEMP}"
     TARGET_PROBE_DATASET = 'MATH'
     MODEL_ALIAS = "-".join(model_name.split("/"))
@@ -277,7 +277,7 @@ if __name__ == "__main__":
 
     for DS_NAME in DATASETS:
 
-        if "aime" in DS_NAME:
+        if "gneubig/aime" in DS_NAME:
 
             ADAPTER = DatasetAdapter(
                 name="gneubig/aime-1983-2024",
@@ -302,6 +302,15 @@ if __name__ == "__main__":
                 target_cols=["answer"],
                 metadata_cols=[],
                 subset="main"
+            )
+        elif "aime2025" in DS_NAME.lower():
+            ADAPTER = DatasetAdapter(
+                name="opencompass/AIME2025",
+                split="test",
+                prompt_fn=lambda ex: ex["question"],
+                target_cols=["answer"],
+                metadata_cols=[],
+                subset="AIME2025-II"
             )
         else:
             raise ValueError(f"{DS_NAME} isn't configured present")
