@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Union, Tuple
+from typing import List, Dict, Optional, Union, Tuple, Callable
 from datasets import load_dataset
 from pathlib import Path
 import numpy as np
@@ -220,15 +220,47 @@ def score_prompts_with_probe(
 
     return results
 
+# -----------------------------------------------------------------------------
+# Dataset adapter (THE KEY ADDITION)
+# -----------------------------------------------------------------------------
+@dataclass
+class DatasetAdapter:
+    name: str
+    split: str
+    prompt_fn: Callable[[Dict], str]
+    target_cols: List[str]
+    metadata_cols: List[str]
+    subset: Optional[str] = None
+
+
+def load_dataset_with_adapter(adapter: DatasetAdapter):
+    if adapter.subset:
+        ds = load_dataset(adapter.name, adapter.subset)
+    else:
+        ds = load_dataset(adapter.name)
+    split = ds[adapter.split]
+
+    prompts = [adapter.prompt_fn(ex) for ex in split]
+
+    solution_col = next(
+        (c for c in adapter.target_cols if c in split.column_names),
+        None,
+    )
+
+    return split, prompts, solution_col
 
 # -----------------------------
 # Example usage
 # -----------------------------
 if __name__ == "__main__":
     model_name = "Qwen/Qwen2.5-Math-1.5B-Instruct"
-    K=50
-    TEMP=0.6
+
+    DATASETS = ["gneubig/aime-1983-2024", "DigitalLearningGmbH/MATH-lighteval", "openai/gsm8k"]
+    
+    K=1
+    TEMP=0.0
     GEN_STR=f"maxlen_3000_k_{K}_temp_{TEMP}"
+    TARGET_PROBE_DATASET = 'MATH'
     MODEL_ALIAS = "-".join(model_name.split("/"))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -241,88 +273,136 @@ if __name__ == "__main__":
     )
     model.eval()
 
-    probe = load_best_probe_json(f"../probe_results/DATA/SR_DATA/MATH/{MODEL_ALIAS}_{GEN_STR}/best_probe_predictions.json", device=None)  # keep on CPU for scoring
+    probe = load_best_probe_json(f"../probe_results/DATA/SR_DATA/{TARGET_PROBE_DATASET}/{MODEL_ALIAS}_{GEN_STR}/best_probe_predictions.json", device=None)  # keep on CPU for scoring
 
-    ds = load_dataset("DigitalLearningGmbH/MATH-lighteval")
+    for DS_NAME in DATASETS:
+
+        if "aime" in DS_NAME:
+
+            ADAPTER = DatasetAdapter(
+                name="gneubig/aime-1983-2024",
+                split="train",
+                prompt_fn=lambda ex: ex["Question"],
+                target_cols=["Answer"],
+                metadata_cols=["Year", "Problem Number"],
+            )
+        elif "MATH-lighteval" in DS_NAME:
+            ADAPTER = DatasetAdapter(
+                name="DigitalLearningGmbH/MATH-lighteval",
+                split="test",
+                prompt_fn=lambda ex: ex["problem"],
+                target_cols=["solution"],
+                metadata_cols=["level", "type"],
+            )
+        elif "gsm8k" in DS_NAME:
+            ADAPTER = DatasetAdapter(
+                name="openai/gsm8k",
+                split="test",
+                prompt_fn=lambda ex: ex["question"],
+                target_cols=["answer"],
+                metadata_cols=[],
+                subset="main"
+            )
+        else:
+            raise ValueError(f"{DS_NAME} isn't configured present")
+
+        dataset_tag = ADAPTER.name.replace("/", "_")
+
+        print(f"LABELLING DATASET: {dataset_tag}\n")
+
+        out_dir = Path(
+            f"../probe_results/DATA/Lablled_SR/{TARGET_PROBE_DATASET}_probe/{dataset_tag}/{MODEL_ALIAS}_{GEN_STR}"
+        )
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        split, prompts, solution_col = load_dataset_with_adapter(ADAPTER)
+
+        # ds = load_dataset("DigitalLearningGmbH/MATH-lighteval")
 
 
-    test_split = ds["test"]
-    prompts = test_split["problem"]
+        # test_split = ds["test"]
+        # prompts = test_split["problem"]
 
-    # Robustly find the "solution" column (different MATH variants name it differently)
-    candidate_solution_cols = ["solution", "answer", "final_answer", "target", "ground_truth"]
-    solution_col = next((c for c in candidate_solution_cols if c in test_split.column_names), None)
+        # # Robustly find the "solution" column (different MATH variants name it differently)
+        # candidate_solution_cols = ["solution", "answer", "final_answer", "target", "ground_truth"]
+        # solution_col = next((c for c in candidate_solution_cols if c in test_split.column_names), None)
 
-#     prompts = [
-#         "Albert is wondering how much pizza he can eat in one day. He buys 2 large pizzas and 2 small pizzas. A large pizza has 16 slices and a small pizza has 8 slices. If he eats it all, how many pieces does he eat that day?",
-#         "Compute the integral of x^2 from 0 to 1",
-#         "What is 2 + 2 ?",
-#         "Six points $ A, B, C, D, E, $ and $ F $ lie in a straight line in that order. Suppose that $ G $ is a point not on the line and that $ AC = 26 $, $ BD = 22 $, $ CE = 31 $, $ DF = 33 $, $ AF = 73 $, $ CG = 40 $, and $ DG = 30 $. Find the area of $ \triangle BGE $.",
-#         """Let $ A_1A_2 \ldots A_{11} $ be an 11-sided non-convex simple polygon with the following properties:
-# * The area of $ A_iA_1A_{i+1} $ is 1 for each $ 2 \leq i \leq 10 $,
-# * $ \cos(\angle A_iA_1A_{i+1}) = \frac{12}{13} $ for each $ 2 \leq i \leq 10 $,
-# * The perimeter of $ A_1A_2 \ldots A_{11} $ is 20.
-# If $ A_1A_2 + A_1A_{11} $ can be expressed as $ \frac{m\sqrt{n} - p}{q} $ for positive integers $ m, n, p, q $ with $ n $ squarefree and no prime divides all of $ m, p, q$, find $ m + n + p + q $."""
-#     ]
+        prompt_sffx = " Let's think step by step and output the final answer within \\boxed{}."
 
+        semi_formatted_prompts = [prompt + prompt_sffx for prompt in prompts]
 
-    prompt_sffx = " Let's think step by step and output the final answer within \\boxed{}."
+        labeled = score_prompts_with_probe(
+            model=model,
+            tokenizer=tokenizer,
+            prompts_raw=semi_formatted_prompts,
+            probe=probe,
+            batch_size=8,
+            apply_chat_template=True,
+            max_length=2048,
+            return_sigmoid=True,
+        )
 
-    semi_formatted_prompts = [prompt + prompt_sffx for prompt in prompts]
+        print(f"\nTemperature 🌡 = {TEMP}, K 🧮= {K}\n")
+        for data_point in labeled[:2]:
+            print(f"PROMPT: {data_point["prompt"]}\n")
+            print(f"Pred raw score: {data_point["score_raw"]}\n")
+            print(f"Pred score: {data_point["score"]}\n")
+            print("========================\n")
 
-    labeled = score_prompts_with_probe(
-        model=model,
-        tokenizer=tokenizer,
-        prompts_raw=semi_formatted_prompts,
-        probe=probe,
-        batch_size=8,
-        apply_chat_template=True,
-        max_length=2048,
-        return_sigmoid=True,
-    )
-
-    print(f"\nTemperature 🌡 = {TEMP}, K 🧮= {K}\n")
-    for data_point in labeled[:5]:
-        print(data_point["score_raw"])
-        print(data_point["score"])
-        print("========================\n")
-    out_records = []
-    for i in range(len(test_split)):
-        ex = test_split[i]
-
-        # labeled[i]["prompt"] is your semi_formatted prompt string (problem + suffix)
-        out_records.append({
+        out_records = []
+        for i, ex in enumerate(split):
+            rec = {
             "idx": i,
-            "problem": ex.get("problem"),
-            "original_solution": ex.get(solution_col),
-
-            # optional extra metadata if present
-            "level": ex.get("level"),
-            "type": ex.get("type"),
-
-            # what you actually scored
+            "dataset": ADAPTER.name,
             "prompt_scored": labeled[i]["prompt"],
             "formatted": labeled[i]["formatted"],
-
-            # probe outputs
             "score_raw": labeled[i]["score_raw"],
             "score": labeled[i]["score"],
             "layer": labeled[i]["layer"],
             "pos": labeled[i]["pos"],
-        })
+            }
 
-    # Write JSONL (easy to stream / grep)
-    out_dir = Path(f"../probe_results/DATA/SR_DATA/MATH/{MODEL_ALIAS}_{GEN_STR}")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    jsonl_path = out_dir / "math_lighteval_scored.jsonl"
+            if solution_col:
+                rec["original_solution"] = ex.get(solution_col)
 
-    with open(jsonl_path, "w", encoding="utf-8") as f:
-        for r in out_records:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+            for k in ADAPTER.metadata_cols:
+                rec[k] = ex.get(k)
 
-    print(f"✅ Wrote {len(out_records)} rows to: {jsonl_path}")
+            out_records.append(rec)
 
-    # Optional: also save as Parquet (faster to load later)
-    parquet_path = out_dir / "math_lighteval_scored.parquet"
-    Dataset.from_list(out_records).to_parquet(str(parquet_path))
-    print(f"✅ Wrote Parquet to: {parquet_path}")
+            # # labeled[i]["prompt"] is your semi_formatted prompt string (problem + suffix)
+            # out_records.append({
+            #     "idx": i,
+            #     "problem": ex.get("problem"),
+            #     "original_solution": ex.get(solution_col),
+
+            #     # optional extra metadata if present
+            #     "level": ex.get("level"),
+            #     "type": ex.get("type"),
+
+            #     # what you actually scored
+            #     "prompt_scored": labeled[i]["prompt"],
+            #     "formatted": labeled[i]["formatted"],
+
+            #     # probe outputs
+            #     "score_raw": labeled[i]["score_raw"],
+            #     "score": labeled[i]["score"],
+            #     "layer": labeled[i]["layer"],
+            #     "pos": labeled[i]["pos"],
+            # })
+
+        # Write JSONL (easy to stream / grep)
+        # out_dir = Path(f"../probe_results/DATA/SR_DATA/{DS_NAME}/{MODEL_ALIAS}_{GEN_STR}")
+        # out_dir.mkdir(parents=True, exist_ok=True)
+        jsonl_path = out_dir / "scored.jsonl"
+
+        with open(jsonl_path, "w", encoding="utf-8") as f:
+            for r in out_records:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+        print(f"✅ Wrote {len(out_records)} rows to: {jsonl_path}")
+
+        # Optional: also save as Parquet (faster to load later)
+        parquet_path = out_dir / "scored.parquet"
+        Dataset.from_list(out_records).to_parquet(str(parquet_path))
+        print(f"✅ Wrote Parquet to: {parquet_path}")
