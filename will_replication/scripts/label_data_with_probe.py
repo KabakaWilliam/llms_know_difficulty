@@ -320,21 +320,11 @@ if __name__ == "__main__":
         print(f"LABELLING DATASET: {dataset_tag}\n")
 
         out_dir = Path(
-            f"../probe_results/DATA/Lablled_SR/{TARGET_PROBE_DATASET}_probe/{dataset_tag}/{MODEL_ALIAS}_{GEN_STR}"
+            f"../probe_results/DATA/Labelled_SR/{TARGET_PROBE_DATASET}_probe/{dataset_tag}/{MODEL_ALIAS}_{GEN_STR}"
         )
         out_dir.mkdir(parents=True, exist_ok=True)
 
         split, prompts, solution_col = load_dataset_with_adapter(ADAPTER)
-
-        # ds = load_dataset("DigitalLearningGmbH/MATH-lighteval")
-
-
-        # test_split = ds["test"]
-        # prompts = test_split["problem"]
-
-        # # Robustly find the "solution" column (different MATH variants name it differently)
-        # candidate_solution_cols = ["solution", "answer", "final_answer", "target", "ground_truth"]
-        # solution_col = next((c for c in candidate_solution_cols if c in test_split.column_names), None)
 
         prompt_sffx = " Let's think step by step and output the final answer within \\boxed{}."
 
@@ -379,30 +369,6 @@ if __name__ == "__main__":
 
             out_records.append(rec)
 
-            # # labeled[i]["prompt"] is your semi_formatted prompt string (problem + suffix)
-            # out_records.append({
-            #     "idx": i,
-            #     "problem": ex.get("problem"),
-            #     "original_solution": ex.get(solution_col),
-
-            #     # optional extra metadata if present
-            #     "level": ex.get("level"),
-            #     "type": ex.get("type"),
-
-            #     # what you actually scored
-            #     "prompt_scored": labeled[i]["prompt"],
-            #     "formatted": labeled[i]["formatted"],
-
-            #     # probe outputs
-            #     "score_raw": labeled[i]["score_raw"],
-            #     "score": labeled[i]["score"],
-            #     "layer": labeled[i]["layer"],
-            #     "pos": labeled[i]["pos"],
-            # })
-
-        # Write JSONL (easy to stream / grep)
-        # out_dir = Path(f"../probe_results/DATA/SR_DATA/{DS_NAME}/{MODEL_ALIAS}_{GEN_STR}")
-        # out_dir.mkdir(parents=True, exist_ok=True)
         jsonl_path = out_dir / "scored.jsonl"
 
         with open(jsonl_path, "w", encoding="utf-8") as f:

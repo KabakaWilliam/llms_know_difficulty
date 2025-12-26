@@ -173,7 +173,8 @@ def extract_and_save_activations(
     positions = list(range(-n_eoi, 0))
     print(f"Extracting from positions: {positions}")
 
-    model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
+    model = AutoModelForCausalLM.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
     model.eval()
     for p in model.parameters():
         p.requires_grad_(False)
