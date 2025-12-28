@@ -310,7 +310,7 @@ if __name__ == "__main__":
                 prompt_fn=lambda ex: ex["question"],
                 target_cols=["answer"],
                 metadata_cols=[],
-                subset="AIME2025-II"
+                subset="AIME2025-I"
             )
         else:
             raise ValueError(f"{DS_NAME} isn't configured present")

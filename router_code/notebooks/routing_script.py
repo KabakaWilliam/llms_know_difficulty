@@ -43,9 +43,9 @@ def unload_model(llm: LLM) -> None:
 
 
 def route_questions(predicted_score: float, model_pool: list[str]) -> str:
-    if predicted_score >= 0.8:
+    if predicted_score >= 0.9: # (success_rate >= 90%)
         return model_pool[0]
-    elif predicted_score >= 0.5:
+    elif predicted_score >= 0.4:
         return model_pool[1]
     else:
         return model_pool[2]
@@ -235,7 +235,8 @@ def main():
         SIMPLE_MODEL_POOL_CONFIG, ModelConfig
     )
 
-    LABELLED_DATASETS_LIST = ["opencompass/AIME2025","gneubig/aime-1983-2024", "DigitalLearningGmbH/MATH-lighteval", "openai/gsm8k"]
+    LABELLED_DATASETS_LIST = ["opencompass/AIME2025","gneubig/aime-1983-2024", "openai/gsm8k","DigitalLearningGmbH/MATH-lighteval"]
+    # LABELLED_DATASETS_LIST = ["opencompass/AIME2025"]
 
 
     PROBE_RESULTS_DIR = "../../will_replication/probe_results/DATA"
@@ -248,6 +249,7 @@ def main():
         LABELLED_DATASET_NAME = "_".join(LABELLED_DATASET_FULL_NAME.split("/"))
 
         PROBE_MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct"
+        PROBE_MODEL_ALIAS = "_".join(PROBE_MODEL_NAME.split("/"))
         K = 1
         TEMPERATURE = 0.0
 
@@ -274,9 +276,15 @@ def main():
         print(f"testing PIKA route on : {LABELLED_DATASET_NAME}")
 
         model_pool = list(SIMPLE_MODEL_POOL_CONFIG.keys())
-        routing_dataset_df["route_to"] = routing_dataset_df["score"].astype(float).apply(
+        # we can use the calibrated score for k>1
+        if K == 1:
+            routing_dataset_df["route_to"] = routing_dataset_df["score"].astype(float).apply(
             lambda s: route_questions(s, model_pool)
-        )
+            )
+        elif K >1:
+            routing_dataset_df["route_to"] = routing_dataset_df["calibrated_score"].astype(float).apply(
+            lambda s: route_questions(s, model_pool)
+            )
 
         print("Routing Dataset Breakdown:")
         print(routing_dataset_df["route_to"].value_counts())
@@ -300,8 +308,8 @@ def main():
             model_run_cfgs=model_run_cfgs,
         )
 
-        routing_dataset_df.to_parquet(f"{LABELLED_DATASET_NAME}_routed_final.parquet", index=True)
-        print(f"✅ Done. Saved {LABELLED_DATASET_NAME}_routed_final.parquet")
+        routing_dataset_df.to_parquet(f"{LABELLED_DATASET_NAME}_routed_by_{PROBING_DATASET}_{PROBE_MODEL_ALIAS}_final.parquet", index=True)
+        print(f"✅ Done. Saved {LABELLED_DATASET_NAME}_routed_by_{PROBE_MODEL_ALIAS}_final.parquet")
 
 
 if __name__ == "__main__":

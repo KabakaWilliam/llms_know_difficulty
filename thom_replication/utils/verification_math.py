@@ -14,9 +14,17 @@
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 
 # Copied over from verl.utils.reward_score.math_reward for easier imports
-
 def extract_solution(solution_str):
     return remove_boxed(last_boxed_only_string(solution_str))
+
+def try_extract_solution(sol):
+    try:
+        return extract_solution(sol)
+    except:
+        return ""
+
+def extract_gsm8k_solution(solution_str):
+    return solution_str.split("\n####")[-1].strip()
 
 def compute_score(solution_str, ground_truth) -> float:
     retval = 0.0
