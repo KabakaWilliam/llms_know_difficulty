@@ -129,6 +129,8 @@ def main(
     for split in results:
         results_df = pd.DataFrame.from_dict(results[split], orient='index')
         model_alias = model_name.replace("/", "-")
+        results_df = results_df.reset_index().rename(columns={"index": "idx"})
+        results_df["problem_id"] = results_df["problem"].apply(lambda x: base64.b64encode(x.encode()).decode())
         
         # Include number of questions in filename only if max_questions_per_split was specified
         if max_questions_per_split is not None:
@@ -142,6 +144,7 @@ def main(
 if __name__ == "__main__":
     import time
     import gc
+    import base64
     
     MODELS_TO_RUN = [
      "Qwen/Qwen2-1.5B",

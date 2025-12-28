@@ -2,14 +2,13 @@
 # and uses our own verification functions
 from typing import Dict, Optional
 
-
 def get_task(name):
     import os
     from vllm import LLM, SamplingParams
     from datasets import load_dataset
     from transformers import AutoTokenizer
 
-    if name == 'MATH':
+    if name == 'DigitalLearningGmbH_MATH-lighteval':
         from utils.verification_math import compute_score, extract_solution
         ds = load_dataset("DigitalLearningGmbH/MATH-lighteval")
         # extract the solution from the chain of thought
@@ -155,10 +154,10 @@ def main(
 
     # --------- tasks ----------
     TASKS = [
-        "MATH",
-        # "openai_gsm8k",
-        # "gneubig_aime-1983-2024",
-        # "opencompass_AIME2025",
+        "DigitalLearningGmbH_MATH-lighteval",
+        "openai_gsm8k",
+        "gneubig_aime-1983-2024",
+        "opencompass_AIME2025",
     ]
 
     seed = 42
@@ -176,7 +175,8 @@ def main(
         return [len(ids) for ids in enc["input_ids"]]
 
     for TASK in TASKS:
-        ds, compute_score = get_task(TASK)
+        TASK_ALIAS = "_".join(TASK.split("/"))
+        ds, compute_score = get_task(TASK_ALIAS)
 
         # --- choose indices per split ---
         selected_indices = {}
@@ -254,6 +254,7 @@ def main(
                     "total_input_tokens": 0,
                     "total_output_tokens": 0,
                     "total_cost_usd": 0.0 if has_pricing else np.nan,
+                    "input_cost_usd_once": 0.0 if has_pricing else np.nan,
                 }
 
             generated_text = out.outputs[0].text
@@ -265,32 +266,32 @@ def main(
 
             # cost per rollout
             if has_pricing and not np.isnan(out_tok):
-                input_cost = (float(in_tok) / TOKENS_PER_MILLION) * float(in_rate)
+                input_cost_once = (float(in_tok) / TOKENS_PER_MILLION) * float(in_rate)
                 output_cost = (float(out_tok) / TOKENS_PER_MILLION) * float(out_rate)
-                total_cost = input_cost + output_cost
             else:
-                input_cost = np.nan
+                input_cost_once = np.nan
                 output_cost = np.nan
-                total_cost = np.nan
 
+            # ---- record rollout ----
             results[split][idx]["generated_solutions"].append(
                 {
                     "text": generated_text,
                     "score": score,
-                    "input_tokens": int(in_tok),
+                    "input_tokens": int(in_tok),  # debug (same each rollout)
                     "output_tokens": int(out_tok) if not np.isnan(out_tok) else np.nan,
-                    "input_cost_usd": float(input_cost) if not np.isnan(input_cost) else np.nan,
+                    "input_cost_usd_once": float(input_cost_once) if not np.isnan(input_cost_once) else np.nan,  # debug
                     "output_cost_usd": float(output_cost) if not np.isnan(output_cost) else np.nan,
-                    "total_cost_usd": float(total_cost) if not np.isnan(total_cost) else np.nan,
+                    # better name: this is output-only for this rollout
+                    "rollout_cost_usd": float(output_cost) if not np.isnan(output_cost) else np.nan,
                 }
             )
 
             # update totals
-            results[split][idx]["total_input_tokens"] += int(in_tok)
-            if not np.isnan(out_tok):
-                results[split][idx]["total_output_tokens"] += int(out_tok)
-            if has_pricing and not np.isnan(total_cost):
-                results[split][idx]["total_cost_usd"] += float(total_cost)
+            if results[split][idx]["total_input_tokens"] == 0:
+                results[split][idx]["total_input_tokens"] = int(in_tok)
+                if has_pricing and not np.isnan(input_cost_once):
+                    results[split][idx]["input_cost_usd_once"] = float(input_cost_once)
+                    results[split][idx]["total_cost_usd"] += float(input_cost_once)
 
         # --- compute success rates ---
         for split in results:
@@ -299,6 +300,16 @@ def main(
                 correct = sum(gs["score"] for gs in gen_sols)
                 total = len(gen_sols)
                 results[split][idx]["success_rate"] = correct / total if total > 0 else 0.0
+
+                # majority_vote_extracted_answer = add_majority_vote_answer(gen_sols)
+                # # majority_vote_extracted_answer = majority_vote_from_samples(gen_sols, extract_answer_fn=try_extract_solution)[1]
+
+                # majority_vote_extracted_answer_boxed = f"\\boxed{{{majority_vote_extracted_answer}}}"
+                # majority_vote_score = compute_score(solution_str=majority_vote_extracted_answer_boxed, ground_truth=results[split][idx]["ground_truth"])
+
+                # results[split][idx]["majority_vote_extracted_answer"] = majority_vote_extracted_answer
+                # results[split][idx]["majority_vote_is_correct"] = majority_vote_score
+                
 
         # --- print overall success rates ---
         for split in results:
@@ -321,7 +332,7 @@ def main(
             model_alias = model_name.replace("/", "-")
             if max_questions_per_split is not None:
                 filepath = (
-                    f"{output_dir}/{split}-{len(results[split])}-{model_alias}_{max_questions_per_split}"
+                    f"{output_dir}/{split}-{len(results[split])}-{model_alias}"
                     f"_maxlen_{max_response_len}_k_{num_rollouts_per_question}_temp_{temperature}.parquet"
                 )
             else:
@@ -329,12 +340,24 @@ def main(
                     f"{output_dir}/{split}-{model_alias}"
                     f"_maxlen_{max_response_len}_k_{num_rollouts_per_question}_temp_{temperature}.parquet"
                 )
+            results_df = results_df.reset_index().rename(columns={"index": "idx"})
+            results_df["problem_id"] = results_df["problem"].apply(encode_str)
+
+            if has_pricing:
+                # Output tokens/cost accumulate across rollouts
+                results_df["total_output_tokens"] = results_df["generated_solutions"].apply(get_output_tokens)
+                results_df["total_output_cost_usd"] = results_df["generated_solutions"].apply(get_output_cost)
+                results_df["total_cost_usd"] = results_df["input_cost_usd_once"] + results_df["total_output_cost_usd"]
+                results_df["majority_vote_extracted_answer"] = results_df["generated_solutions"].apply(add_majority_vote_answer)
+                results_df["majority_vote_is_correct"] = results_df.apply(
+                lambda row: compute_score(solution_str=f"\\boxed{{{row['majority_vote_extracted_answer']}}}", ground_truth=row["ground_truth"]),
+                axis=1
+                )
+
 
             results_df.to_parquet(filepath)
             print(f"Saved {TASK} / {split} split to: {filepath}")
 
-            if has_pricing and "total_cost_usd" in results_df.columns:
-                print(f"Total cost (USD) for {TASK} / {split}: {results_df['total_cost_usd'].sum(skipna=True):.6f}")
     unload_model(llm)
 
 if __name__ == "__main__":
@@ -347,7 +370,8 @@ if __name__ == "__main__":
     sys.path.insert(0, str(repo_root))
 
     from will_replication.my_utils.utils import (
-        SIMPLE_MODEL_POOL_CONFIG, ModelConfig, unload_model
+        SIMPLE_MODEL_POOL_CONFIG, ModelConfig, unload_model, get_output_cost,
+        get_output_tokens, get_output_text, add_majority_vote_answer, encode_str
     )
     
     MODELS_TO_RUN = [
@@ -376,10 +400,10 @@ if __name__ == "__main__":
         
         main(
             model_name=MODEL_TO_ROLLOUT,
-            max_questions_per_split=None,
+            max_questions_per_split=15,
             tensor_parallel_size=1,
-            num_rollouts_per_question=1,
-            temperature=0.0,
+            num_rollouts_per_question=5,
+            temperature=0.6,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
             batch_size_by_model=batch_size_by_model,
             max_response_len=3000

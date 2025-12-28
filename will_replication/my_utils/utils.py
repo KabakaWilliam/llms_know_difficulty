@@ -1,9 +1,25 @@
-from math_verify import parse, verify
 import json
 import numpy as np
 import pandas as pd
+import sys
+import base64
+
+from math_verify import parse, verify
 from dataclasses import dataclass, field
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List, Callable, Tuple
+from collections import Counter
+
+from pathlib import Path
+
+repo_root = Path.cwd().parent.parent
+sys.path.insert(0, str(repo_root))
+from thom_replication.utils.verification_math import try_extract_solution
+
+def encode_str(prob_str):
+    return base64.b64encode(prob_str.encode()).decode()
+
+def decode_str(encoded_prob_str):
+    return base64.b64decode(encoded_prob_str).decode()
 
 def _make_hashable(obj):
     """Convert unhashable types (like SymPy matrices) to hashable equivalents."""
@@ -249,3 +265,51 @@ def unload_model(llm) -> None:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
+
+def _normalize_answer_for_vote(ans: Optional[str]) -> Optional[str]:
+    if ans is None:
+        return None
+    ans = str(ans).strip()
+    return ans if ans else None
+
+def majority_vote_from_samples(
+    sample_texts: List[str],
+    *,
+    extract_answer_fn: Callable[[str], Optional[str]],
+) -> Tuple[str, Optional[str], int]:
+    answers = [_normalize_answer_for_vote(extract_answer_fn(t)) for t in sample_texts]
+
+    if any(a is not None for a in answers):
+        keys = [a if a is not None else "__NO_ANSWER__" for a in answers]
+        winner_key, _ = Counter(keys).most_common(1)[0]
+        winner_idx = next(i for i, k in enumerate(keys) if k == winner_key)
+        chosen_text = sample_texts[winner_idx]
+        chosen_answer = None if winner_key == "__NO_ANSWER__" else winner_key
+        return chosen_text, chosen_answer, winner_idx
+
+    norm_texts = [t.strip() for t in sample_texts]
+    winner_text, _ = Counter(norm_texts).most_common(1)[0]
+    winner_idx = next(i for i, nt in enumerate(norm_texts) if nt == winner_text)
+    return sample_texts[winner_idx], None, winner_idx
+
+def get_output_cost(solutions):
+    total_output_cost = 0
+    for sol in solutions:
+        total_output_cost += sol["output_cost_usd"]
+    return total_output_cost
+
+def get_output_tokens(solutions):
+    total_output_tokens = 0
+    for sol in solutions:
+        total_output_tokens += sol["output_tokens"]
+    return total_output_tokens
+
+def get_output_text(solutions):
+    all_responses = []
+    for sol in solutions:
+        all_responses .append(sol["text"])
+    return all_responses
+
+def add_majority_vote_answer(solutions):
+    response_list = get_output_text(solutions)
+    return majority_vote_from_samples(response_list, extract_answer_fn=try_extract_solution)[1]
