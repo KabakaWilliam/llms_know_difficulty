@@ -346,7 +346,7 @@ if __name__ == "__main__":
 
         print(f"\nTemperature 🌡 = {TEMP}, K 🧮= {K}\n")
         for data_point in labeled[:2]:
-            print(f"PROMPT: {data_point["prompt"]}\n")
+            print(f"PROMPT: {data_point["problem"]}\n")
             print(f"Pred raw score: {data_point["score_raw"]}\n")
             print(f"Pred score: {data_point["score"]}\n")
             print("========================\n")
@@ -355,7 +355,7 @@ if __name__ == "__main__":
         for i, ex in enumerate(split):
             rec = {
             "idx": i,
-            "problem_id": encode_str(labeled[i]["prompt"]),
+            "problem_id": encode_str(labeled[i]["problem"]),
             "dataset": ADAPTER.name,
             "problem": labeled[i]["problem"],
             "formatted_prompt": labeled[i]["formatted_prompt"],
