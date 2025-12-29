@@ -3,7 +3,9 @@ import numpy as np
 import pandas as pd
 import sys
 import base64
+import matplotlib.pyplot as plt
 
+from matplotlib.ticker import FuncFormatter
 from math_verify import parse, verify
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List, Callable, Tuple
@@ -194,8 +196,6 @@ SIMPLE_MODEL_POOL_CONFIG = {
 
 }
 
-
-
 def run_greedy_baseline(llm, prompts, gts, MAX_TOKENS=3000):
     """Get baseline greedy performance on all questions"""
     from vllm import SamplingParams
@@ -313,3 +313,75 @@ def get_output_text(solutions):
 def add_majority_vote_answer(solutions):
     response_list = get_output_text(solutions)
     return majority_vote_from_samples(response_list, extract_answer_fn=try_extract_solution)[1]
+
+def pareto_efficient_min_cost_max_score(costs, scores, eps=0):
+    costs = np.asarray(costs, dtype=float)
+    scores = np.asarray(scores, dtype=float)
+    n = len(costs)
+    is_eff = np.ones(n, dtype=bool)
+    for i in range(n):
+        if not is_eff[i]:
+            continue
+        dominated = (costs <= costs[i] + eps) & (scores >= scores[i] - eps) & (
+            (costs < costs[i] - eps) | (scores > scores[i] + eps)
+        )
+        if np.any(dominated):
+            is_eff[i] = False
+    return is_eff
+
+
+def plot_pareto_frontier(points, title, score_col="score", x_label="Total eval cost (USD)", y_label="Pass@1"):
+    """
+    points: list of dicts with keys:
+      - name: str  (legend entry; e.g. model alias or "ROUTER")
+      - cost: float
+      - score: float
+      - kind: str  ("model" or "router")
+    """
+    names = [p["name"] for p in points]
+    costs = np.array([p["cost"] for p in points], dtype=float)
+    scores = np.array([p[score_col] for p in points], dtype=float)
+
+    mask = pareto_efficient_min_cost_max_score(costs, scores)
+    pareto_pts = sorted([p for p, m in zip(points, mask) if m], key=lambda d: d["cost"])
+
+    uniq_names = list(dict.fromkeys(names))  # stable order
+    cmap = plt.get_cmap("tab20")
+    color_map = {n: cmap(i % cmap.N) for i, n in enumerate(uniq_names)}
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+
+    for n in uniq_names:
+        pts_n = [p for p in points if p["name"] == n]
+        kind = pts_n[0].get("kind", "model")
+        marker = "*" if kind == "router" else "o"
+        size = 180 if kind == "router" else 70
+        edge = "black" if kind == "router" else None
+
+        ax.scatter(
+            [p["cost"] for p in pts_n],
+            [p[score_col] for p in pts_n],
+            label=n,
+            marker=marker,
+            s=size,
+            c=[color_map[n]],
+            edgecolors=edge,
+            linewidths=1.0 if kind == "router" else 0.0,
+            alpha=0.9,
+            zorder=3 if kind == "router" else 2,
+        )
+
+    # Pareto frontier line
+    if len(pareto_pts) >= 2:
+        ax.plot([p["cost"] for p in pareto_pts], [p[score_col] for p in pareto_pts], linewidth=1.5, zorder=1)
+
+    ax.set_title(title)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.grid(True, alpha=0.25)
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x:.3f}"))
+
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), frameon=True)
+    fig.tight_layout(rect=(0, 0, 0.78, 1))
+    plt.show()
+

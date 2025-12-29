@@ -154,10 +154,10 @@ def main(
 
     # --------- tasks ----------
     TASKS = [
+        "opencompass_AIME2025",
+        "gneubig_aime-1983-2024",
         "DigitalLearningGmbH_MATH-lighteval",
         "openai_gsm8k",
-        "gneubig_aime-1983-2024",
-        "opencompass_AIME2025",
     ]
 
     seed = 42
@@ -389,8 +389,8 @@ if __name__ == "__main__":
 
     batch_size_by_model = {
     "Qwen/Qwen2.5-Math-1.5B-Instruct": 256,
-    "Qwen/Qwen2.5-Math-7B-Instruct":  128,
-    "Qwen/Qwen2.5-Math-72B-Instruct":  64,
+    "Qwen/Qwen2.5-Math-7B-Instruct":  256,
+    "Qwen/Qwen2.5-Math-72B-Instruct":  128,
     }
     
     for i, MODEL_TO_ROLLOUT in enumerate(MODELS_TO_RUN):
@@ -400,10 +400,10 @@ if __name__ == "__main__":
         
         main(
             model_name=MODEL_TO_ROLLOUT,
-            max_questions_per_split=15,
+            # max_questions_per_split=15,
             tensor_parallel_size=1,
-            num_rollouts_per_question=5,
-            temperature=0.6,
+            num_rollouts_per_question=1,
+            temperature=0.0,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
             batch_size_by_model=batch_size_by_model,
             max_response_len=3000
