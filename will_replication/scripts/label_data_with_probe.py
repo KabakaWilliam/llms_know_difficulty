@@ -17,7 +17,8 @@ sys.path.insert(0, str(repo_root))
 print(f"Added to path: {repo_root}")
 print(f"Checking if thom_replication exists: {(repo_root / 'thom_replication').exists()}")
 
-from thom_replication.create_success_rate_datasets import get_task
+# from thom_replication.create_success_rate_datasets import get_task
+from will_replication.my_utils.utils import encode_str
 # -----------------------------
 # Probe loading
 # -----------------------------
@@ -202,8 +203,8 @@ def score_prompts_with_probe(
     results = []
     for i in range(len(prompts_raw)):
         results.append({
-            "prompt": prompts_raw[i],
-            "formatted": formatted[i],
+            "problem": prompts_raw[i],
+            "formatted_prompt": formatted[i],
             "score_raw": float(score_raw[i].item()),
             "score": float(score[i].item()),
             "layer": probe.best_layer,
@@ -253,14 +254,16 @@ def load_dataset_with_adapter(adapter: DatasetAdapter):
 # Example usage
 # -----------------------------
 if __name__ == "__main__":
-    model_name = "Qwen/Qwen2.5-Math-7B-Instruct"
+    model_name = "Qwen/Qwen2.5-Math-1.5B-Instruct"
 
     DATASETS = ["opencompass/AIME2025", "gneubig/aime-1983-2024", "DigitalLearningGmbH/MATH-lighteval", "openai/gsm8k"]
+
+    DS_ALIASES = ["_".join(DATASET.split("/")) for DATASET in DATASETS]
     
-    K=50
-    TEMP=1.0
+    K=1
+    TEMP=0.0
     GEN_STR=f"maxlen_3000_k_{K}_temp_{TEMP}"
-    TARGET_PROBE_DATASET = 'MATH'
+    TARGET_PROBE_DATASET = 'DigitalLearningGmbH_MATH-lighteval'
     MODEL_ALIAS = "-".join(model_name.split("/"))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -352,9 +355,10 @@ if __name__ == "__main__":
         for i, ex in enumerate(split):
             rec = {
             "idx": i,
+            "problem_id": encode_str(labeled[i]["prompt"]),
             "dataset": ADAPTER.name,
-            "prompt_scored": labeled[i]["prompt"],
-            "formatted": labeled[i]["formatted"],
+            "problem": labeled[i]["problem"],
+            "formatted_prompt": labeled[i]["formatted_prompt"],
             "score_raw": labeled[i]["score_raw"],
             "score": labeled[i]["score"],
             "layer": labeled[i]["layer"],
