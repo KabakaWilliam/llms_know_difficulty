@@ -5,12 +5,13 @@ set -e  # Exit on error
 
 # List of models to process
 MODELS=(
-    "Qwen/Qwen2.5-Math-1.5B-Instruct" 
+    # "Qwen/Qwen2.5-Math-1.5B-Instruct" 
     # "Qwen/Qwen2.5-1.5B"
     # # "openai/gpt-oss-20b"
     # "Qwen/Qwen2.5-1.5B-Instruct" 
     # "Qwen/Qwen2-1.5B-Instruct"
-    "Qwen/Qwen2.5-Math-7B-Instruct" 
+    # "Qwen/Qwen2.5-Math-7B-Instruct" 
+    "Qwen/Qwen2.5-Math-72B-Instruct" 
     # "Qwen/Qwen2.5-Math-1.5B"
     # "Qwen/Qwen2.5-1.5B" 
     # "Qwen/Qwen2.5-Math-7B" 
@@ -34,10 +35,10 @@ QUESTION_COL="formatted_prompt"
 LABEL_COL="success_rate"
 LAYERS="all"
 BATCH_SIZE=32
-GPU=0
+GPU=1,2
 
 # Skip activation extraction if they already exist
-SKIP_ACTIVATIONS=false  # Set to true to skip extraction and reuse existing activations
+SKIP_ACTIVATIONS=true  # Set to true to skip extraction and reuse existing activations
 
 # Regularization parameters
 ALPHA_GRID="0, 0.001,0.01,0.1,1,10,100,1000,10000"  # Grid search (nested CV)

@@ -254,14 +254,14 @@ def load_dataset_with_adapter(adapter: DatasetAdapter):
 # Example usage
 # -----------------------------
 if __name__ == "__main__":
-    model_name = "Qwen/Qwen2.5-Math-1.5B-Instruct"
+    model_name = "Qwen/Qwen2.5-Math-7B-Instruct"
 
     DATASETS = ["opencompass/AIME2025", "gneubig/aime-1983-2024", "DigitalLearningGmbH/MATH-lighteval", "openai/gsm8k"]
 
     DS_ALIASES = ["_".join(DATASET.split("/")) for DATASET in DATASETS]
     
-    K=1
-    TEMP=0.0
+    K=5
+    TEMP=0.6
     GEN_STR=f"maxlen_3000_k_{K}_temp_{TEMP}"
     TARGET_PROBE_DATASET = 'DigitalLearningGmbH_MATH-lighteval'
     MODEL_ALIAS = "-".join(model_name.split("/"))

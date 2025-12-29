@@ -385,3 +385,143 @@ def plot_pareto_frontier(points, title, score_col="score", x_label="Total eval c
     fig.tight_layout(rect=(0, 0, 0.78, 1))
     plt.show()
 
+# CALIBRATION CODE
+def sr_to_counts(sr, n_trials=50):
+    sr = np.asarray(sr).reshape(-1)
+    k = np.rint(sr * n_trials).astype(int)
+    k = np.clip(k, 0, n_trials)
+    n = np.full_like(k, n_trials, dtype=int)
+    return k, n
+
+def fit_platt_binomial(
+    logits_cal,
+    sr50_cal,
+    n_trials=50,
+    max_iter=300,
+    device="cpu",
+):
+    import torch
+    import torch.nn.functional as F
+    """
+    Fit Platt scaling parameters (a, b) for:
+        p = sigmoid(a * logit + b)
+    minimizing binomial NLL using SR@50 -> (k successes out of n trials).
+    """
+    k_np, n_np = sr_to_counts(sr50_cal, n_trials=n_trials)
+
+    z = torch.as_tensor(np.asarray(logits_cal).reshape(-1), dtype=torch.float32, device=device)
+    k = torch.as_tensor(k_np, dtype=torch.float32, device=device)
+    n = torch.as_tensor(n_np, dtype=torch.float32, device=device)
+
+    # Initialize: a=1, b=0 (identity-ish)
+    a = torch.tensor(1.0, dtype=torch.float32, device=device, requires_grad=True)
+    b = torch.tensor(0.0, dtype=torch.float32, device=device, requires_grad=True)
+
+    opt = torch.optim.LBFGS([a, b], lr=0.5, max_iter=max_iter, line_search_fn="strong_wolfe")
+
+    def closure():
+        opt.zero_grad()
+        s = a * z + b
+        # Binomial NLL per example: -[k*logsigmoid(s) + (n-k)*logsigmoid(-s)]
+        loss = -(k * F.logsigmoid(s) + (n - k) * F.logsigmoid(-s)).mean()
+        loss.backward()
+        return loss
+
+    opt.step(closure)
+
+    a_hat = float(a.detach().cpu().item())
+    b_hat = float(b.detach().cpu().item())
+    return a_hat, b_hat
+
+def apply_platt(logits, a, b):
+    logits = np.asarray(logits)
+    return sigmoid_np(a * logits + b)
+
+def compute_ece_soft(probs, labels, n_bins=10):
+    """
+    ECE for probabilistic (soft) labels in [0,1].
+    probs: predicted probabilities in [0,1], shape [N]
+    labels: target probabilities in [0,1], shape [N]
+    """
+    probs = np.asarray(probs).reshape(-1)
+    labels = np.asarray(labels).reshape(-1)
+
+    if probs.shape[0] != labels.shape[0]:
+        raise ValueError(f"Shape mismatch: probs {probs.shape}, labels {labels.shape}")
+    if np.any(probs < 0) or np.any(probs > 1):
+        raise ValueError("probs must be in [0,1]. Apply sigmoid if you have logits.")
+    if np.any(labels < 0) or np.any(labels > 1):
+        raise ValueError("labels must be in [0,1] for soft-label ECE.")
+
+    bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
+    ece = 0.0
+
+    for i in range(n_bins):
+        left, right = bin_edges[i], bin_edges[i + 1]
+        # include 1.0 in last bin
+        if i == n_bins - 1:
+            mask = (probs >= left) & (probs <= right)
+        else:
+            mask = (probs >= left) & (probs < right)
+
+        if np.any(mask):
+            avg_conf = probs[mask].mean()
+            avg_true = labels[mask].mean()   # mean target probability
+            bin_frac = mask.mean()
+            ece += np.abs(avg_conf - avg_true) * bin_frac
+
+    return float(ece)
+
+
+def reliability_diagram_soft(probs, labels, n_bins=10, title="Reliability diagram (soft labels)", show_hist=True):
+    """
+    Reliability diagram for soft labels:
+      x = mean predicted probability per bin
+      y = mean target probability per bin
+    """
+    probs = np.asarray(probs).reshape(-1)
+    labels = np.asarray(labels).reshape(-1)
+
+    bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
+    centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+    mean_pred = np.full(n_bins, np.nan)
+    mean_true = np.full(n_bins, np.nan)
+    counts = np.zeros(n_bins, dtype=int)
+
+    for i in range(n_bins):
+        left, right = bin_edges[i], bin_edges[i + 1]
+        if i == n_bins - 1:
+            mask = (probs >= left) & (probs <= right)
+        else:
+            mask = (probs >= left) & (probs < right)
+
+        counts[i] = int(mask.sum())
+        if counts[i] > 0:
+            mean_pred[i] = probs[mask].mean()
+            mean_true[i] = labels[mask].mean()
+
+    if show_hist:
+        fig, (ax, axh) = plt.subplots(
+            2, 1, figsize=(6, 8), gridspec_kw={"height_ratios": [3, 1]}, sharex=True
+        )
+    else:
+        fig, ax = plt.subplots(figsize=(6, 6))
+        axh = None
+
+    ax.plot([0, 1], [0, 1], linestyle="--", linewidth=1)
+    valid = ~np.isnan(mean_true)
+    ax.plot(mean_pred[valid], mean_true[valid], marker="o")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_xlabel("Mean predicted probability")
+    ax.set_ylabel("Mean target probability")
+    ax.set_title(title)
+
+    if axh is not None:
+        axh.bar(centers, counts, width=(bin_edges[1] - bin_edges[0]) * 0.9)
+        axh.set_ylabel("Count")
+        axh.set_xlabel("Predicted probability bin")
+
+    plt.tight_layout()
+    return fig

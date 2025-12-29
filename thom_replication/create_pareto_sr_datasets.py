@@ -379,10 +379,10 @@ if __name__ == "__main__":
     # "Qwen/Qwen2-1.5B-Instruct",
     # "Qwen/Qwen2.5-7B",
     # "Qwen/Qwen2.5-7B-Instruct"
-    "Qwen/Qwen2.5-Math-1.5B-Instruct",
+    # "Qwen/Qwen2.5-Math-1.5B-Instruct",
     # "Qwen/Qwen2.5-1.5B",
     # "Qwen/Qwen2.5-1.5B-Instruct",
-    "Qwen/Qwen2.5-Math-7B-Instruct",
+    # "Qwen/Qwen2.5-Math-7B-Instruct",
     "Qwen/Qwen2.5-Math-72B-Instruct",
     # "openai/gpt-oss-20b"
     ]
@@ -402,8 +402,8 @@ if __name__ == "__main__":
             model_name=MODEL_TO_ROLLOUT,
             # max_questions_per_split=15,
             tensor_parallel_size=1,
-            num_rollouts_per_question=1,
-            temperature=0.0,
+            num_rollouts_per_question=5,
+            temperature=0.6,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
             batch_size_by_model=batch_size_by_model,
             max_response_len=3000

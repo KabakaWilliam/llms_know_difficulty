@@ -20,8 +20,8 @@ TASKS = [
 MODEL_SIZES = ["1.5B", "7B", "72B"]
 SPLITS = ["train", "test"]
 
-K=1
-TEMP=0.0
+K=5
+TEMP=0.6
 
 for TASK in TASKS:
     for MODEL_SIZE in MODEL_SIZES:

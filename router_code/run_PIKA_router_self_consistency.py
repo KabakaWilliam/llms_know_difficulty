@@ -47,12 +47,12 @@ from matplotlib.ticker import FuncFormatter
 # ----------------------------
 LABELLED_DATASETS_LIST = [
     # "opencompass/AIME2025",
-    "gneubig/aime-1983-2024",
+    # "gneubig/aime-1983-2024",
     # "openai/gsm8k",
     "DigitalLearningGmbH/MATH-lighteval",
 ]
 
-PROBING_DATASET = "MATH"
+PROBING_DATASET = "DigitalLearningGmbH_MATH-lighteval"
 PROBE_MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct"
 
 # Load probe-labelled files from THIS config:
@@ -63,8 +63,16 @@ PROBE_TEMP = 0.0
 ROUTING_K = 5          # bookkeeping / output naming
 ROUTING_TEMP = 0.6
 
+# Baselines: (k,t) used for OG points NOW (you can extend later)
+BASELINE_K = 1
+BASELINE_T = 0.0
+
+
 # Self-consistency by routing tier
-SC_POLICY = {"easy": 3, "medium": 5, "hard": 1}
+if ROUTING_TEMP == 0.0:
+    SC_POLICY = {"easy": 1, "medium": 1, "hard": 1}
+else:
+    SC_POLICY = {"easy": 3, "medium": 5, "hard": 1}
 
 # Inference params
 MAX_TOKENS = 3000
@@ -81,9 +89,6 @@ batch_size_by_model = {
     "Qwen/Qwen2.5-Math-72B-Instruct":  64,
 }
 
-# Baselines: (k,t) used for OG points NOW (you can extend later)
-BASELINE_K = 1
-BASELINE_T = 0.0
 
 # Where OG SR_DATA lives
 SR_DATA_BASEDIR = "../will_replication/DATA/SR_DATA"
