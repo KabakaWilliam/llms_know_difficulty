@@ -21,14 +21,19 @@ import sys
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
 
+EASY_THRESHOLD = 0.9
+MEDIUM_THRESHOLD = 0.4
+threshold_str = f"threshE{EASY_THRESHOLD}_M{MEDIUM_THRESHOLD}"
+
+
 # ----------------------------
 # Routing
 # ----------------------------
 def route_questions(predicted_score: float, model_pool: List[str]) -> str:
     # 0-40, 40-80, 80-100
-    if predicted_score >= 0.8:
+    if predicted_score >= EASY_THRESHOLD:
         return model_pool[0]  # easy
-    elif predicted_score >= 0.4:
+    elif predicted_score >= MEDIUM_THRESHOLD:
         return model_pool[1]  # medium
     else:
         return model_pool[2]  # hard
@@ -91,9 +96,9 @@ def main():
     # Experiment config (MODULAR)
     # ----------------------------
     LABELLED_DATASETS_LIST = [
-        # "opencompass/AIME2025",
-        # "gneubig/aime-1983-2024",
-        # "openai/gsm8k",
+        "opencompass/AIME2025",
+        "gneubig/aime-1983-2024",
+        "openai/gsm8k",
         "DigitalLearningGmbH/MATH-lighteval",
     ]
 
@@ -101,8 +106,8 @@ def main():
     PROBE_MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct"
 
     # Load probe-labelled files from THIS config:
-    PROBE_K = 5
-    PROBE_TEMP = 0.6
+    PROBE_K = 1
+    PROBE_TEMP = 0.0
 
     # Run routed inference with THIS config:
     ROUTING_K = 5          # bookkeeping / output naming
@@ -112,12 +117,16 @@ def main():
     BASELINE_K = 1
     BASELINE_T = 0.0
 
+    SC_POLICY_NAME = ""
+
 
     # Self-consistency by routing tier
     if ROUTING_TEMP == 0.0:
         SC_POLICY = {"easy": 1, "medium": 1, "hard": 1}
+        SC_POLICY_NAME = "greedy"
     else:
-        SC_POLICY = {"easy": 5, "medium": 3, "hard": 1}
+        SC_POLICY = {"easy": 2, "medium": 4, "hard": 3}
+        SC_POLICY_NAME="_".join(f"{k}-{v}" for k, v in sorted(SC_POLICY.items()))
 
     # Inference params
     MAX_TOKENS = 3000
@@ -256,10 +265,10 @@ def main():
             f"{ROUTER_SAVE_DF_DIR}/{LABELLED_DS_ALIAS}_routed_by_{PROBING_DATASET}_{PROBE_MODEL_ALIAS}"
             f"_probeK{PROBE_K}_probeT{PROBE_TEMP}"
             f"_routeK{ROUTING_K}_routeT{ROUTING_TEMP}"
-            f"_sc_final.parquet"
+            f"_sc_{SC_POLICY_NAME}_{threshold_str}.parquet"
             )
         
-        print(f"Router Accuracy: {routing_dataset_df["majority_vote_is_correct"].mean()}")
+        print(f"Router Accuracy (Majority Vote): {routing_dataset_df["majority_vote_is_correct"].mean()}")
         print(f"Router Pass@K: {routing_dataset_df["passk_score"].mean()}")
         print(f"Router Cost: {routing_dataset_df["total_cost_usd"].sum()}")
         
