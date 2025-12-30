@@ -10,12 +10,13 @@ from math_verify import parse, verify
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List, Callable, Tuple
 from collections import Counter
+from tqdm import tqdm
 
 from pathlib import Path
 
 repo_root = Path.cwd().parent.parent
 sys.path.insert(0, str(repo_root))
-from thom_replication.utils.verification_math import try_extract_solution
+from thom_replication.utils.verification_math import try_extract_solution, compute_score
 
 def encode_str(prob_str):
     return base64.b64encode(prob_str.encode()).decode()
@@ -116,6 +117,8 @@ def load_labelled_probe_dataset(MODEL_NAME, PROBE_SOURCE_DATASET="MATH", LABELLE
     GEN_STR = f"maxlen_3000_k_{K}_temp_{TEMPERATURE}"
     LABELLED_PROBE_DATASET_PATH = f"{DATA_PATH}/{PROBE_SOURCE_DATASET}_probe/{LABELLED_DATASET}/{MODEL_ALIAS}_{GEN_STR}/scored.parquet"
 
+    print(f"... loading labelled dataset at: {LABELLED_PROBE_DATASET_PATH}")
+
     return pd.read_parquet(LABELLED_PROBE_DATASET_PATH)
 
 prompt_sfx = "Let's think step by step and output the final answer within \\boxed{}."
@@ -140,6 +143,9 @@ class ModelConfig:
     default_max_tokens: int
     mode_settings: Dict[str, ModeSettings]
     model_costs: ModelCosts
+
+TOKENS_PER_MILLION = 1_000_000
+
 
 SIMPLE_MODEL_POOL_CONFIG = {
     "Qwen/Qwen2.5-Math-1.5B-Instruct": {
@@ -250,6 +256,14 @@ def check_gpu_memory():
         pass
     return None
 
+# ----------------------------
+# vLLM helpers
+# ----------------------------
+@dataclass
+class VLLMModelRunCfg:
+    tensor_parallel_size: int = 1
+    gpu_memory_utilization: float = 0.90
+    max_model_len: int = 4096
 
 def unload_model(llm) -> None:
     import gc
@@ -265,6 +279,24 @@ def unload_model(llm) -> None:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
+
+def batch_apply_chat_template(problems, tokenizer):
+    prompt_store = []
+    for problem in problems:
+        messages = [{"role": "user", "content": problem}]
+        prompt_store.append(
+            tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        )
+    return prompt_store
+
+
+def count_input_tokens_batch(prompts: List[str], tokenizer) -> List[int]:
+    enc = tokenizer(prompts, add_special_tokens=False)
+    return [len(ids) for ids in enc["input_ids"]]
 
 def _normalize_answer_for_vote(ans: Optional[str]) -> Optional[str]:
     if ans is None:
@@ -307,7 +339,7 @@ def get_output_tokens(solutions):
 def get_output_text(solutions):
     all_responses = []
     for sol in solutions:
-        all_responses .append(sol["text"])
+        all_responses.append(sol["text"])
     return all_responses
 
 def add_majority_vote_answer(solutions):
@@ -525,3 +557,238 @@ def reliability_diagram_soft(probs, labels, n_bins=10, title="Reliability diagra
 
     plt.tight_layout()
     return fig
+
+def get_json_responses(json_sols):
+    json_sols = json.loads(json_sols)
+    sols_list = []
+    for sol in json_sols:
+        
+        sols_list.append(sol["text"])
+    return sols_list
+
+def extract_answers_from_json_solutions(gen_sols_obj):
+    return [try_extract_solution(sol) for sol in get_json_responses(gen_sols_obj)]
+
+def compute_passk_from_extracted_answers(extracted_answer_list, ground_truth):
+    total_passk = 0
+    for extracted_ans in extracted_answer_list:
+        total_passk += compute_score(solution_str=f"\\boxed{{{extracted_ans}}}", ground_truth=ground_truth)
+    return float(total_passk/len(extracted_answer_list))
+
+def compute_passk_from_json_solutions(generated_sols_obj, ground_truth):
+    extracted_answer_list = extract_answers_from_json_solutions(generated_sols_obj)
+    return compute_passk_from_extracted_answers(extracted_answer_list, ground_truth)
+
+def run_routed_vllm_inference(
+    df: pd.DataFrame,
+    *,
+    route_col: str,
+    prompt_col: str,
+    out_text_col: str = "routed_response_text",
+    out_model_col: str = "response_model",
+    prompt_text_col: str = "prompt_text",
+    input_num_tokens_col: str = "input_num_tokens",
+    out_tok_col: str = "response_num_tokens",          # TOTAL output tokens across all samples
+    out_latency_col: str = "response_latency_s",
+    out_err_col: str = "response_error",
+    input_cost_col: str = "input_cost_usd",
+    output_cost_col: str = "output_cost_usd",
+    total_cost_col: str = "total_cost_usd",
+    gt_col: str = "original_solution",
+    pricing_config: Optional[dict] = None,
+    max_tokens: int = 3000,
+    batch_size_by_model: Optional[dict] = None,
+    checkpoint_path: Optional[str] = None,
+    model_run_cfgs: Optional[Dict[str, VLLMModelRunCfg]] = None,
+    n_col: str = "sc_n",
+    temperature_col: str = "sc_temp",
+    majority_vote: bool = True,
+    extract_answer_fn: Optional[Callable[[str], Optional[str]]] = None,
+    store_all_samples_col: Optional[str] = None,
+    charge_input_per_sample: bool = False,
+) -> pd.DataFrame:
+    import time
+    from vllm import LLM, SamplingParams
+
+    if model_run_cfgs is None:
+        model_run_cfgs = {}
+    if pricing_config is None:
+        pricing_config = {}
+    if majority_vote and extract_answer_fn is None:
+        raise ValueError("majority_vote=True requires extract_answer_fn")
+    if batch_size_by_model is None:
+        batch_size_by_model = {}
+
+    for col, default in [
+        (prompt_text_col, None),
+        (out_text_col, None),
+        (out_model_col, None),
+        (input_num_tokens_col, np.nan),
+        (out_tok_col, np.nan),
+        (out_latency_col, np.nan),
+        (out_err_col, None),
+        (input_cost_col, np.nan),
+        (output_cost_col, np.nan),
+        (total_cost_col, np.nan),
+    ]:
+        if col not in df.columns:
+            df[col] = default
+    if store_all_samples_col is not None and store_all_samples_col not in df.columns:
+        df[store_all_samples_col] = None
+
+    pending_mask = df[out_text_col].isna()
+    if pending_mask.sum() == 0:
+        print("✅ Nothing to do: all rows already have responses.")
+        return df
+
+    routes = df.loc[pending_mask, route_col].dropna().unique().tolist()
+    print(f"Routes to run: {routes}")
+
+    for model_name in routes:
+        default_bs = 256
+        if "72" in model_name:
+            default_bs = 32
+        batch_size = batch_size_by_model.get(model_name, default_bs)
+
+        model_mask = pending_mask & (df[route_col] == model_name)
+        idxs = df.index[model_mask].tolist()
+        if not idxs:
+            continue
+
+        cfg = model_run_cfgs.get(model_name, VLLMModelRunCfg())
+        print(f"\n=== Running model: {model_name} | rows: {len(idxs)} | batch_size={batch_size} ===")
+        print(f"vLLM cfg: {cfg}")
+
+        model_costs = pricing_config.get(model_name, {}).get("model_costs", {})
+        in_rate = model_costs.get("input_per_mill", None)
+        out_rate = model_costs.get("output_per_mill", None)
+        has_pricing = (in_rate is not None) and (out_rate is not None)
+
+        if "72" in model_name:
+            llm = LLM(
+                model=model_name,
+                tensor_parallel_size=cfg.tensor_parallel_size,
+                gpu_memory_utilization=cfg.gpu_memory_utilization,
+                max_model_len=cfg.max_model_len,
+                max_num_seqs=64,
+                max_num_batched_tokens=8192,
+            )
+        else:
+            llm = LLM(
+                model=model_name,
+                tensor_parallel_size=cfg.tensor_parallel_size,
+                gpu_memory_utilization=cfg.gpu_memory_utilization,
+                max_model_len=cfg.max_model_len,
+            )
+
+        tokenizer = llm.llm_engine.tokenizer.tokenizer
+
+        sub = df.loc[idxs, [n_col, temperature_col]].copy()
+        sub[n_col] = sub[n_col].astype(int)
+        sub[temperature_col] = sub[temperature_col].astype(float)
+
+        for (n_val, temp_val), sub_idx_df in sub.groupby([n_col, temperature_col]):
+            group_idxs = sub_idx_df.index.tolist()
+            sampling = SamplingParams(
+                temperature=float(temp_val),
+                max_tokens=max_tokens,
+                n=int(n_val),
+            )
+
+            print(f"  -> group n={n_val} temp={temp_val} rows={len(group_idxs)}")
+
+            for start in tqdm(range(0, len(group_idxs), batch_size), desc=f"{model_name} n={n_val}"):
+                batch_idxs = group_idxs[start : start + batch_size]
+                problems = df.loc[batch_idxs, prompt_col].tolist()
+
+                prompts = batch_apply_chat_template(problems, tokenizer)
+                input_tok_counts = count_input_tokens_batch(prompts, tokenizer)
+                df.loc[batch_idxs, prompt_text_col] = prompts
+
+                t0 = time.time()
+                try:
+                    outputs = llm.generate(prompts, sampling_params=sampling)
+                    latency = time.time() - t0
+
+                    chosen_texts: List[str] = []
+                    total_out_tok_counts: List[int] = []
+                    all_samples_json: List[str] = []
+                    errs = [None] * len(outputs)
+
+                    for req_out in outputs:
+                        sample_texts = [o.text for o in req_out.outputs]
+                        # sample_texts = [{"text": o.text, "output_tokens": float(len(o.token_ids or []))} for o in req_out.outputs]
+                        detailed_sample_data = [
+                            {
+                                "text": o.text,
+                                "output_tokens": int(len(o.token_ids or [])),
+                                "output_cost_usd": (
+                                    (len(o.token_ids or []) / TOKENS_PER_MILLION) * float(out_rate)
+                                    if out_rate is not None
+                                    else None
+                                ),
+                            }
+                            for o in req_out.outputs
+                        ]
+
+                        sample_tok_counts = [
+                            (len(o.token_ids) if o.token_ids is not None else 0) for o in req_out.outputs
+                        ]
+                        total_out_tok_counts.append(int(np.sum(sample_tok_counts)))
+
+                        if store_all_samples_col is not None:
+                            all_samples_json.append(json.dumps(detailed_sample_data, ensure_ascii=False))
+
+                        if majority_vote and n_val > 1:
+                            chosen_text, _, _ = majority_vote_from_samples(
+                                sample_texts, extract_answer_fn=extract_answer_fn
+                            )
+                            chosen_texts.append(chosen_text)
+                        else:
+                            chosen_texts.append(sample_texts[0])
+
+                    df.loc[batch_idxs, out_text_col] = chosen_texts
+                    df.loc[batch_idxs, out_model_col] = model_name
+                    df.loc[batch_idxs, input_num_tokens_col] = input_tok_counts
+                    df.loc[batch_idxs, out_tok_col] = total_out_tok_counts
+                    df.loc[batch_idxs, out_latency_col] = latency
+                    df.loc[batch_idxs, out_err_col] = errs
+                    if store_all_samples_col is not None:
+                        df.loc[batch_idxs, store_all_samples_col] = all_samples_json
+
+                    if has_pricing:
+                        in_arr = np.array(input_tok_counts, dtype=float)
+                        out_arr = np.array(total_out_tok_counts, dtype=float)
+                        if charge_input_per_sample and n_val > 1:
+                            in_arr = in_arr * float(n_val)
+
+                        input_costs = (in_arr / TOKENS_PER_MILLION) * float(in_rate)
+                        output_costs = (out_arr / TOKENS_PER_MILLION) * float(out_rate)
+                        df.loc[batch_idxs, input_cost_col] = input_costs
+                        df.loc[batch_idxs, output_cost_col] = output_costs
+                        df.loc[batch_idxs, total_cost_col] = input_costs + output_costs
+
+                except Exception as e:
+                    latency = time.time() - t0
+                    df.loc[batch_idxs, out_text_col] = None
+                    df.loc[batch_idxs, out_model_col] = model_name
+                    df.loc[batch_idxs, input_num_tokens_col] = np.nan
+                    df.loc[batch_idxs, out_tok_col] = np.nan
+                    df.loc[batch_idxs, out_latency_col] = latency
+                    df.loc[batch_idxs, out_err_col] = repr(e)
+                    df.loc[batch_idxs, input_cost_col] = np.nan
+                    df.loc[batch_idxs, output_cost_col] = np.nan
+                    df.loc[batch_idxs, total_cost_col] = np.nan
+                    if store_all_samples_col is not None:
+                        df.loc[batch_idxs, store_all_samples_col] = None
+
+                if checkpoint_path is not None:
+                    df.to_parquet(checkpoint_path, index=True)
+
+        unload_model(llm)
+        pending_mask = df[out_text_col].isna()
+        if checkpoint_path is not None:
+            df.to_parquet(checkpoint_path, index=True)
+
+    return df
+
