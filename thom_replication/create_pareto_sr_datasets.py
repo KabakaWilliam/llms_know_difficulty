@@ -365,6 +365,7 @@ if __name__ == "__main__":
     import gc
     from pathlib import Path
     import sys
+    import requests
 
     repo_root = Path.cwd().parent
     sys.path.insert(0, str(repo_root))
@@ -383,14 +384,17 @@ if __name__ == "__main__":
     # "Qwen/Qwen2.5-1.5B",
     # "Qwen/Qwen2.5-1.5B-Instruct",
     # "Qwen/Qwen2.5-Math-7B-Instruct",
-    "Qwen/Qwen2.5-Math-72B-Instruct",
-    # "openai/gpt-oss-20b"
+    # "Qwen/Qwen2.5-Math-72B-Instruct",
+    "openai/gpt-oss-20b"
+    # "openai/gpt-oss-120b"
     ]
 
     batch_size_by_model = {
     "Qwen/Qwen2.5-Math-1.5B-Instruct": 256,
     "Qwen/Qwen2.5-Math-7B-Instruct":  256,
     "Qwen/Qwen2.5-Math-72B-Instruct":  128,
+    "openai/gpt-oss-20b":  256,
+    "openai/gpt-oss-120b":  64,
     }
     
     for i, MODEL_TO_ROLLOUT in enumerate(MODELS_TO_RUN):
@@ -402,21 +406,29 @@ if __name__ == "__main__":
             model_name=MODEL_TO_ROLLOUT,
             # max_questions_per_split=15,
             tensor_parallel_size=1,
-            num_rollouts_per_question=5,
-            temperature=0.6,
+            num_rollouts_per_question=8,
+            temperature=1.0,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
             batch_size_by_model=batch_size_by_model,
             max_response_len=3000
         )
         
         print(f"\nFinished processing {MODEL_TO_ROLLOUT}")
+            # Send notification via ntfy.sh
+        try:
+            requests.post("https://ntfy.sh/llms_know_difficulty", data=f"Finished processing {MODEL_TO_ROLLOUT}")
+            print('✅ notification request sent')
+        except Exception as e:
+            print(f"ntfy.sh notification failed: {e}")
         
         # Clean up and wait for vLLM to die before loading next model
         if i < len(MODELS_TO_RUN) - 1:  # Don't wait after the last model
             print("Cleaning up and waiting for vLLM to release resources...")
             gc.collect()
             import torch
+
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             time.sleep(10)  # Wait 10 seconds for vLLM to fully shutdown
             print(f"Ready to load next model: {MODELS_TO_RUN[i+1]}\n")
+

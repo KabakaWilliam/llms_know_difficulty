@@ -137,7 +137,7 @@ def main():
     # ----------------------------
     # Sweep grid
     # ----------------------------
-    PROBE_CFGS = [(1, 0.0), (5, 0.6)]
+    PROBE_CFGS = [(1, 0.0), (5, 0.6)] #(K, Temp)
     ROUTE_TEMPS = [0.0, 0.6]
     KS = [1, 2, 3, 4, 5]
     EASY_THRS = [0.9, 0.8]
@@ -304,7 +304,7 @@ def main():
                     f"✅ DONE\n"
                     f"run_id={run_id}\n"
                     f"dataset={ds_alias}\n"
-                    f"probe: K={cfg.probe_k} T={cfg.probe_temp}"
+                    f"probe: K={cfg.probe_k} T={cfg.probe_temp}\n"
                     f"router: easy>={cfg.easy_thr}, med>={cfg.med_thr}, temp={cfg.route_temp}, k={cfg.k}, sc={sc_name}\n"
                     f"rows={nrows} | acc={acc:.4f} | passk={passk:.4f} | cost=${cost:.4f} | t={elapsed/60:.1f}m\n"
                     f"routes={route_counts}\n"

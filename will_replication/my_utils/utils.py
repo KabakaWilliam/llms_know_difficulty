@@ -160,46 +160,93 @@ SIMPLE_MODEL_POOL_CONFIG = {
                 "default_max_tokens": 3000,
             }
         },
-        "model_costs": { # Based on Alibaba CLoud Pricing
+        # Fireworks serverless tier: <4B params = $0.10 / 1M tokens, cached input $0.05 / 1M
+        "model_costs": {
             "input_per_mill": 0.10,
-            "output_per_mill": 0.10
+            "cached_input_per_mill": 0.05,
+            "output_per_mill": 0.10,
         }
     },
+
     "Qwen/Qwen2.5-Math-7B-Instruct": {
         "model_base": "http://localhost:8001/v2",
         "api_key": "token-abc123",
         "default_temperature": 0.6,
         "default_max_tokens": 3000,
-         "mode_settings": {
+        "mode_settings": {
             "MATH": {
                 "prompt_sfx": prompt_sfx,
                 "default_temperature": 0.6,
                 "default_max_tokens": 3000,
             }
         },
+        # Fireworks serverless tier: 4B–16B params = $0.20 / 1M tokens, cached input $0.10 / 1M
         "model_costs": {
-            "input_per_mill": 0.144,
-            "output_per_mill": 0.287
+            "input_per_mill": 0.20,
+            "cached_input_per_mill": 0.10,
+            "output_per_mill": 0.20,
         }
     },
+
     "Qwen/Qwen2.5-Math-72B-Instruct": {
         "model_base": "http://localhost:8001/v3",
         "api_key": "token-abc123",
         "default_temperature": 0.6,
         "default_max_tokens": 3000,
-         "mode_settings": {
+        "mode_settings": {
             "MATH": {
                 "prompt_sfx": prompt_sfx,
                 "default_temperature": 0.6,
                 "default_max_tokens": 3000,
             }
         },
+        # Fireworks serverless tier: >16B params = $0.90 / 1M tokens, cached input $0.45 / 1M
         "model_costs": {
-            "input_per_mill": 0.574,
-            "output_per_mill": 1.721
+            "input_per_mill": 0.90,
+            "cached_input_per_mill": 0.45,
+            "output_per_mill": 0.90,
         }
     },
 
+    "openai/gpt-oss-20b": {
+        "model_base": "http://localhost:8001/v4",
+        "api_key": "token-abc123",
+        "default_temperature": 0.6,
+        "default_max_tokens": 3000,
+        "mode_settings": {
+            "MATH": {
+                "prompt_sfx": prompt_sfx,
+                "default_temperature": 0.6,
+                "default_max_tokens": 3000,
+            }
+        },
+        # Fireworks explicit pricing for gpt-oss-20b
+        "model_costs": {
+            "input_per_mill": 0.07,
+            "cached_input_per_mill": 0.04,
+            "output_per_mill": 0.30,
+        }
+    },
+
+    "openai/gpt-oss-120b": {
+        "model_base": "http://localhost:8001/v4",
+        "api_key": "token-abc123",
+        "default_temperature": 0.6,
+        "default_max_tokens": 3000,
+        "mode_settings": {
+            "MATH": {
+                "prompt_sfx": prompt_sfx,
+                "default_temperature": 0.6,
+                "default_max_tokens": 3000,
+            }
+        },
+        # Fireworks explicit pricing for gpt-oss-120b
+        "model_costs": {
+            "input_per_mill": 0.15,
+            "cached_input_per_mill": 0.07,
+            "output_per_mill": 0.60,
+        }
+    },
 }
 
 def run_greedy_baseline(llm, prompts, gts, MAX_TOKENS=3000):

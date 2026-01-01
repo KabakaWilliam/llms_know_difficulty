@@ -37,6 +37,14 @@ def route_questions(predicted_score: float, model_pool: List[str]) -> str:
         return model_pool[1]  # medium
     else:
         return model_pool[2]  # hard
+
+def route_to_target_with_72B(row, target_conf):
+    if row["score_1.5B"] >= target_conf:
+        return "Qwen-Qwen2.5-Math-1.5B-Instruct"
+    elif row["score_7B"] >= target_conf:
+        return "Qwen-Qwen2.5-Math-7B-Instruct"
+    else:
+        return "Qwen-Qwen2.5-Math-72B-Instruct"
     
 def add_self_consistency_columns(
     df: pd.DataFrame,
@@ -74,6 +82,7 @@ def main():
         extract_gsm8k_solution,
         extract_solution,
         compute_score)
+    import requests
 
     from will_replication.my_utils.utils import (
         load_labelled_probe_dataset,
@@ -96,8 +105,8 @@ def main():
     # Experiment config (MODULAR)
     # ----------------------------
     LABELLED_DATASETS_LIST = [
-        # "opencompass/AIME2025",
-        # "openai/gsm8k",
+        "openai/gsm8k",
+        "opencompass/AIME2025",
         "gneubig/aime-1983-2024",
         "DigitalLearningGmbH/MATH-lighteval",
     ]
@@ -154,7 +163,7 @@ def main():
     FIG_DIR = "pareto_figures"
 
     # Where to save router_df
-    ROUTER_SAVE_DF_DIR = "pika_router_runs"
+    ROUTER_SAVE_DF_DIR = f"pika_cascade_trial/{PROBING_DATASET}_probe"
 
 
     PROBE_RESULTS_DIR = "../will_replication/probe_results/DATA"
@@ -174,53 +183,19 @@ def main():
         LABELLED_DS_ALIAS = LABELLED_DATASET_FULL_NAME.replace("/", "_")
 
         # --------- LOAD LABELLED PROBE FILES (probe temp/k) ----------
-        try:
-            routing_dataset_df = load_labelled_probe_dataset(
-                MODEL_NAME=PROBE_MODEL_NAME,
-                PROBE_SOURCE_DATASET=PROBING_DATASET,
-                LABELLED_DATASET=LABELLED_DS_ALIAS,
-                K=PROBE_K,
-                TEMPERATURE=PROBE_TEMP,
-                DATA_PATH=LABELLED_SR_PATH,
-            )
-        except Exception:
-            print(f"❌ dataset config doesn't exist for {LABELLED_DS_ALIAS} @ (K={PROBE_K}, T={PROBE_TEMP})")
-            continue
-        
-        # routing_dataset_df = routing_dataset_df.sample(n=10, random_state=42)
-        print("\n\n==============================")
-        print(f"Dataset: {LABELLED_DS_ALIAS}")
-        print(f"Probe config    : K={PROBE_K} T={PROBE_TEMP}")
-        print(f"Routing config  : K={ROUTING_K} T={ROUTING_TEMP}")
-        print(f"SC policy       : {SC_POLICY}")
+        DATA_PATH = f"pika_cascade_trial/{PROBING_DATASET}_probe/{LABELLED_DS_ALIAS}_routed/bayes_cascade_0.9.parquet"
+        routing_dataset_df = pd.read_parquet(DATA_PATH)
 
-        score_col = "calibrated_score" if PROBE_K > 1 else "score"
-        if score_col not in routing_dataset_df.columns:
-            raise KeyError(f"Expected {score_col} in labelled probe df columns, got: {list(routing_dataset_df.columns)}")
-
-        # --------- ROUTE USING PROBE SCORES ----------
-        routing_dataset_df["route_to"] = routing_dataset_df[score_col].astype(float).apply(
-            lambda s: route_questions(s, model_pool)
-        )
-
-        print("Routing breakdown:")
+        print(f"Routing breakdown for {LABELLED_DS_ALIAS}:")
         print(routing_dataset_df["route_to"].value_counts())
 
-        # --------- ASSIGN SELF-CONSISTENCY + ROUTING TEMP ----------
-        routing_dataset_df = add_self_consistency_columns(
-                routing_dataset_df,
-                route_col="route_to",
-                model_pool=model_pool,
-                n_by_tier=SC_POLICY,
-                temperature=ROUTING_TEMP,
-                sc_n_col="sc_n",
-                sc_temp_col="sc_temp",
-                )
-        
+        routing_dataset_df["sc_n"] = len(routing_dataset_df) * [1]
+        routing_dataset_df["sc_temp"] = len(routing_dataset_df) * [0.0]
+
         print("Self-consistency n breakdown:")
         print(routing_dataset_df["sc_n"].value_counts())
 
-        ckpt_path = f"{LABELLED_DS_ALIAS}_routed_probeK_{PROBE_K}_probeT_{PROBE_TEMP}_routeK{ROUTING_K}_routeT_{ROUTING_TEMP}_ckpt.parquet"
+        # ckpt_path = f"{LABELLED_DS_ALIAS}_routed_probeK_{PROBE_K}_probeT_{PROBE_TEMP}_routeK{ROUTING_K}_routeT_{ROUTING_TEMP}_ckpt.parquet"
 
         # --------- RUN ROUTED INFERENCE ----------
         routing_dataset_df = run_routed_vllm_inference(
@@ -232,7 +207,7 @@ def main():
             gt_col=ORIGINAL_GT_COLUMN,
             max_tokens=MAX_TOKENS,
             batch_size_by_model=batch_size_by_model,
-            checkpoint_path=ckpt_path,
+            checkpoint_path=None,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
             model_run_cfgs=model_run_cfgs,
             n_col="sc_n",
@@ -260,12 +235,10 @@ def main():
         lambda row: compute_passk_from_json_solutions(generated_sols_obj=row[STORE_ALL_SAMPLES_COL], ground_truth=row[FINAL_GT_COLUMN]),
         axis=1
     )
-        os.makedirs(ROUTER_SAVE_DF_DIR, exist_ok=True)
+        # os.makedirs(f"{ROUTER_SAVE_DF_DIR}/{LABELLED_DS_ALIAS}", exist_ok=True)
         out_path = (
-            f"{ROUTER_SAVE_DF_DIR}/{LABELLED_DS_ALIAS}_routed_by_{PROBING_DATASET}_{PROBE_MODEL_ALIAS}"
-            f"_probeK{PROBE_K}_probeT{PROBE_TEMP}"
-            f"_routeK{ROUTING_K}_routeT{ROUTING_TEMP}"
-            f"_sc_{SC_POLICY_NAME}_{threshold_str}.parquet"
+            f"{ROUTER_SAVE_DF_DIR}/{LABELLED_DS_ALIAS}_routed/"
+            f"answered_bayes_cascade.parquet" if "bayes" in DATA_PATH else "answered_cascade.parquet"
             )
         
         print(f"Router Accuracy (Majority Vote): {routing_dataset_df["majority_vote_is_correct"].mean()}")
@@ -274,6 +247,13 @@ def main():
         
         routing_dataset_df.to_parquet(out_path, index=True)
         print(f"✅ Done. Saved routed df: {out_path}")
+
+        try:
+
+            requests.post("https://ntfy.sh/llms_know_difficulty", data=f"Finished training router. saved at {DATA_PATH}")
+            print('✅ notification request sent')
+        except Exception as e:
+            print(f"ntfy.sh notification failed: {e}")
 
 
 if __name__ == "__main__":
