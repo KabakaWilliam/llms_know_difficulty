@@ -114,6 +114,8 @@ def main():
     PROBING_DATASET = "DigitalLearningGmbH_MATH-lighteval"
     PROBE_MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct"
 
+    CASCADE_TYPE="cascade"#"bayes_cascade"
+
     # Load probe-labelled files from THIS config:
     PROBE_K = 1
     PROBE_TEMP = 0.0
@@ -183,7 +185,7 @@ def main():
         LABELLED_DS_ALIAS = LABELLED_DATASET_FULL_NAME.replace("/", "_")
 
         # --------- LOAD LABELLED PROBE FILES (probe temp/k) ----------
-        DATA_PATH = f"pika_cascade_trial/{PROBING_DATASET}_probe/{LABELLED_DS_ALIAS}_routed/bayes_cascade_0.9.parquet"
+        DATA_PATH = f"pika_cascade_trial/{PROBING_DATASET}_probe/{LABELLED_DS_ALIAS}_routed/{CASCADE_TYPE}_0.9.parquet"
         routing_dataset_df = pd.read_parquet(DATA_PATH)
 
         print(f"Routing breakdown for {LABELLED_DS_ALIAS}:")
@@ -236,14 +238,20 @@ def main():
         axis=1
     )
         # os.makedirs(f"{ROUTER_SAVE_DF_DIR}/{LABELLED_DS_ALIAS}", exist_ok=True)
-        out_path = (
-            f"{ROUTER_SAVE_DF_DIR}/{LABELLED_DS_ALIAS}_routed/"
-            f"answered_bayes_cascade.parquet" if "bayes" in DATA_PATH else "answered_cascade.parquet"
-            )
-        
+        # Ensure output directory exists
+        out_dir = f"{ROUTER_SAVE_DF_DIR}/{LABELLED_DS_ALIAS}_routed"
+        os.makedirs(out_dir, exist_ok=True)
+        # Set output file name based on cascade type
+        if "bayes" in CASCADE_TYPE:
+            out_file = "answered_bayes_cascade.parquet"
+        else:
+            out_file = "answered_cascade.parquet"
+        out_path = os.path.join(out_dir, out_file)
         print(f"Router Accuracy (Majority Vote): {routing_dataset_df["majority_vote_is_correct"].mean()}")
         print(f"Router Pass@K: {routing_dataset_df["passk_score"].mean()}")
         print(f"Router Cost: {routing_dataset_df["total_cost_usd"].sum()}")
+        print("Router question breakdown:")
+        print(routing_dataset_df["route_to"].value_counts())
         
         routing_dataset_df.to_parquet(out_path, index=True)
         print(f"✅ Done. Saved routed df: {out_path}")
