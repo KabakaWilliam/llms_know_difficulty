@@ -136,7 +136,7 @@ def main(
 
     # --------- vLLM model ----------
     # (72B special casing)
-    if "72" in model_name:
+    if "72" or "120" in model_name:
         llm = LLM(
             model=model_name,
             tensor_parallel_size=2,
@@ -385,8 +385,8 @@ if __name__ == "__main__":
     # "Qwen/Qwen2.5-1.5B-Instruct",
     # "Qwen/Qwen2.5-Math-7B-Instruct",
     # "Qwen/Qwen2.5-Math-72B-Instruct",
-    "openai/gpt-oss-20b"
-    # "openai/gpt-oss-120b"
+    # "openai/gpt-oss-20b"
+    "openai/gpt-oss-120b"
     ]
 
     batch_size_by_model = {
@@ -406,7 +406,7 @@ if __name__ == "__main__":
             model_name=MODEL_TO_ROLLOUT,
             # max_questions_per_split=15,
             tensor_parallel_size=1,
-            num_rollouts_per_question=8,
+            num_rollouts_per_question=1,
             temperature=1.0,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
             batch_size_by_model=batch_size_by_model,
@@ -432,3 +432,15 @@ if __name__ == "__main__":
             time.sleep(10)  # Wait 10 seconds for vLLM to fully shutdown
             print(f"Ready to load next model: {MODELS_TO_RUN[i+1]}\n")
 
+
+
+# will_replication/DATA/SR_DATA/DigitalLearningGmbH_MATH-lighteval/test-Qwen-Qwen2.5-Math-7B-Instruct_maxlen_3000_k_8_temp_0.7.parquet
+
+# gneubig_aime-1983-2024/train-Qwen-Qwen2.5-Math-7B-Instruct_maxlen_3000_k_8_temp_0.7.parquet
+# gneubig_aime-1983-2024/train-Qwen-Qwen2.5-Math-72B-Instruct_maxlen_3000_k_8_temp_0.7.parquet
+
+
+# will_replication/DATA/SR_DATA/openai_gsm8k/train-Qwen-Qwen2.5-Math-7B-Instruct_maxlen_3000_k_8_temp_0.7.parquet
+
+# will_replication/DATA/SR_DATA/opencompass_AIME2025/test-Qwen-Qwen2.5-Math-7B-Instruct_maxlen_3000_k_8_temp_0.7.parquet
+# will_replication/DATA/SR_DATA/opencompass_AIME2025/test-Qwen-Qwen2.5-Math-72B-Instruct_maxlen_3000_k_8_temp_0.7.parquet

@@ -52,6 +52,13 @@ def route_always_smallest(row, target_conf, cost_ratios=None):
     """
     return "Qwen/Qwen2.5-Math-1.5B-Instruct"
 
+def route_always_middle(row, target_conf, cost_ratios=None):
+    """
+    Always use the middle model.
+    Baseline strategy - cheap but may have low accuracy.
+    """
+    return "Qwen/Qwen2.5-Math-7B-Instruct"
+
 
 def route_always_largest(row, target_conf, cost_ratios=None):
     """
@@ -248,24 +255,132 @@ def route_expected_cost(row, target_conf, cost_ratios=None):
 
 
 # ============================================================================
+# MAJORITY VOTING (MV) STRATEGIES - PHASE 2
+# ============================================================================
+
+def route_mv_always_1_5b(row, target_conf, cost_ratios=None, mv_k=8, mv_temperature=0.7):
+    """
+    Always route to 1.5B with majority voting.
+    
+    Baseline MV strategy: cheap but may have low accuracy.
+    
+    Args:
+        row: pandas Series with question data
+        target_conf: unused for this strategy
+        cost_ratios: unused for this strategy
+        mv_k: number of samples for majority voting (default: 8)
+        mv_temperature: temperature for MV sampling (default: 0.7)
+    
+    Returns:
+        "mv_1.5B_k{mv_k}_t{mv_temperature}" marker indicating MV should be used
+    """
+    return "mv_1.5B_k8_t0.7"
+
+
+def route_mv_always_7b(row, target_conf, cost_ratios=None, mv_k=8, mv_temperature=0.7):
+    """
+    Always route to 7B with majority voting.
+    
+    Baseline MV strategy: medium cost, better accuracy than 1.5B.
+    
+    Args:
+        row: pandas Series with question data
+        target_conf: unused for this strategy
+        cost_ratios: unused for this strategy
+        mv_k: number of samples for majority voting (default: 8)
+        mv_temperature: temperature for MV sampling (default: 0.7)
+    
+    Returns:
+        "mv_7B_k{mv_k}_t{mv_temperature}" marker indicating MV should be used
+    """
+    return "mv_7B_k8_t0.7"
+
+
+def route_mv_adaptive_escalation(row, target_conf, cost_ratios=None, 
+                                 disagreement_thresh_1_5b=0.15, 
+                                 disagreement_thresh_7b=0.10,
+                                 mv_k=8, mv_temperature=0.7):
+    """
+    Adaptive escalation routing with majority voting on uncertainty.
+    
+    Use disagreement between probe models as signal for uncertainty:
+    - High disagreement (uncertain) → use MV on cheap 1.5B
+    - Medium disagreement → escalate to MV on 7B
+    - Low disagreement (confident about failure) → use 72B greedy
+    
+    Logic:
+    - If disagreement > thresh_1_5b: route to 1.5B with MV
+    - Elif disagreement > thresh_7b: route to 7B with MV
+    - Else: route to 72B (greedy, no MV)
+    
+    Args:
+        row: pandas Series with columns score_1.5B, score_7B
+        target_conf: confidence threshold (used for fallback, not primary logic)
+        cost_ratios: unused
+        disagreement_thresh_1_5b: disagreement threshold for 1.5B escalation
+        disagreement_thresh_7b: disagreement threshold for 7B escalation
+        mv_k: number of samples for MV
+        mv_temperature: temperature for MV sampling
+    
+    Returns:
+        Model routing string (either MV marker or plain model name)
+    """
+    disagreement = abs(row["score_1.5B"] - row["score_7B"])
+    
+    if disagreement > disagreement_thresh_1_5b:
+        return f"mv_1.5B_k{mv_k}_t{mv_temperature}"
+    elif disagreement > disagreement_thresh_7b:
+        return f"mv_7B_k{mv_k}_t{mv_temperature}"
+    else:
+        return "Qwen/Qwen2.5-Math-72B-Instruct"
+
+
+def route_mv_adaptive_escalation_tight(row, target_conf, cost_ratios=None, mv_k=8, mv_temperature=0.7):
+    """
+    Adaptive escalation with tight thresholds (conservative MV use).
+    
+    Thresholds: 1.5B=0.15, 7B=0.10
+    Use MV more sparingly, rely more on greedy 72B.
+    """
+    return route_mv_adaptive_escalation(row, target_conf, cost_ratios,
+                                       disagreement_thresh_1_5b=0.15,
+                                       disagreement_thresh_7b=0.10,
+                                       mv_k=mv_k, mv_temperature=mv_temperature)
+
+
+def route_mv_adaptive_escalation_loose(row, target_conf, cost_ratios=None, mv_k=8, mv_temperature=0.7):
+    """
+    Adaptive escalation with loose thresholds (aggressive MV use).
+    
+    Thresholds: 1.5B=0.20, 7B=0.15
+    Use MV more liberally, rely less on greedy 72B.
+    """
+    return route_mv_adaptive_escalation(row, target_conf, cost_ratios,
+                                       disagreement_thresh_1_5b=0.20,
+                                       disagreement_thresh_7b=0.15,
+                                       mv_k=mv_k, mv_temperature=mv_temperature)
+
+
+# ============================================================================
 # STRATEGY REGISTRY
 # ============================================================================
 
 ROUTING_STRATEGIES = {
     # Baseline strategies
-    "random": route_random,
-    "always_1.5B": route_always_smallest,
+    # "random": route_random,
+    # "always_1.5B": route_always_smallest,
+    # "always_7B": route_always_middle,
     # "always_72B": route_always_largest,
     
+    # Confidence-based
+    "cascade": route_cascade,
+    "bayesian_robust": route_bayesian_robust,
+
     # Cost-aware
     "cost_utility": route_cost_utility,
     "adjusted_thresholds": route_adjusted_thresholds,
     "expected_cost": route_expected_cost,
 
-    # Confidence-based
-    "cascade": route_cascade,
-    "bayesian_robust": route_bayesian_robust,
-    # "72b_robust": route_72b_robust,
     
     # Agreement-aware
     "disagreement_0.10": route_with_disagreement_0_10,
