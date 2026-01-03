@@ -311,6 +311,8 @@ class VLLMModelRunCfg:
     tensor_parallel_size: int = 1
     gpu_memory_utilization: float = 0.90
     max_model_len: int = 4096
+    max_num_seqs: Optional[int] = 64
+    max_num_batched_tokens: Optional[int] = 8192
 
 def unload_model(llm) -> None:
     import gc
@@ -711,22 +713,21 @@ def run_routed_vllm_inference(
         out_rate = model_costs.get("output_per_mill", None)
         has_pricing = (in_rate is not None) and (out_rate is not None)
 
-        if "72" in model_name:
-            llm = LLM(
-                model=model_name,
-                tensor_parallel_size=cfg.tensor_parallel_size,
-                gpu_memory_utilization=cfg.gpu_memory_utilization,
-                max_model_len=cfg.max_model_len,
-                max_num_seqs=64,
-                max_num_batched_tokens=8192,
-            )
-        else:
-            llm = LLM(
-                model=model_name,
-                tensor_parallel_size=cfg.tensor_parallel_size,
-                gpu_memory_utilization=cfg.gpu_memory_utilization,
-                max_model_len=cfg.max_model_len,
-            )
+        # Build LLM kwargs from config
+        llm_kwargs = {
+            "model": model_name,
+            "tensor_parallel_size": cfg.tensor_parallel_size,
+            "gpu_memory_utilization": cfg.gpu_memory_utilization,
+            "max_model_len": cfg.max_model_len,
+        }
+        
+        # Add optional parameters if specified
+        if cfg.max_num_seqs is not None:
+            llm_kwargs["max_num_seqs"] = cfg.max_num_seqs
+        if cfg.max_num_batched_tokens is not None:
+            llm_kwargs["max_num_batched_tokens"] = cfg.max_num_batched_tokens
+        
+        llm = LLM(**llm_kwargs)
 
         tokenizer = llm.llm_engine.tokenizer.tokenizer
 

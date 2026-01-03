@@ -105,9 +105,9 @@ def execute_routing_strategies(
     
     if labelled_datasets is None:
         labelled_datasets = [
-            "openai/gsm8k",
             "opencompass/AIME2025",
             "gneubig/aime-1983-2024",
+            "openai/gsm8k",
             "DigitalLearningGmbH/MATH-lighteval",
         ]
     
@@ -115,7 +115,7 @@ def execute_routing_strategies(
         batch_size_by_model = {
             "Qwen/Qwen2.5-Math-1.5B-Instruct": 256,
             "Qwen/Qwen2.5-Math-7B-Instruct": 256,
-            "Qwen/Qwen2.5-Math-72B-Instruct": 128,
+            "Qwen/Qwen2.5-Math-72B-Instruct": 64,
         }
     
     model_pool = list(SIMPLE_MODEL_POOL_CONFIG.keys())
@@ -124,10 +124,10 @@ def execute_routing_strategies(
             tensor_parallel_size=1, gpu_memory_utilization=0.60, max_model_len=4096
         ),
         "Qwen/Qwen2.5-Math-7B-Instruct": VLLMModelRunCfg(
-            tensor_parallel_size=1, gpu_memory_utilization=0.70, max_model_len=4096
+            tensor_parallel_size=1, gpu_memory_utilization=0.60, max_model_len=4096
         ),
         "Qwen/Qwen2.5-Math-72B-Instruct": VLLMModelRunCfg(
-            tensor_parallel_size=2, gpu_memory_utilization=0.92, max_model_len=4096
+            tensor_parallel_size=2, gpu_memory_utilization=0.90, max_model_len=4096
         ),
     }
     
@@ -235,12 +235,61 @@ def execute_routing_strategies(
                 routing_df = probe_df.copy()
                 routing_df["route_to"] = routes
                 
+                # Parse MV routing strings to extract k and temperature
+                # MV routes look like "mv_1.5B_k8_t0.7" or "mv_7B_k8_t0.7"
+                # Regular routes are full model names
+                routing_df["is_mv"] = routing_df["route_to"].str.contains("mv_", na=False)
+                routing_df["sc_n"] = 1
+                routing_df["sc_temp"] = 0.0
+                
+                # For MV routes, extract k and temperature
+                for idx, row in routing_df.iterrows():
+                    if row["is_mv"]:
+                        route_str = row["route_to"]
+                        # Parse "mv_1.5B_k8_t0.7" or "mv_72B_k8_t0.7" → k=8, temp=0.7, model=1.5B/7B/72B
+                        if "_k" in route_str and "_t" in route_str:
+                            parts = route_str.split("_")
+                            model_size = parts[1]  # "1.5B", "7B", or "72B"
+                            k_val = int(parts[2].replace("k", ""))
+                            t_val = float(parts[3].replace("t", ""))
+                            
+                            # Replace with actual model name
+                            if "1.5B" in model_size:
+                                routing_df.at[idx, "route_to"] = "Qwen/Qwen2.5-Math-1.5B-Instruct"
+                            elif "7B" in model_size:
+                                routing_df.at[idx, "route_to"] = "Qwen/Qwen2.5-Math-7B-Instruct"
+                            elif "72B" in model_size:
+                                routing_df.at[idx, "route_to"] = "Qwen/Qwen2.5-Math-72B-Instruct"
+                            
+                            routing_df.at[idx, "sc_n"] = k_val
+                            routing_df.at[idx, "sc_temp"] = t_val
+                
+                # Ensure 72B is ALWAYS greedy (never MV) due to memory constraints
+                # EXCEPTION: Allow mv_always_72B strategy to use MV on 72B if explicitly requested
+                mask_72b = routing_df["route_to"] == "Qwen/Qwen2.5-Math-72B-Instruct"
+                # Only override to greedy if NOT using mv_always_72B strategy
+                if strategy_name != "mv_always_72B":
+                    routing_df.loc[mask_72b, "sc_n"] = 1
+                    routing_df.loc[mask_72b, "sc_temp"] = 0.0
+                    routing_df.loc[mask_72b, "is_mv"] = False
+
+                
                 # Print routing breakdown
                 route_counts = routing_df["route_to"].value_counts()
                 print(f"    Routing breakdown:")
                 for model, count in route_counts.items():
+                    # Count how many MV vs greedy for this model
+                    model_mask = routing_df["route_to"] == model
+                    mv_count = routing_df[model_mask & routing_df["is_mv"]].shape[0]
+                    greedy_count = model_mask.sum() - mv_count
+                    
                     pct = 100 * count / len(routing_df)
-                    print(f"      {model.split('/')[-1]}: {count} ({pct:.1f}%)")
+                    if mv_count > 0 and greedy_count > 0:
+                        print(f"      {model.split('/')[-1]}: {count} ({pct:.1f}%) - MV×{mv_count} + Greedy×{greedy_count}")
+                    elif mv_count > 0:
+                        print(f"      {model.split('/')[-1]}: {count} ({pct:.1f}%) - MV (k=8)")
+                    else:
+                        print(f"      {model.split('/')[-1]}: {count} ({pct:.1f}%) - Greedy")
                 
                 # Save routing decisions
                 save_dir = f"{save_base_dir}/{probing_dataset}_probe/{dataset_alias}_routed"
@@ -255,8 +304,6 @@ def execute_routing_strategies(
                 
                 # Run inference with routed models
                 print(f"    Running vLLM inference...")
-                routing_df["sc_n"] = 1
-                routing_df["sc_temp"] = 0.0
                 
                 routing_df = run_routed_vllm_inference(
                     routing_df,

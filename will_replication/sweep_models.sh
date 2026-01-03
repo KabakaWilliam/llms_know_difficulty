@@ -7,11 +7,12 @@ set -e  # Exit on error
 MODELS=(
     # "Qwen/Qwen2.5-Math-1.5B-Instruct" 
     # "Qwen/Qwen2.5-1.5B"
-    # # "openai/gpt-oss-20b"
+    # "openai/gpt-oss-20b"
+    "openai/gpt-oss-120b"
     # "Qwen/Qwen2.5-1.5B-Instruct" 
     # "Qwen/Qwen2-1.5B-Instruct"
     # "Qwen/Qwen2.5-Math-7B-Instruct" 
-    "Qwen/Qwen2.5-Math-72B-Instruct" 
+    # "Qwen/Qwen2.5-Math-72B-Instruct" 
     # "Qwen/Qwen2.5-Math-1.5B"
     # "Qwen/Qwen2.5-1.5B" 
     # "Qwen/Qwen2.5-Math-7B" 
@@ -23,8 +24,8 @@ MODELS=(
 
 # Configuration (same for all models)
 MAX_LEN=3000
-K=1  
-TEMPERATURE=0.0
+K=1
+TEMPERATURE=1.0
 GEN_OPTIONS=maxlen_${MAX_LEN}_k_${K}_temp_${TEMPERATURE}
 
 MAIN_DATA_DIR="DATA"

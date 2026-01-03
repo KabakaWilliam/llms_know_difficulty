@@ -296,6 +296,29 @@ def route_mv_always_7b(row, target_conf, cost_ratios=None, mv_k=8, mv_temperatur
     return "mv_7B_k8_t0.7"
 
 
+def route_mv_always_72b(row, target_conf, cost_ratios=None, mv_k=8, mv_temperature=0.7):
+    """
+    Always route to 72B with majority voting.
+    
+    Baseline MV strategy: most expensive but highest accuracy.
+    
+    WARNING: 72B with MV (k=8) generates 8x KV cache overhead.
+    This strategy may cause GPU memory errors and is NOT recommended for production use.
+    Should be overridden to greedy 72B by safeguards in execute_strategies.py.
+    
+    Args:
+        row: pandas Series with question data
+        target_conf: unused for this strategy
+        cost_ratios: unused for this strategy
+        mv_k: number of samples for majority voting (default: 8)
+        mv_temperature: temperature for MV sampling (default: 0.7)
+    
+    Returns:
+        "mv_72B_k{mv_k}_t{mv_temperature}" marker indicating MV should be used
+    """
+    return "mv_72B_k8_t0.7"
+
+
 def route_mv_adaptive_escalation(row, target_conf, cost_ratios=None, 
                                  disagreement_thresh_1_5b=0.15, 
                                  disagreement_thresh_7b=0.10,
@@ -372,21 +395,26 @@ ROUTING_STRATEGIES = {
     # "always_7B": route_always_middle,
     # "always_72B": route_always_largest,
     
-    # Confidence-based
-    "cascade": route_cascade,
-    "bayesian_robust": route_bayesian_robust,
+    # Confidence-based (Phase 0)
+    # "cascade": route_cascade,
+    # "bayesian_robust": route_bayesian_robust,
 
-    # Cost-aware
-    "cost_utility": route_cost_utility,
-    "adjusted_thresholds": route_adjusted_thresholds,
-    "expected_cost": route_expected_cost,
+    # # Cost-aware (Phase 0)
+    # "cost_utility": route_cost_utility,
+    # "adjusted_thresholds": route_adjusted_thresholds,
+    # "expected_cost": route_expected_cost,
 
+    # # Agreement-aware (Phase 0)
+    # "disagreement_0.10": route_with_disagreement_0_10,
+    # "disagreement_0.15": route_with_disagreement_0_15,
+    # "disagreement_0.20": route_with_disagreement_0_20,
     
-    # Agreement-aware
-    "disagreement_0.10": route_with_disagreement_0_10,
-    "disagreement_0.15": route_with_disagreement_0_15,
-    "disagreement_0.20": route_with_disagreement_0_20,
-    
+    # Phase 2: Majority Voting Strategies
+    # "mv_always_1.5B": route_mv_always_1_5b,
+    # "mv_always_7B": route_mv_always_7b,
+    "mv_always_72B": route_mv_always_72b,
+    # "mv_adaptive_escalation_tight": route_mv_adaptive_escalation_tight,
+    # "mv_adaptive_escalation_loose": route_mv_adaptive_escalation_loose,
 }
 
 

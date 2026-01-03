@@ -136,7 +136,9 @@ def main(
 
     # --------- vLLM model ----------
     # (72B special casing)
-    if "72" or "120" in model_name:
+    # if "72b" in model_name.lower() or "120b" in model_name.lower():
+    if  model_name.lower() in["72b", "120b"]:
+        print("really large model loaded 🤯❗️")
         llm = LLM(
             model=model_name,
             tensor_parallel_size=2,
@@ -385,8 +387,8 @@ if __name__ == "__main__":
     # "Qwen/Qwen2.5-1.5B-Instruct",
     # "Qwen/Qwen2.5-Math-7B-Instruct",
     # "Qwen/Qwen2.5-Math-72B-Instruct",
-    # "openai/gpt-oss-20b"
-    "openai/gpt-oss-120b"
+    "openai/gpt-oss-20b"
+    # "openai/gpt-oss-120b"
     ]
 
     batch_size_by_model = {
