@@ -495,6 +495,75 @@ def route_adaptive_k_sampling_with_escalation(row, target_conf, cost_ratios=None
         return f"mv_cascade_1.5B_k{adaptive_k}_t{temp}_7B_k{adaptive_k}_t{temp}_72B_k1_t0.0"
 
 
+def route_adaptive_k_sampling_with_dual_escalation(row, target_conf, cost_ratios=None,
+                                                    high_confidence_threshold=0.85,
+                                                    escalation_k_threshold=5,
+                                                    skip_7b_threshold=0.4,
+                                                    max_k=8):
+    """
+    Probe-aware adaptive k-sampling with dual-level escalation.
+    
+    Extends route_adaptive_k_sampling_with_escalation with a second decision layer:
+    uses 7B probe scores to decide whether to skip BOTH 1.5B and 7B for ultra-hard problems.
+    
+    Decision logic (recursive structure):
+    1. If 1.5B_score >= 0.85: use 1.5B with k=1 greedy (easy)
+    2. Else:
+       - Compute adaptive_k from 1.5B_score
+       - If adaptive_k < 5: try full cascade 1.5B → 7B → 72B (moderate problem)
+       - Elif adaptive_k >= 5:
+           a) If 7B_score < 0.4: skip both, go straight to 72B (ultra-hard)
+           b) Else: skip 1.5B, use 7B → 72B (hard but 7B might help)
+    
+    This prevents wasting compute on cheap models when both probes agree the problem
+    is genuinely difficult. Uses 7B as a secondary filter: if even 7B's probe predicts
+    low success, we should just go straight to 72B.
+    
+    Args:
+        row: pandas Series with columns score_1.5B, score_7B
+        target_conf: confidence threshold (unused, kept for API consistency)
+        cost_ratios: unused
+        high_confidence_threshold: threshold for k=1 on 1.5B (default: 0.85)
+        escalation_k_threshold: if k >= this, check 7B score (default: 5)
+        skip_7b_threshold: if 7B_score < this, skip to 72B directly (default: 0.4)
+        max_k: maximum k (default: 8)
+    
+    Returns:
+        Routing marker:
+        - "mv_1.5B_k1_t0.0" for very easy (1.5B_score >= 0.85)
+        - "mv_cascade_1.5B_k{k}_7B_k{k}_t0.7" for moderate (k < 5)
+        - "mv_cascade_72B_k1_t0.0" for ultra-hard (k >= 5 AND 7B_score < 0.4)
+        - "mv_cascade_7B_k{k}_72B_k1_t0.7" for hard (k >= 5 AND 7B_score >= 0.4)
+    """
+    probe_score_1_5b = row.get("score_1.5B", 0.5)
+    probe_score_7b = row.get("score_7B", 0.5)
+    
+    # High confidence on 1.5B → single sample on cheap model with greedy decoding
+    if probe_score_1_5b >= high_confidence_threshold:
+        return "mv_1.5B_k1_t0.0"
+    
+    # Compute adaptive k from 1.5B score: harder problems get more samples
+    adaptive_k = max(1, int(max_k * (1.0 - probe_score_1_5b)))
+    adaptive_k = min(adaptive_k, max_k)
+    
+    # Determine temperature (greedy for k=1, sampling for k>1)
+    temp = "0.0" if adaptive_k == 1 else "0.7"
+    
+    # First threshold: if k is moderate, try full cascade
+    if adaptive_k < escalation_k_threshold:
+        # Moderate problem: full chain 1.5B → 7B → 72B
+        return f"mv_cascade_1.5B_k{adaptive_k}_t{temp}_7B_k{adaptive_k}_t{temp}_72B_k1_t0.0"
+    
+    # Second threshold: if k is high, check 7B score to decide whether to skip to 72B
+    elif probe_score_7b < skip_7b_threshold:
+        # Ultra-hard: both probes agree this is very difficult → skip straight to 72B
+        return "mv_cascade_72B_k1_t0.0"
+    
+    else:
+        # Hard but 7B thinks it might help: skip 1.5B, try 7B → 72B
+        return f"mv_cascade_7B_k{adaptive_k}_t{temp}_72B_k1_t0.0"
+
+
 def route_adaptive_k_sampling_with_entropy_escalation(row, target_conf, cost_ratios=None,
                                                        high_confidence_threshold=0.85,
                                                        entropy_threshold=0.6,
@@ -577,30 +646,34 @@ ROUTING_STRATEGIES = {
     # "always_72B": route_always_largest,
     
     # Confidence-based (Phase 0)
-    "cascade": route_cascade,
-    "bayesian_robust": route_bayesian_robust,
+    # "cascade": route_cascade,
+    # "bayesian_robust": route_bayesian_robust,
 
     # Cost-aware (Phase 0)
-    "cost_utility": route_cost_utility,
-    "adjusted_thresholds": route_adjusted_thresholds,
-    "expected_cost": route_expected_cost,
+    # "cost_utility": route_cost_utility,
+    # "adjusted_thresholds": route_adjusted_thresholds,
+    # "expected_cost": route_expected_cost,
 
     # Agreement-aware (Phase 0)
-    "disagreement_0.10": route_with_disagreement_0_10,
-    "disagreement_0.15": route_with_disagreement_0_15,
-    "disagreement_0.20": route_with_disagreement_0_20,
+    # "disagreement_0.10": route_with_disagreement_0_10,
+    # "disagreement_0.15": route_with_disagreement_0_15,
+    # "disagreement_0.20": route_with_disagreement_0_20,
     
     # Phase 2: Majority Voting Strategies
     # "mv_always_1.5B": route_mv_always_1_5b,
     # "mv_always_7B": route_mv_always_7b,
     # "mv_always_72B": route_mv_always_72b,
-    "mv_adaptive_escalation_tight": route_mv_adaptive_escalation_tight,
-    "mv_adaptive_escalation_loose": route_mv_adaptive_escalation_loose,
+    # "mv_adaptive_escalation_tight": route_mv_adaptive_escalation_tight,
+    # "mv_adaptive_escalation_loose": route_mv_adaptive_escalation_loose,
     
-    # Adaptive k-sampling (Phase 3)
+    # Phase 2: Probe-Aware Adaptive K-Sampling Strategies
+    # These generate cascade markers with k that varies by problem difficulty
+    # k = max_k * (1.0 - probe_score): harder problems get more samples
+    # All strategies produce cascade markers executed by Phase 2 executor
+    "adaptive_k_sampling_with_dual_escalation": route_adaptive_k_sampling_with_dual_escalation,
+    "adaptive_k_sampling_with_entropy_escalation": route_adaptive_k_sampling_with_entropy_escalation,
     "adaptive_k_sampling": route_adaptive_k_sampling,
     "adaptive_k_sampling_with_escalation": route_adaptive_k_sampling_with_escalation,
-    "adaptive_k_sampling_with_entropy_escalation": route_adaptive_k_sampling_with_entropy_escalation,
 }
 
 

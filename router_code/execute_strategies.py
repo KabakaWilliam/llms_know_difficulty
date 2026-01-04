@@ -14,6 +14,7 @@ from typing import List, Dict
 
 import pandas as pd
 import numpy as np
+import requests
 from tqdm import tqdm
 
 # Setup paths - use script location, not current working directory
@@ -428,7 +429,26 @@ def execute_routing_strategies(
                 save_dir = f"{save_base_dir}/{probing_dataset}_probe/{dataset_alias}_routed"
                 os.makedirs(save_dir, exist_ok=True)
                 save_path = os.path.join(save_dir, f"routing_{strategy_name}_conf{target_confidence}.parquet")
-                routing_df.to_parquet(save_path, index=False)
+                
+                # Convert cascade-related columns to JSON for parquet compatibility
+                # (parquet can't handle mixed types in object columns with Python objects)
+                routing_df_to_save = routing_df.copy()
+                
+                def convert_tier_tuples(x):
+                    """Convert list of (model, k, temp) tuples to JSON string"""
+                    if x is None:
+                        return None
+                    try:
+                        return json.dumps([(str(m), int(k), float(t)) for m, k, t in x])
+                    except (TypeError, ValueError):
+                        return json.dumps(str(x))
+                
+                # Convert all cascade tuple columns
+                for col in ["cascade_tiers", "tiers_executed"]:
+                    if col in routing_df_to_save.columns:
+                        routing_df_to_save[col] = routing_df_to_save[col].apply(convert_tier_tuples)
+                
+                routing_df_to_save.to_parquet(save_path, index=False)
                 print(f"    ✓ Saved routing decisions: {save_path}")
                 
                 if dry_run:
@@ -458,12 +478,23 @@ def execute_routing_strategies(
                     charge_input_per_sample=False,
                 )
                 
-                # Process results
-                routing_df["majority_vote_extracted_answer"] = (
-                    routing_df[STORE_ALL_SAMPLES_COL].apply(
-                        lambda x: add_majority_vote_answer(json.loads(x))
+                # Safety check: ensure routing_df is not None
+                if routing_df is None:
+                    print(f"✗ Error: run_routed_vllm_inference returned None for {dataset_alias}")
+                    continue
+                
+                # Process results - only if store_all_samples_col exists and is not None
+                if STORE_ALL_SAMPLES_COL and STORE_ALL_SAMPLES_COL in routing_df.columns:
+                    routing_df["majority_vote_extracted_answer"] = (
+                        routing_df[STORE_ALL_SAMPLES_COL].apply(
+                            lambda x: add_majority_vote_answer(json.loads(x)) if x is not None else ""
+                        )
                     )
-                )
+                else:
+                    # Fallback: use routed_response_text if samples column is missing
+                    routing_df["majority_vote_extracted_answer"] = routing_df["routed_response_text"].apply(
+                        lambda x: try_extract_solution(x) if pd.notna(x) else ""
+                    )
                 
                 # Extract ground truth
                 if "gsm8k" in dataset_alias.lower():
@@ -497,7 +528,25 @@ def execute_routing_strategies(
                 result_path = os.path.join(
                     save_dir, f"answered_{strategy_name}_conf{target_confidence}.parquet"
                 )
-                routing_df.to_parquet(result_path, index=True)
+                
+                # Convert cascade-related columns for final save too
+                routing_df_final = routing_df.copy()
+                
+                def convert_tier_tuples(x):
+                    """Convert list of (model, k, temp) tuples to JSON string"""
+                    if x is None:
+                        return None
+                    try:
+                        return json.dumps([(str(m), int(k), float(t)) for m, k, t in x])
+                    except (TypeError, ValueError):
+                        return json.dumps(str(x))
+                
+                # Convert all cascade tuple columns
+                for col in ["cascade_tiers", "tiers_executed"]:
+                    if col in routing_df_final.columns:
+                        routing_df_final[col] = routing_df_final[col].apply(convert_tier_tuples)
+                
+                routing_df_final.to_parquet(result_path, index=True)
                 
                 # Print metrics
                 accuracy = routing_df["majority_vote_is_correct"].mean()
@@ -510,10 +559,53 @@ def execute_routing_strategies(
                 print(f"      Total Cost: ${cost:.4f}")
                 print(f"    ✓ Saved results: {result_path}")
                 
+                # Send completion notification with detailed metrics
+                try:
+                    route_counts = routing_df["route_to"].value_counts()
+                    route_dist = "\n".join([
+                        f"  • {model.split('/')[-1]}: {count} ({100*count/len(routing_df):.1f}%)"
+                        for model, count in route_counts.items()
+                    ])
+                    
+                    notification_msg = (
+                        f"✅ Strategy '{strategy_name}' completed on {dataset_alias}\n\n"
+                        f"📊 Route Distribution:\n{route_dist}\n\n"
+                        f"📈 Metrics:\n"
+                        f"  • Accuracy: {accuracy:.4f}\n"
+                        f"  • Pass@K: {passk:.4f}\n"
+                        f"  • Total Cost: ${cost:.4f}"
+                    )
+                    
+                    requests.post(
+                        "https://ntfy.sh/llms_know_difficulty",
+                        data=notification_msg.encode('utf-8'),
+                        headers={"Title": f"Strategy: {strategy_name} on {dataset_alias}"}
+                    )
+                except Exception as notif_err:
+                    print(f"    ⚠️ Could not send completion notification: {notif_err}")
+                
             except Exception as e:
                 print(f"    ✗ Error executing strategy: {e}")
                 import traceback
                 traceback.print_exc()
+                
+                # Send error notification
+                try:
+                    error_msg = (
+                        f"❌ Error in strategy '{strategy_name}' on {dataset_alias}\n\n"
+                        f"Error: {str(e)[:500]}"
+                    )
+                    requests.post(
+                        "https://ntfy.sh/llms_know_difficulty",
+                        data=error_msg.encode('utf-8'),
+                        headers={
+                            "Title": f"ERROR: {strategy_name} on {dataset_alias}",
+                            "Priority": "high"
+                        }
+                    )
+                except Exception as notif_err:
+                    print(f"    ⚠️ Could not send error notification: {notif_err}")
+                
                 continue
         
         print(f"\n✓ Completed {len(strategies)} strategies for {dataset_alias}")
