@@ -101,7 +101,7 @@ def evaluate_responses(responses, ground_truths):
 def load_probe_data(MODEL_NAME, PROBING_DATASET="MATH", K=1, TEMPERATURE=0.0, DATA_PATH="../probe_results/DATA/SR_DATA"):
     MODEL_ALIAS= "-".join(MODEL_NAME.split("/"))
     GEN_STR = f"maxlen_3000_k_{K}_temp_{TEMPERATURE}"
-    PROBE_PATH = f"{DATA_PATH}/{PROBING_DATASET}_probe/{MODEL_ALIAS}_{GEN_STR}/best_probe_predictions.json"
+    PROBE_PATH = f"{DATA_PATH}/{PROBING_DATASET}/{MODEL_ALIAS}_{GEN_STR}/best_probe_predictions.json"
 
     with open(PROBE_PATH, "r") as f:
         probe_data = json.load(f)

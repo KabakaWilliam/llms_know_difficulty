@@ -8,10 +8,10 @@ MODELS=(
     # "Qwen/Qwen2.5-Math-1.5B-Instruct" 
     # "Qwen/Qwen2.5-1.5B"
     # "openai/gpt-oss-20b"
-    "openai/gpt-oss-120b"
+    # "openai/gpt-oss-120b"
     # "Qwen/Qwen2.5-1.5B-Instruct" 
     # "Qwen/Qwen2-1.5B-Instruct"
-    # "Qwen/Qwen2.5-Math-7B-Instruct" 
+    "Qwen/Qwen2.5-Math-7B-Instruct" 
     # "Qwen/Qwen2.5-Math-72B-Instruct" 
     # "Qwen/Qwen2.5-Math-1.5B"
     # "Qwen/Qwen2.5-1.5B" 
@@ -25,18 +25,18 @@ MODELS=(
 # Configuration (same for all models)
 MAX_LEN=3000
 K=1
-TEMPERATURE=1.0
+TEMPERATURE=0.0
 GEN_OPTIONS=maxlen_${MAX_LEN}_k_${K}_temp_${TEMPERATURE}
 
 MAIN_DATA_DIR="DATA"
-CHOSEN_DATASET="DigitalLearningGmbH_MATH-lighteval"
+CHOSEN_DATASET="openai_gsm8k" #"gneubig_aime-1983-2024" #"openai_gsm8k" #"DigitalLearningGmbH_MATH-lighteval"
 DATASET_DIR="${MAIN_DATA_DIR}/SR_DATA/${CHOSEN_DATASET}"
 
 QUESTION_COL="formatted_prompt"
 LABEL_COL="success_rate"
 LAYERS="all"
 BATCH_SIZE=32
-GPU=1,2
+GPU=1
 
 # Skip activation extraction if they already exist
 SKIP_ACTIVATIONS=true  # Set to true to skip extraction and reuse existing activations

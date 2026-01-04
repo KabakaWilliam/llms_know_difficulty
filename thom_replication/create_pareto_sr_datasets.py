@@ -168,9 +168,14 @@ def main(
     def format_prompt(problem_text: str) -> str:
         raw = problem_text + " " + prompt_suffix
         messages = [{"role": "user", "content": raw}]
-        return tokenizer.apply_chat_template(
+        formatted_prompt = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
+        # if "gpt-oss" in tokenizer.name_or_path.lower():
+        #     formatted_prompt = formatted_prompt.replace("Reasoning: medium", "Reasoning: high")
+        #     formatted_prompt = formatted_prompt.replace("Reasoning: easy", "Reasoning: high")
+        return formatted_prompt
+
 
     def count_input_tokens_batch(prompts: list[str]) -> list[int]:
         enc = tokenizer(prompts, add_special_tokens=False)
@@ -385,9 +390,9 @@ if __name__ == "__main__":
     # "Qwen/Qwen2.5-Math-1.5B-Instruct",
     # "Qwen/Qwen2.5-1.5B",
     # "Qwen/Qwen2.5-1.5B-Instruct",
-    # "Qwen/Qwen2.5-Math-7B-Instruct",
+    "Qwen/Qwen2.5-Math-7B-Instruct",
     # "Qwen/Qwen2.5-Math-72B-Instruct",
-    "openai/gpt-oss-20b"
+    # "openai/gpt-oss-20b"
     # "openai/gpt-oss-120b"
     ]
 
@@ -409,7 +414,7 @@ if __name__ == "__main__":
             # max_questions_per_split=15,
             tensor_parallel_size=1,
             num_rollouts_per_question=1,
-            temperature=1.0,
+            temperature=0.0,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
             batch_size_by_model=batch_size_by_model,
             max_response_len=3000

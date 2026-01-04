@@ -418,6 +418,12 @@ if __name__ == "__main__":
         help="List of datasets to process"
     )
     parser.add_argument(
+        "--probing-dataset",
+        type=str,
+        default="DigitalLearningGmbH_MATH-lighteval",
+        help="Dataset to use for probe training (default: DigitalLearningGmbH_MATH-lighteval)"
+    )
+    parser.add_argument(
         "--target-conf",
         type=float,
         default=0.90,
@@ -441,6 +447,7 @@ if __name__ == "__main__":
     execute_routing_strategies(
         labelled_datasets=args.datasets,
         target_confidence=args.target_conf,
+        probing_dataset=args.probing_dataset,
         dry_run=args.dry_run,
         data_path=args.data_path,
         save_base_dir=args.save_dir,
