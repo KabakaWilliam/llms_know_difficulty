@@ -391,54 +391,50 @@ def route_adaptive_k_sampling(row, target_conf, cost_ratios=None,
                               high_confidence_threshold=0.85,
                               max_k=8):
     """
-    Probe-aware adaptive k-sampling strategy with escalation.
+    Probe-aware adaptive k-sampling strategy with tiered escalation.
     
     Strategy:
     1. One cheap forward pass on 1.5B → get probe score (ps)
-    2. If ps >= 0.85: do 1 generation on 1.5B, return (high confidence easy problem)
+    2. If ps >= 0.85: do 1 greedy generation on 1.5B, return (high confidence easy problem)
     3. Else: 
-       - Choose k = min(ks(ps), max_k) where ks maps probe score to sample count
-       - Generate k traces on 1.5B, compute weighted majority vote + confidence
-       - If confidence >= target_conf: return with 1.5B
-       - Else: escalate to 7B (greedy or with MV)
+       - Compute adaptive k for 1.5B = ks(ps)
+       - Try 1.5B with adaptive k, compute confidence
+       - If confidence >= target_conf: return 1.5B result
+       - Else: try 7B with same adaptive k
+       - If 7B confidence >= target_conf: return 7B result
+       - Else: escalate to 72B greedy (single best output)
     
-    This exploits the probe as a difficulty estimator to adapt the number of samples
-    needed per problem. Easy problems (high ps) need only 1 sample. Harder problems
-    require multiple samples for consensus.
+    This tiered approach leverages better models progressively while using adaptive sampling
+    at each tier. Only falls back to expensive 72B greedy as last resort.
     
     Args:
         row: pandas Series with columns score_1.5B (probe score)
         target_conf: confidence threshold for early stopping
         cost_ratios: unused
         high_confidence_threshold: threshold for single-sample route (default: 0.85)
-        max_k: maximum number of samples to generate (default: 8)
+        max_k: maximum adaptive k (default: 8)
     
     Returns:
-        Routing decision string:
-        - "mv_1.5B_k1_t0.7" for very high confidence problems
-        - "mv_1.5B_kN_t0.7" for adaptive k on 1.5B (N = min(ks(ps), max_k))
-        - "Qwen/Qwen2.5-Math-7B-Instruct" for escalation
+        Routing decision marker:
+        - "mv_1.5B_k1_t0.0" for very high confidence (easy) problems
+        - "mv_cascade_1.5B_k{k}_7B_k{k}_t0.7" for tiered adaptive k-sampling
+          (executor tries 1.5B → 7B → 72B greedy based on confidence)
     """
-    # Get probe score (difficulty estimate from 1.5B)
     probe_score = row.get("score_1.5B", 0.5)
     
-    # High confidence → single sample
+    # Probe says "easy" → single greedy sample on cheap model
     if probe_score >= high_confidence_threshold:
-        return "mv_1.5B_k1_t0.7"
+        return "mv_1.5B_k1_t0.0"
     
-    # Adaptive k mapping: as probe score decreases (harder), increase k
-    # Linear mapping: k(ps) = max_k * (1 - ps)
-    # Examples:
-    #   ps=0.85 → k ≈ 1.2 (capped at 1)
-    #   ps=0.70 → k ≈ 2.4 (capped at 2)
-    #   ps=0.50 → k ≈ 4.0 (capped at 4)
-    #   ps=0.30 → k ≈ 5.6 (capped at 6)
-    
+    # Compute adaptive k: more samples for harder problems
     adaptive_k = max(1, int(max_k * (1.0 - probe_score)))
     adaptive_k = min(adaptive_k, max_k)
     
-    # Route with adaptive k on 1.5B
-    return f"mv_1.5B_k{adaptive_k}_t0.7"
+    # Return cascade marker for tiered escalation with adaptive k
+    # Format: mv_cascade_MODEL1_kK_tT_MODEL2_kK_tT_MODEL3_kK_tT
+    # Explicitly encodes the full chain: try each tier in sequence
+    temp = "0.0" if adaptive_k == 1 else "0.7"
+    return f"mv_cascade_1.5B_k{adaptive_k}_t{temp}_7B_k{adaptive_k}_t{temp}_72B_k1_t0.0"
 
 
 def route_adaptive_k_sampling_with_escalation(row, target_conf, cost_ratios=None,
@@ -446,109 +442,128 @@ def route_adaptive_k_sampling_with_escalation(row, target_conf, cost_ratios=None
                                                escalation_k_threshold=5,
                                                max_k=8):
     """
-    Probe-aware adaptive k-sampling with 7B escalation.
+    Probe-aware adaptive k-sampling with cost-aware tiered escalation.
     
-    Extension of route_adaptive_k_sampling that escalates to 7B if needed:
+    Extension of route_adaptive_k_sampling that uses escalation_k_threshold to decide
+    whether to start at 1.5B or jump directly to 7B:
     
-    1. If ps >= 0.85: use 1.5B with k=1
+    1. If ps >= 0.85: use 1.5B with k=1 greedy (easy, cheap)
     2. Else:
-       - Compute adaptive k = min(ks(ps), max_k)
-       - If adaptive k >= escalation_threshold: escalate to 7B (greedy or MV)
-       - Else: use 1.5B with adaptive k
+       - Compute adaptive k = ks(ps)
+       - If adaptive k < escalation_k_threshold: start at 1.5B with adaptive k
+         → If fails, escalate to 7B with adaptive k, then to 72B greedy
+       - If adaptive k >= escalation_k_threshold: skip 1.5B, start directly at 7B
+         → If fails, escalate to 72B greedy
     
-    This prevents expensive k=6-8 on cheap 1.5B, instead escalating to 7B
-    which may be more cost-effective.
+    This prevents expensive k=6-8 sampling on cheap 1.5B by recognizing early that
+    the problem is genuinely hard and better handled by a more capable model.
     
     Args:
         row: pandas Series with columns score_1.5B
         target_conf: confidence threshold
         cost_ratios: unused
         high_confidence_threshold: threshold for single-sample on 1.5B (default: 0.85)
-        escalation_k_threshold: escalate to 7B if adaptive k >= this (default: 5)
+        escalation_k_threshold: if k >= this, skip 1.5B and start at 7B (default: 5)
         max_k: maximum k for 1.5B before escalation (default: 8)
     
     Returns:
-        Routing decision
+        Routing decision marker:
+        - "mv_1.5B_k1_t0.0" for very easy (greedy on cheap model)
+        - "mv_cascade_1.5B_k{k}_7B_k{k}_t0.7" for moderate problems (try cheap first)
+        - "mv_cascade_7B_k{k}_72B_greedy_t0.7" for hard problems (skip cheap, go to 7B)
     """
     probe_score = row.get("score_1.5B", 0.5)
     
-    # High confidence → single sample on cheap model
+    # High confidence → single sample on cheap model with greedy decoding (temp=0)
     if probe_score >= high_confidence_threshold:
-        return "mv_1.5B_k1_t0.7"
+        return "mv_1.5B_k1_t0.0"
     
     # Compute adaptive k
     adaptive_k = max(1, int(max_k * (1.0 - probe_score)))
     adaptive_k = min(adaptive_k, max_k)
     
-    # Escalate to 7B if k is too large (expensive)
-    if adaptive_k >= escalation_k_threshold:
-        return "Qwen/Qwen2.5-Math-7B-Instruct"
+    # Decide whether to include 1.5B or skip directly to 7B
+    temp = "0.0" if adaptive_k == 1 else "0.7"
     
-    return f"mv_1.5B_k{adaptive_k}_t0.7"
+    if adaptive_k >= escalation_k_threshold:
+        # Hard problem: skip cheap 1.5B, go directly to 7B, then 72B
+        # Full chain: 7B_k{k}_t{temp} → 72B_k1_t0.0
+        return f"mv_cascade_7B_k{adaptive_k}_t{temp}_72B_k1_t0.0"
+    else:
+        # Moderate problem: full chain 1.5B → 7B → 72B
+        # Full chain: 1.5B_k{k}_t{temp} → 7B_k{k}_t{temp} → 72B_k1_t0.0
+        return f"mv_cascade_1.5B_k{adaptive_k}_t{temp}_7B_k{adaptive_k}_t{temp}_72B_k1_t0.0"
 
 
 def route_adaptive_k_sampling_with_entropy_escalation(row, target_conf, cost_ratios=None,
                                                        high_confidence_threshold=0.85,
-                                                       entropy_threshold=0.5,
+                                                       entropy_threshold=0.6,
                                                        max_k=8):
     """
-    Probe-aware adaptive k-sampling with entropy-based escalation.
+    Probe-aware adaptive k-sampling with exploratory entropy-based escalation.
     
-    Uses entropy of the majority vote result (post-MV) to decide escalation:
+    STRATEGIC DESIGN (research-informed):
+    Uses entropy to EXPLORE before ESCALATING.
     
-    1. If ps >= 0.85: use 1.5B with k=1 (high confidence easy)
-    2. Else:
-       - Compute adaptive k = min(ks(ps), max_k)
-       - Do MV on 1.5B with this k
-       - After MV, compute entropy of the vote distribution
-       - If entropy > entropy_threshold AND confidence < target_conf: escalate to 7B
-       - Else: return 1.5B result
+    Key insight: High entropy + high confidence is a FEATURE, not a bug.
+    It means we have a strong conviction but the samples disagree.
+    Rather than immediately escalating, we should:
+    1. Try sampling more (increase k) within limits to stabilize entropy
+    2. If entropy stabilizes with more samples → our conviction is justified
+    3. If entropy persists even with more samples → genuinely ambiguous → escalate to 7B
     
-    This is more sophisticated than k-based escalation alone: it actually looks at
-    how uncertain the majority vote is (high entropy = many tied votes = uncertain).
-    
-    High entropy signals:
-    - The samples disagreed a lot (no clear consensus)
-    - Need more powerful model or more samples
-    - Good candidate for escalation
-    
-    The executor needs to support this by:
-    1. Doing MV on 1.5B with adaptive k
-    2. Computing entropy of vote distribution
-    3. Checking if entropy > threshold AND confidence < target_conf
-    4. If so, re-running on 7B; else returning 1.5B result
+    Decision matrix:
+    - Low entropy + High confidence → RETURN 1.5B ✅ (models agree, confident)
+    - Low entropy + Low confidence → RETURN 1.5B ⚠️ (models agree we're uncertain)
+    - High entropy + Low confidence → ESCALATE to 7B (uncertain AND disagreement)
+    - High entropy + High confidence → EXPLORE first:
+        a) If k is small (≤ 4): increase k and recompute
+        b) If k is already large (> 4) AND entropy still high: escalate to 7B
+        
+    This prevents premature escalation when we're actually just seeing high variance
+    in a small sample from a confident (but right) prediction.
     
     Args:
         row: pandas Series with columns score_1.5B (probe score)
-        target_conf: confidence threshold (passed to executor for entropy-based decision)
+        target_conf: confidence threshold for early stopping
         cost_ratios: unused
-        high_confidence_threshold: threshold for single-sample on 1.5B (default: 0.85)
-        entropy_threshold: escalate if entropy > this value (default: 0.5)
-        max_k: maximum k for 1.5B (default: 8)
+        high_confidence_threshold: threshold for single-sample easy problems (default: 0.85)
+        entropy_threshold: flag for high-entropy cases (default: 0.6)
+        max_k: maximum adaptive k (default: 8)
     
     Returns:
-        Special routing marker for entropy-aware escalation:
-        - "mv_1.5B_k1_t0.7" for very high confidence
-        - "mv_entropy_1.5B_k{k}_t0.7" for entropy-check escalation
+        Routing marker with entropy-escalation metadata:
+        - "mv_1.5B_k1_t0.7" for very easy (skip entropy check)
+        - "mv_entropy_1.5B_k{k}_t0.7" for entropy-aware routing
         
-        Executor should recognize "mv_entropy_*" and after computing majority vote:
-        - Calculate entropy of vote results
-        - If entropy > entropy_threshold AND confidence < target_conf: escalate to 7B
-        - Otherwise: return 1.5B decision
+        Executor should interpret "mv_entropy_*" and after MV on 1.5B with k samples:
+        1. Compute entropy of vote distribution
+        2. Compute confidence from votes
+        3. Decision logic:
+           - If entropy <= threshold: RETURN 1.5B (clean result)
+           - If entropy > threshold AND confidence < target_conf: ESCALATE to 7B
+           - If entropy > threshold AND confidence >= target_conf AND k <= 4:
+               → RETRY with k_new = min(k + 2 or k*1.5, max_k) on 1.5B
+               → Recompute entropy with more samples to stabilize
+           - If entropy > threshold AND confidence >= target_conf AND k > 4:
+               → ESCALATE to 7B (high entropy persists even with many samples)
     """
     probe_score = row.get("score_1.5B", 0.5)
     
-    # High confidence → single sample, no entropy check needed
+    # Probe says "easy" → one sample with greedy decoding (temp=0), trust the easy detection
     if probe_score >= high_confidence_threshold:
-        return "mv_1.5B_k1_t0.7"
+        return "mv_1.5B_k1_t0.0"
     
-    # Compute adaptive k
+    # Compute adaptive k: more samples for harder problems
     adaptive_k = max(1, int(max_k * (1.0 - probe_score)))
     adaptive_k = min(adaptive_k, max_k)
     
-    # Return special entropy-check marker for executor to handle
-    # Format: mv_entropy_MODEL_kK_tT means "do MV, check entropy for escalation"
-    return f"mv_entropy_1.5B_k{adaptive_k}_t0.7"
+    # Return marker for executor to handle entropy checks with exploration
+    # Full chain: 1.5B_k{k}_t{temp} → 7B_k{k}_t{temp} → 72B_k1_t0.0
+    # Executor recognizes "mv_entropy_cascade_*" and applies entropy-based exploration
+    # before committing to escalation
+    temp = "0.0" if adaptive_k == 1 else "0.7"
+    return f"mv_entropy_cascade_1.5B_k{adaptive_k}_t{temp}_7B_k{adaptive_k}_t{temp}_72B_k1_t0.0"
 
 
 # ============================================================================# STRATEGY REGISTRY
@@ -585,6 +600,7 @@ ROUTING_STRATEGIES = {
     # Adaptive k-sampling (Phase 3)
     "adaptive_k_sampling": route_adaptive_k_sampling,
     "adaptive_k_sampling_with_escalation": route_adaptive_k_sampling_with_escalation,
+    "adaptive_k_sampling_with_entropy_escalation": route_adaptive_k_sampling_with_entropy_escalation,
 }
 
 

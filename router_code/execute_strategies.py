@@ -54,6 +54,123 @@ from router_code.routing_strategies import (
 import requests
 
 
+# ============================================================================
+# CASCADE MARKER PARSING - Support for new adaptive k-sampling strategies
+# ============================================================================
+
+def parse_cascade_marker(marker: str) -> List[tuple]:
+    """
+    Parse cascade marker format into list of (model_name, k, temperature) tuples.
+    
+    Cascade marker format: mv_[entropy_]cascade_MODEL_kK_tT_MODEL_kK_tT_...
+    Example:
+        "mv_cascade_1.5B_k4_t0.7_7B_k4_t0.7_72B_k1_t0.0"
+        → [(1.5B_model, 4, 0.7), (7B_model, 4, 0.7), (72B_model, 1, 0.0)]
+    
+    Args:
+        marker: cascade marker string
+    
+    Returns:
+        List of (model_name, k, temperature) tuples to try in sequence
+        Returns empty list if marker is not a valid cascade format
+    """
+    if not marker.startswith("mv_") or "cascade" not in marker:
+        return []
+    
+    try:
+        # Remove "mv_" prefix and "entropy_" prefix if present
+        marker_content = marker.replace("mv_", "").replace("entropy_", "")
+        
+        # Skip "cascade_" prefix
+        if not marker_content.startswith("cascade_"):
+            return []
+        marker_content = marker_content.replace("cascade_", "")
+        
+        # Parse by splitting on model size boundaries
+        # Look for patterns: 1.5B, 7B, 72B followed by _k
+        tiers = []
+        i = 0
+        
+        while i < len(marker_content):
+            # Find next model size marker (check 1.5B first since it's longer)
+            if i + 4 <= len(marker_content) and marker_content[i:i+4] == "1.5B":
+                # 1.5B found
+                model_size = "1.5B"
+                i += 4
+            elif i + 3 <= len(marker_content) and marker_content[i:i+3] == "72B":
+                # 72B found
+                model_size = "72B"
+                i += 3
+            elif i + 2 <= len(marker_content) and marker_content[i:i+2] == "7B":
+                # 7B found
+                model_size = "7B"
+                i += 2
+            else:
+                # Skip unknown character
+                i += 1
+                continue
+            
+            # Now extract _kK_tT part
+            if i < len(marker_content) and marker_content[i] == "_":
+                i += 1  # Skip the underscore
+                
+                # Parse k value: _kN
+                if i < len(marker_content) and marker_content[i] == "k":
+                    i += 1
+                    k_str = ""
+                    while i < len(marker_content) and marker_content[i] in "0123456789":
+                        k_str += marker_content[i]
+                        i += 1
+                    
+                    if k_str and i < len(marker_content) and marker_content[i] == "_":
+                        k_val = int(k_str)
+                        i += 1  # Skip the underscore after k
+                        
+                        # Parse t value: _tT
+                        if i < len(marker_content) and marker_content[i] == "t":
+                            i += 1
+                            t_str = ""
+                            # Collect temperature: could be 0, 0.0, 0.7, etc.
+                            while i < len(marker_content) and marker_content[i] in "0123456789.":
+                                t_str += marker_content[i]
+                                i += 1
+                            
+                            if t_str:
+                                t_val = float(t_str)
+                                
+                                # Convert model size to full model name
+                                if "1.5" in model_size:
+                                    model_name = "Qwen/Qwen2.5-Math-1.5B-Instruct"
+                                elif "7B" in model_size:
+                                    model_name = "Qwen/Qwen2.5-Math-7B-Instruct"
+                                elif "72B" in model_size:
+                                    model_name = "Qwen/Qwen2.5-Math-72B-Instruct"
+                                else:
+                                    continue  # Skip unknown model size
+                                
+                                tiers.append((model_name, k_val, t_val))
+                                
+                                # Skip the underscore before next model if exists
+                                if i < len(marker_content) and marker_content[i] == "_":
+                                    i += 1
+        
+        return tiers
+    
+    except Exception as e:
+        print(f"    ⚠️ Error parsing cascade marker '{marker}': {e}")
+        return []
+
+
+def is_cascade_marker(route_str: str) -> bool:
+    """
+    Check if a routing string is a cascade marker (vs plain model name or simple MV).
+    
+    Cascade markers contain "cascade" keyword and follow format:
+    mv_[entropy_]cascade_MODEL_kK_tT_MODEL_kK_tT_...
+    """
+    return "mv_" in route_str and "cascade" in route_str
+
+
 def execute_routing_strategies(
     labelled_datasets: List[str] = None,
     probing_dataset: str = "DigitalLearningGmbH_MATH-lighteval",
@@ -235,18 +352,35 @@ def execute_routing_strategies(
                 routing_df = probe_df.copy()
                 routing_df["route_to"] = routes
                 
+                # Mark cascade vs non-cascade routes
+                routing_df["is_cascade"] = routing_df["route_to"].apply(is_cascade_marker)
+                
                 # Parse MV routing strings to extract k and temperature
-                # MV routes look like "mv_1.5B_k8_t0.7" or "mv_7B_k8_t0.7"
-                # Regular routes are full model names
+                # Three types of routes:
+                #   1. Plain models: "Qwen/Qwen2.5-Math-1.5B-Instruct"
+                #   2. Simple MV: "mv_1.5B_k8_t0.7" or "mv_7B_k8_t0.7"
+                #   3. Cascade: "mv_cascade_1.5B_k4_t0.7_7B_k4_t0.7_72B_k1_t0.0"
                 routing_df["is_mv"] = routing_df["route_to"].str.contains("mv_", na=False)
                 routing_df["sc_n"] = 1
                 routing_df["sc_temp"] = 0.0
+                routing_df["cascade_tiers"] = None  # For cascade routes
                 
-                # For MV routes, extract k and temperature
+                # For cascade routes, store tier information
                 for idx, row in routing_df.iterrows():
-                    if row["is_mv"]:
+                    if row["is_cascade"]:
+                        # Parse cascade marker into tier list
+                        tiers = parse_cascade_marker(row["route_to"])
+                        if tiers:
+                            routing_df.at[idx, "cascade_tiers"] = tiers
+                            # For now, use first tier's k and temp for initial inference
+                            # (actual cascading will happen in run_routed_vllm_inference)
+                            _, k_val, t_val = tiers[0]
+                            routing_df.at[idx, "route_to"] = tiers[0][0]  # First tier model
+                            routing_df.at[idx, "sc_n"] = k_val
+                            routing_df.at[idx, "sc_temp"] = t_val
+                    elif row["is_mv"]:
+                        # Simple MV route: "mv_1.5B_k8_t0.7"
                         route_str = row["route_to"]
-                        # Parse "mv_1.5B_k8_t0.7" or "mv_72B_k8_t0.7" → k=8, temp=0.7, model=1.5B/7B/72B
                         if "_k" in route_str and "_t" in route_str:
                             parts = route_str.split("_")
                             model_size = parts[1]  # "1.5B", "7B", or "72B"
@@ -273,7 +407,6 @@ def execute_routing_strategies(
                     routing_df.loc[mask_72b, "sc_temp"] = 0.0
                     routing_df.loc[mask_72b, "is_mv"] = False
 
-                
                 # Print routing breakdown
                 route_counts = routing_df["route_to"].value_counts()
                 print(f"    Routing breakdown:")
