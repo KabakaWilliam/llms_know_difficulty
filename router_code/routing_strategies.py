@@ -670,9 +670,9 @@ ROUTING_STRATEGIES = {
     # These generate cascade markers with k that varies by problem difficulty
     # k = max_k * (1.0 - probe_score): harder problems get more samples
     # All strategies produce cascade markers executed by Phase 2 executor
-    "adaptive_k_sampling_with_dual_escalation": route_adaptive_k_sampling_with_dual_escalation,
     "adaptive_k_sampling_with_entropy_escalation": route_adaptive_k_sampling_with_entropy_escalation,
     "adaptive_k_sampling": route_adaptive_k_sampling,
+    "adaptive_k_sampling_with_dual_escalation": route_adaptive_k_sampling_with_dual_escalation,
     "adaptive_k_sampling_with_escalation": route_adaptive_k_sampling_with_escalation,
 }
 
