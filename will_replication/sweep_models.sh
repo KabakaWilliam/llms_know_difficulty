@@ -11,7 +11,7 @@ MODELS=(
     # "openai/gpt-oss-120b"
     # "Qwen/Qwen2.5-1.5B-Instruct" 
     # "Qwen/Qwen2-1.5B-Instruct"
-    "Qwen/Qwen2.5-Math-7B-Instruct" 
+    # "Qwen/Qwen2.5-Math-7B-Instruct" 
     # "Qwen/Qwen2.5-Math-72B-Instruct" 
     # "Qwen/Qwen2.5-Math-1.5B"
     # "Qwen/Qwen2.5-1.5B" 
@@ -19,7 +19,8 @@ MODELS=(
     # "Qwen/Qwen2-1.5B"
     # "Qwen/Qwen2-1.5B-Instruct"
     # "Qwen/Qwen2.5-7B"
-    # "Qwen/Qwen2.5-7B-Instruct"
+    "Qwen/Qwen2.5-1.5B-Instruct"
+    "Qwen/Qwen2.5-7B-Instruct"
 )
 
 # Configuration (same for all models)
@@ -29,7 +30,7 @@ TEMPERATURE=0.0
 GEN_OPTIONS=maxlen_${MAX_LEN}_k_${K}_temp_${TEMPERATURE}
 
 MAIN_DATA_DIR="DATA"
-CHOSEN_DATASET="openai_gsm8k" #"gneubig_aime-1983-2024" #"openai_gsm8k" #"DigitalLearningGmbH_MATH-lighteval"
+CHOSEN_DATASET="DigitalLearningGmbH_MATH-lighteval" #"gneubig_aime-1983-2024" #"openai_gsm8k" #"DigitalLearningGmbH_MATH-lighteval"
 DATASET_DIR="${MAIN_DATA_DIR}/SR_DATA/${CHOSEN_DATASET}"
 
 QUESTION_COL="formatted_prompt"

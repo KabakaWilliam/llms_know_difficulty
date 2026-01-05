@@ -390,16 +390,21 @@ if __name__ == "__main__":
     # "Qwen/Qwen2.5-Math-1.5B-Instruct",
     # "Qwen/Qwen2.5-1.5B",
     # "Qwen/Qwen2.5-1.5B-Instruct",
-    "Qwen/Qwen2.5-Math-7B-Instruct",
+    # "Qwen/Qwen2.5-Math-7B-Instruct",
     # "Qwen/Qwen2.5-Math-72B-Instruct",
     # "openai/gpt-oss-20b"
     # "openai/gpt-oss-120b"
+    "Qwen/Qwen2.5-1.5B-Instruct",
+    "Qwen/Qwen2.5-7B-Instruct"
     ]
 
     batch_size_by_model = {
     "Qwen/Qwen2.5-Math-1.5B-Instruct": 256,
     "Qwen/Qwen2.5-Math-7B-Instruct":  256,
     "Qwen/Qwen2.5-Math-72B-Instruct":  128,
+    "Qwen/Qwen2.5-1.5B-Instruct": 256,
+    "Qwen/Qwen2.5-7B-Instruct":  256,
+    "Qwen/Qwen2.5-72B-Instruct":  128,
     "openai/gpt-oss-20b":  256,
     "openai/gpt-oss-120b":  64,
     }
@@ -441,13 +446,3 @@ if __name__ == "__main__":
 
 
 
-# will_replication/DATA/SR_DATA/DigitalLearningGmbH_MATH-lighteval/test-Qwen-Qwen2.5-Math-7B-Instruct_maxlen_3000_k_8_temp_0.7.parquet
-
-# gneubig_aime-1983-2024/train-Qwen-Qwen2.5-Math-7B-Instruct_maxlen_3000_k_8_temp_0.7.parquet
-# gneubig_aime-1983-2024/train-Qwen-Qwen2.5-Math-72B-Instruct_maxlen_3000_k_8_temp_0.7.parquet
-
-
-# will_replication/DATA/SR_DATA/openai_gsm8k/train-Qwen-Qwen2.5-Math-7B-Instruct_maxlen_3000_k_8_temp_0.7.parquet
-
-# will_replication/DATA/SR_DATA/opencompass_AIME2025/test-Qwen-Qwen2.5-Math-7B-Instruct_maxlen_3000_k_8_temp_0.7.parquet
-# will_replication/DATA/SR_DATA/opencompass_AIME2025/test-Qwen-Qwen2.5-Math-72B-Instruct_maxlen_3000_k_8_temp_0.7.parquet
