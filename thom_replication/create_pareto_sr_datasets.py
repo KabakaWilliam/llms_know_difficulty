@@ -110,8 +110,12 @@ def main(
         batch_size_by_model = {}
     # Default fallbacks
     default_bs = 256
+    TOP_P=1
     if "72" in model_name:
         default_bs = 32
+    if "qwen2.5-math" in model_name.lower() and num_rollouts_per_question > 1:
+        # optimal setting for math https://github.com/QwenLM/Qwen2.5-Math#:~:text=with%20trust_remote_code.-,Warning,-We%20use%20temperature
+        TOP_P = 0.8
 
     batch_size = batch_size_by_model.get(model_name, default_bs)
 
@@ -125,7 +129,7 @@ def main(
     sampling_params = SamplingParams(
         max_tokens=max_response_len,
         temperature=temperature,
-        top_p=1,
+        top_p=TOP_P,
         top_k=-1,
         n=1,  # we do rollouts by repeating prompts
     )
@@ -390,12 +394,12 @@ if __name__ == "__main__":
     # "Qwen/Qwen2.5-Math-1.5B-Instruct",
     # "Qwen/Qwen2.5-1.5B",
     # "Qwen/Qwen2.5-1.5B-Instruct",
-    # "Qwen/Qwen2.5-Math-7B-Instruct",
+    "Qwen/Qwen2.5-Math-7B-Instruct",
     # "Qwen/Qwen2.5-Math-72B-Instruct",
     # "openai/gpt-oss-20b"
     # "openai/gpt-oss-120b"
-    "Qwen/Qwen2.5-1.5B-Instruct",
-    "Qwen/Qwen2.5-7B-Instruct"
+    # "Qwen/Qwen2.5-1.5B-Instruct",
+    # "Qwen/Qwen2.5-7B-Instruct"
     ]
 
     batch_size_by_model = {
@@ -418,8 +422,8 @@ if __name__ == "__main__":
             model_name=MODEL_TO_ROLLOUT,
             # max_questions_per_split=15,
             tensor_parallel_size=1,
-            num_rollouts_per_question=1,
-            temperature=0.0,
+            num_rollouts_per_question=50,
+            temperature=0.7,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
             batch_size_by_model=batch_size_by_model,
             max_response_len=3000

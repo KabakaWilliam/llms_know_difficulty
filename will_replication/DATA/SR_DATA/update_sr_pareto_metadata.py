@@ -20,8 +20,8 @@ TASKS = [
 MODEL_SIZES = ["1.5B", "7B", "72B"]
 SPLITS = ["train", "test"]
 
-K=1
-TEMP=0.0
+K=50
+TEMP=1.0
 
 # Mapping from file model size to full model name
 MODEL_NAME_MAP = {

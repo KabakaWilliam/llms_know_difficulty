@@ -5,12 +5,12 @@ set -e  # Exit on error
 
 # List of models to process
 MODELS=(
-    # "Qwen/Qwen2.5-Math-1.5B-Instruct" 
     # "Qwen/Qwen2.5-1.5B"
     # "openai/gpt-oss-20b"
     # "openai/gpt-oss-120b"
     # "Qwen/Qwen2.5-1.5B-Instruct" 
     # "Qwen/Qwen2-1.5B-Instruct"
+    "Qwen/Qwen2.5-Math-1.5B-Instruct" 
     # "Qwen/Qwen2.5-Math-7B-Instruct" 
     # "Qwen/Qwen2.5-Math-72B-Instruct" 
     # "Qwen/Qwen2.5-Math-1.5B"
@@ -19,14 +19,14 @@ MODELS=(
     # "Qwen/Qwen2-1.5B"
     # "Qwen/Qwen2-1.5B-Instruct"
     # "Qwen/Qwen2.5-7B"
-    "Qwen/Qwen2.5-1.5B-Instruct"
-    "Qwen/Qwen2.5-7B-Instruct"
+    # "Qwen/Qwen2.5-1.5B-Instruct"
+    # "Qwen/Qwen2.5-7B-Instruct"
 )
 
 # Configuration (same for all models)
 MAX_LEN=3000
-K=1
-TEMPERATURE=0.0
+K=8
+TEMPERATURE=0.7
 GEN_OPTIONS=maxlen_${MAX_LEN}_k_${K}_temp_${TEMPERATURE}
 
 MAIN_DATA_DIR="DATA"
@@ -37,7 +37,7 @@ QUESTION_COL="formatted_prompt"
 LABEL_COL="success_rate"
 LAYERS="all"
 BATCH_SIZE=32
-GPU=1
+GPU=0
 
 # Skip activation extraction if they already exist
 SKIP_ACTIVATIONS=true  # Set to true to skip extraction and reuse existing activations

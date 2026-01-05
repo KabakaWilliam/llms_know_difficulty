@@ -254,18 +254,17 @@ def load_dataset_with_adapter(adapter: DatasetAdapter):
 # Example usage
 # -----------------------------
 if __name__ == "__main__":
-    model_name = "Qwen/Qwen2.5-Math-7B-Instruct"
+    model_name = "Qwen/Qwen2.5-Math-1.5B-Instruct"
     # model_name = "openai/gpt-oss-20b"
 
     DATASETS = ["opencompass/AIME2025", "gneubig/aime-1983-2024", "DigitalLearningGmbH/MATH-lighteval", "openai/gsm8k"]
 
     DS_ALIASES = ["_".join(DATASET.split("/")) for DATASET in DATASETS]
     
-    K=1
-    TEMP=0.0
+    K=8
+    TEMP=0.7
     GEN_STR=f"maxlen_3000_k_{K}_temp_{TEMP}"
     TARGET_PROBE_DATASET = 'DigitalLearningGmbH_MATH-lighteval'
-    TARGET_PROBE_DATASET = 'openai_gsm8k'
     MODEL_ALIAS = "-".join(model_name.split("/"))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
