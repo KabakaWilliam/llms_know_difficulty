@@ -21,6 +21,12 @@ from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.utils.multiclass import type_of_target
 from tqdm import tqdm
 
+import sys
+from pathlib import Path
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from thom_replication.utils.metrics import compute_metrics
+
 
 def set_seed(seed: int = 42):
     """Set seed for reproducibility."""
@@ -395,8 +401,12 @@ def train_probes(
         
         for layer_idx in tqdm(range(n_layers), desc=f"Layer progress for position {pos}"):
             # Extract activations for this layer and position
-            x_train = train_activations[:, layer_idx, pos_idx, :].numpy()  # [N, D]
-            x_test = test_activations[:, layer_idx, pos_idx, :].numpy()  # [M, D]
+            try:
+                x_train = train_activations[:, layer_idx, pos_idx, :].numpy()  # [N, D]
+                x_test = test_activations[:, layer_idx, pos_idx, :].numpy()  # [M, D]
+            except:
+                x_train = train_activations[:, layer_idx, pos_idx, :].detach().to(torch.float16).cpu().numpy()  # [N, D]
+                x_test = test_activations[:, layer_idx, pos_idx, :].detach().to(torch.float16).cpu().numpy()  # [M, D]
             
             # Train probe with optional alpha selection and auxiliary features
             train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf, probe_model, selected_alpha, alpha_scores = train_single_layer_probe(
@@ -574,6 +584,47 @@ def train_probes(
             if alpha_grid is not None and len(alpha_grid) > 1:
                 best_alpha = all_selected_alphas[(best_pos_idx, best_layer_idx)]
                 print(f"Selected alpha: {best_alpha}")
+            
+            # Compute detailed metrics using compute_metrics for test set
+            test_preds_best = torch.tensor(all_predictions[(best_pos_idx, best_layer_idx)]["test_predictions"])
+            test_labels_tensor = torch.tensor(test_labels)
+            detailed_test_metrics = compute_metrics(test_labels_tensor, test_preds_best)
+            
+            # Compute detailed metrics for train set
+            train_preds_best = torch.tensor(all_predictions[(best_pos_idx, best_layer_idx)]["train_predictions"])
+            train_labels_tensor = torch.tensor(train_labels)
+            detailed_train_metrics = compute_metrics(train_labels_tensor, train_preds_best)
+            
+            # Compute detailed metrics for CV set if available
+            cv_preds_best = all_predictions[(best_pos_idx, best_layer_idx)]["cv_predictions"]
+            if cv_preds_best is not None:
+                cv_preds_tensor = torch.tensor(cv_preds_best)
+                detailed_cv_metrics = compute_metrics(train_labels_tensor, cv_preds_tensor)
+            else:
+                detailed_cv_metrics = None
+            
+            # Print detailed test metrics
+            print(f"\nDetailed Test Metrics:")
+            print(f"  MSE: {detailed_test_metrics['mse']:.4f}")
+            print(f"  MAE: {detailed_test_metrics['mae']:.4f}")
+            print(f"  Spearman: {detailed_test_metrics['spearman']:.4f}")
+            print(f"  Kendall Tau: {detailed_test_metrics['kendall_tau']:.4f}")
+            print(f"  Binned Accuracy (5 bins): {detailed_test_metrics['acc_all']:.4f}")
+            print(f"  Learnability (mean): {detailed_test_metrics['learnability_ys_mean']:.4f}")
+            print(f"  Learnability (selected top 25%): {detailed_test_metrics['learnability_selected_mean']:.4f}")
+            print(f"  Learnability (best possible): {detailed_test_metrics['learnability_best_possible_mean']:.4f}")
+            
+            # Print per-bin metrics
+            print(f"\n  Per-Bin Metrics (Test Set):")
+            for b in range(5):
+                count = int(detailed_test_metrics[f'count_bin_{b}'])
+                num_pred = int(detailed_test_metrics[f'num_predicted_bin_{b}'])
+                acc = detailed_test_metrics[f'acc_bin_{b}']
+                prec = detailed_test_metrics[f'precision_bin_{b}']
+                rec = detailed_test_metrics[f'recall_bin_{b}']
+                f1 = detailed_test_metrics[f'f1_bin_{b}']
+                print(f"    Bin {b}: count={count:4d}, pred={num_pred:4d}, acc={acc:.3f}, prec={prec:.3f}, rec={rec:.3f}, f1={f1:.3f}")
+            
             print(f"{'='*60}")
             
             # Log best probe to wandb
@@ -593,7 +644,39 @@ def train_probes(
                     "best_probe/using_aux_features": aux_features_train is not None,
                     "task_type": task_type,
                     "metric": metric_name,
+                    # Add detailed test metrics
+                    "best_probe/test_mse": detailed_test_metrics['mse'],
+                    "best_probe/test_mae": detailed_test_metrics['mae'],
+                    "best_probe/test_spearman": detailed_test_metrics['spearman'],
+                    "best_probe/test_kendall_tau": detailed_test_metrics['kendall_tau'],
+                    "best_probe/test_acc_all": detailed_test_metrics['acc_all'],
+                    "best_probe/test_learnability_mean": detailed_test_metrics['learnability_ys_mean'],
+                    "best_probe/test_learnability_selected": detailed_test_metrics['learnability_selected_mean'],
+                    "best_probe/test_learnability_best_possible": detailed_test_metrics['learnability_best_possible_mean'],
+                    # Add detailed train metrics
+                    "best_probe/train_mse": detailed_train_metrics['mse'],
+                    "best_probe/train_mae": detailed_train_metrics['mae'],
+                    "best_probe/train_spearman": detailed_train_metrics['spearman'],
+                    "best_probe/train_kendall_tau": detailed_train_metrics['kendall_tau'],
                 }
+                
+                # Add CV metrics if available
+                if detailed_cv_metrics is not None:
+                    best_probe_summary.update({
+                        "best_probe/cv_mse": detailed_cv_metrics['mse'],
+                        "best_probe/cv_mae": detailed_cv_metrics['mae'],
+                        "best_probe/cv_spearman": detailed_cv_metrics['spearman'],
+                        "best_probe/cv_kendall_tau": detailed_cv_metrics['kendall_tau'],
+                    })
+                
+                # Add per-bin metrics for test set
+                for b in range(5):
+                    best_probe_summary[f"best_probe/test_acc_bin_{b}"] = detailed_test_metrics[f'acc_bin_{b}']
+                    best_probe_summary[f"best_probe/test_precision_bin_{b}"] = detailed_test_metrics[f'precision_bin_{b}']
+                    best_probe_summary[f"best_probe/test_recall_bin_{b}"] = detailed_test_metrics[f'recall_bin_{b}']
+                    best_probe_summary[f"best_probe/test_f1_bin_{b}"] = detailed_test_metrics[f'f1_bin_{b}']
+                    best_probe_summary[f"best_probe/test_count_bin_{b}"] = detailed_test_metrics[f'count_bin_{b}']
+                    best_probe_summary[f"best_probe/test_num_predicted_bin_{b}"] = detailed_test_metrics[f'num_predicted_bin_{b}']
                 
                 # Add alpha scores if available
                 if (best_pos_idx, best_layer_idx) in all_alpha_scores:
@@ -612,6 +695,7 @@ def train_probes(
             
             # Save best probe predictions
             best_probe_data = {
+                "avg_benchmark_score": np.mean(test_labels.tolist()),
                 "best_position": best_pos,
                 "best_position_idx": best_pos_idx,
                 "best_layer": best_layer_idx,
@@ -627,6 +711,10 @@ def train_probes(
                 "probe_weights": all_probe_weights.get((best_pos_idx, best_layer_idx)),
                 "task_type": task_type,
                 "metric": metric_name,
+                # Add detailed metrics
+                "detailed_test_metrics": detailed_test_metrics,
+                "detailed_train_metrics": detailed_train_metrics,
+                "detailed_cv_metrics": detailed_cv_metrics,
             }
             
             with open(f"{output_dir}/best_probe_predictions.json", 'w') as f:
