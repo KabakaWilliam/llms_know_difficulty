@@ -161,9 +161,9 @@ def main(
     # --------- tasks ----------
     TASKS = [
         "opencompass_AIME2025",
-        "gneubig_aime-1983-2024",
-        "DigitalLearningGmbH_MATH-lighteval",
-        "openai_gsm8k",
+        # "gneubig_aime-1983-2024",
+        # "DigitalLearningGmbH_MATH-lighteval",
+        # "openai_gsm8k",
     ]
 
     seed = 42
@@ -175,9 +175,9 @@ def main(
         formatted_prompt = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
-        # if "gpt-oss" in tokenizer.name_or_path.lower():
-        #     formatted_prompt = formatted_prompt.replace("Reasoning: medium", "Reasoning: high")
-        #     formatted_prompt = formatted_prompt.replace("Reasoning: easy", "Reasoning: high")
+        if "gpt-oss" in tokenizer.name_or_path.lower():
+            formatted_prompt = formatted_prompt.replace("Reasoning: medium", "Reasoning: high")
+            formatted_prompt = formatted_prompt.replace("Reasoning: easy", "Reasoning: high")
         return formatted_prompt
 
 
@@ -364,10 +364,29 @@ def main(
                 lambda row: compute_score(solution_str=f"\\boxed{{{row['majority_vote_extracted_answer']}}}", ground_truth=row["ground_truth"]),
                 axis=1
                 )
-
+                mv_accuracy = results_df["majority_vote_is_correct"].mean()
+                print(f"Majority Vote Accuracy : {mv_accuracy}")
+            else:
+                mv_accuracy = np.nan
 
             results_df.to_parquet(filepath)
             print(f"Saved {TASK} / {split} split to: {filepath}")
+            
+            # Calculate Pass@K
+            pass_at_k = results_df["success_rate"].mean()
+            
+            # Send notification via ntfy.sh
+            try:
+                ntfy_message = (
+                    f"✅ {TASK}\n"
+                    f"Split: {split} | Model: {model_name}\n"
+                    f"Config: k={num_rollouts_per_question}, τ={temperature}, maxlen={max_response_len}\n"
+                    f"Pass@{num_rollouts_per_question}: {pass_at_k:.4f} | MV Acc: {mv_accuracy:.4f}"
+                )
+                requests.post("https://ntfy.sh/llms_know_difficulty", data=ntfy_message)
+                print('✅ Metrics sent to ntfy.sh')
+            except Exception as e:
+                print(f"⚠️ ntfy.sh notification failed: {e}")
 
     unload_model(llm)
 
@@ -394,10 +413,10 @@ if __name__ == "__main__":
     # "Qwen/Qwen2.5-Math-1.5B-Instruct",
     # "Qwen/Qwen2.5-1.5B",
     # "Qwen/Qwen2.5-1.5B-Instruct",
-    "Qwen/Qwen2.5-Math-7B-Instruct",
+    # "Qwen/Qwen2.5-Math-7B-Instruct",
     # "Qwen/Qwen2.5-Math-72B-Instruct",
     # "openai/gpt-oss-20b"
-    # "openai/gpt-oss-120b"
+    "openai/gpt-oss-120b"
     # "Qwen/Qwen2.5-1.5B-Instruct",
     # "Qwen/Qwen2.5-7B-Instruct"
     ]
@@ -421,12 +440,12 @@ if __name__ == "__main__":
         main(
             model_name=MODEL_TO_ROLLOUT,
             # max_questions_per_split=15,
-            tensor_parallel_size=1,
-            num_rollouts_per_question=50,
-            temperature=0.7,
+            tensor_parallel_size=2,
+            num_rollouts_per_question=1,
+            temperature=1.0,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
             batch_size_by_model=batch_size_by_model,
-            max_response_len=3000
+            max_response_len=16384#131072 #16384
         )
         
         print(f"\nFinished processing {MODEL_TO_ROLLOUT}")
