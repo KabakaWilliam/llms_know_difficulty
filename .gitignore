@@ -179,7 +179,8 @@ old_codebase/predicting_learnability/checkpoints
 old_codebase/predicting_learnability/MAJORITY_VOTE_DATA_COPY
 old_codebase/difficulty_direction/dataset/processed
 old_codebase/difficulty_direction/dataset/raw
-
+*sweep_results.csv
+CLAUDE_CONTEXT
 # runs/*
 # !runs/*/config.yaml
 # git add -f runs/DeepSeek-R1-Distill-Qwen-1.5B/config.yaml runs/DeepSeek-R1-Distill-Qwen-7B/config.yaml runs/Qwen2.5-Math-1.5B-Instruct/config.yaml runs/Qwen2.5-Math-1.5B/config.yaml runs/Qwen2.5-Math-7B/config.yaml
