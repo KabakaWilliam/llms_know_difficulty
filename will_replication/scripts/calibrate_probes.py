@@ -16,11 +16,11 @@ from my_utils.utils import load_probe_data, sigmoid_np, fit_platt_binomial, appl
 
 MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
 MODEL_ALIAS = "-".join(MODEL_NAME.split("/"))
-K=5
-TEMPERATURE=0.6
-PROBING_DATASET="DigitalLearningGmbH_MATH-lighteval"
+K=8
+TEMPERATURE=0.7
+PROBING_DATASET="gneubig_aime-1983-2024" #"DigitalLearningGmbH_MATH-lighteval"
 
-data = load_probe_data(MODEL_NAME=MODEL_NAME, PROBING_DATASET="DigitalLearningGmbH_MATH-lighteval", K=K, TEMPERATURE=TEMPERATURE)
+data = load_probe_data(MODEL_NAME=MODEL_NAME, PROBING_DATASET=PROBING_DATASET, K=K, TEMPERATURE=TEMPERATURE)
 
 
 # -------- Usage (calibrate on train-split, evaluate on test) --------
@@ -119,7 +119,7 @@ print(f"MATH Benchmark score: {data["avg_benchmark_score"]}")
 for DATASET_NAME in DATASETS:
     DATASET_NAME = "_".join(DATASET_NAME.split("/"))
     print(f"====================================\n📜 LOADING {DATASET_NAME} 📜\n====================================")
-    PROBE_PREDICTIONS_PATH = f"../probe_results/DATA/Labelled_SR/DigitalLearningGmbH_MATH-lighteval_probe/{DATASET_NAME}/{MODEL_ALIAS}_maxlen_3000_k_{K}_temp_{TEMPERATURE}/scored.parquet"
+    PROBE_PREDICTIONS_PATH = f"../probe_results/DATA/Labelled_SR/{PROBING_DATASET}_probe/{DATASET_NAME}/{MODEL_ALIAS}_maxlen_3000_k_{K}_temp_{TEMPERATURE}/scored.parquet"
 
     labelled_df = pd.read_parquet(PROBE_PREDICTIONS_PATH)
 
