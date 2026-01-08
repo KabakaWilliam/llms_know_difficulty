@@ -8,6 +8,7 @@ from typing import List, Tuple, Optional
 import pprint
 import torch
 import torch.nn as nn
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import Dataset, DataLoader
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -222,6 +223,7 @@ def train_probe(
     weight_decay: float,
     device: str,
     trim_train_set: int = -1,
+    use_scheduler: bool = False,
 ):
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
     if tokenizer.pad_token is None:
@@ -281,6 +283,14 @@ def train_probe(
 
     opt = torch.optim.AdamW(probe.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
+    
+    # Initialize scheduler if enabled
+    scheduler = None
+    if use_scheduler:
+        # Calculate total number of training steps
+        total_steps = len(train_loader) * epochs
+        scheduler = CosineAnnealingLR(opt, T_max=total_steps)
+        print(f"Initialized CosineAnnealingLR scheduler with T_max={total_steps}")
 
     def forward_probe(enc):
         input_ids = enc["input_ids"].to(device)
@@ -426,6 +436,12 @@ def train_probe(
             opt.zero_grad(set_to_none=True)
             loss.backward()
             opt.step()
+            
+            # Step scheduler if enabled
+            if scheduler is not None:
+                scheduler.step()
+                current_lr = scheduler.get_last_lr()[0]
+                wandb.log({"train/learning_rate": current_lr}, step=step)
 
             bs = ys.size(0)
             running += loss.item() * bs
@@ -484,6 +500,10 @@ def main():
                     help="Name for the wandb run. If not provided, wandb will generate a name automatically.")
     ap.add_argument("--trim_train_set", type=int, default=-1,
                     help="Trim the train set to the first N samples. If not provided, the full train set will be used.")
+    ap.add_argument("--use_scheduler", action="store_true",
+                    help="Enable learning rate scheduler (CosineAnnealingLR)")
+    ap.add_argument("--output_path", type=str, default=None,
+                    help="Path to save the probe model.")
     args = ap.parse_args()
 
     # Load the .env file
@@ -508,6 +528,7 @@ def main():
             "epochs": args.epochs,
             "weight_decay": args.weight_decay,
             "device": args.device,
+            "use_scheduler": args.use_scheduler,
         }
     }
     if args.wandb_run_name:
@@ -516,8 +537,7 @@ def main():
     wandb.init(**wandb_kwargs)
 
     # example usage: python predict_success_rate.py --model gpt2 --
-
-    train_probe(
+    probe = train_probe(
         model_name=args.model,
         hf_dataset=args.hf_dataset,
         train_scores_path=args.train_scores_path,
@@ -531,8 +551,13 @@ def main():
         epochs=args.epochs,
         weight_decay=args.weight_decay,
         device=args.device,
+        trim_train_set=args.trim_train_set,
+        use_scheduler=args.use_scheduler,
     )
 
+    if args.output_path is not None:    
+        torch.save(probe.state_dict(), args.output_path)
+        print(f"Saved probe model to {args.output_path}")
 
 if __name__ == "__main__":
     main()
