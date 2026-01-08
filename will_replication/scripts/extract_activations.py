@@ -50,6 +50,7 @@ def extract_layer_features(
     attention_mask: torch.Tensor,
     layer_indices: List[int],
     positions: List[int],
+    all_positions: bool = False,
 ):
     """
     Extract activations from specified layers and token positions.
@@ -84,8 +85,11 @@ def extract_layer_features(
     lengths = attention_mask.sum(dim=1)  # [B]
     feats = []
     
+    if all_positions:
+        return torch.stack(hs_list, dim=1)
+
     for hs in hs_list:
-        B, T, D = hs.shape
+        B, T, D = hs.shape        
         layer_feats = []
         for pos in positions:
             # Negative position: count from the end (last valid token)
@@ -95,6 +99,7 @@ def extract_layer_features(
                 # Positive position: use directly
                 idx = torch.full((B,), pos, device=hs.device).clamp(min=0, max=T-1)
             
+
             pos_feats = hs[torch.arange(B, device=hs.device), idx]  # [B,D]
             layer_feats.append(pos_feats)
         
@@ -132,6 +137,7 @@ def extract_and_save_activations(
     device: str = "cuda",
     max_samples: Optional[int] = None,
     use_chat_template: bool = False,
+    all_positions: bool = False,
 ):
     """
     Extract activations from post-instruction tokens at specified layers and save to disk.
@@ -153,10 +159,17 @@ def extract_and_save_activations(
         max_samples: Maximum number of samples to process
         use_chat_template: Whether to apply chat template (False if already formatted)
     """
-    print(f"Loading model {model_name}...")
+
+
+    if all_positions:
+        print("Extracting all positions from all layers")
+
+    print(f"Loading model and tokenizer for {model_name}...")
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+
+    print(f"Use chat_template set to: {use_chat_template}")
 
     # Get end-of-instruction tokens
     if eoi_tokens is None:
@@ -244,7 +257,8 @@ def extract_and_save_activations(
         feats = extract_layer_features(
             model, input_ids, attention_mask,
             layer_indices=layer_indices,
-            positions=positions
+            positions=positions,
+            all_positions=all_positions
         )  # [B, L, P, D]
         
         all_activations.append(feats.cpu())
@@ -267,6 +281,7 @@ def extract_and_save_activations(
         'labels': labels,
         'layer_indices': layer_indices,
         'positions': positions,
+        'all_positions': all_positions,
         'n_eoi_tokens': n_eoi,
         'd_model': d_model,
         'model_name': model_name,
@@ -308,6 +323,8 @@ def main():
     parser.add_argument("--device", type=str, 
                         default="cuda" if torch.cuda.is_available() else "cpu",
                         help="Device to use")
+    parser.add_argument("--all_positions", action="store_true",
+                        help="Extract all positions from all layers")
     
     args = parser.parse_args()
     
@@ -324,6 +341,7 @@ def main():
         device=args.device,
         max_samples=args.max_samples,
         use_chat_template=args.use_chat_template,
+        all_positions=args.all_positions,
     )
 
 
