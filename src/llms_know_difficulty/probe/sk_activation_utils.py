@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from ..config import ROOT_ACTIVATION_DATA_DIR
 
-
+ROOT_ACTIVATION_DATA_DIR = os.path.join(ROOT_ACTIVATION_DATA_DIR,"sklearn_probe")
 def parse_layers_arg(layers_arg: str, num_hidden_states: int) -> List[int]:
     """
     Parse layer specification string.
@@ -30,19 +30,33 @@ def get_eoi_toks(tokenizer: AutoTokenizer) -> List[int]:
     the tokens that come after the instruction placeholder.
     
     This replicates ModelBase._get_eoi_toks() from difficulty_direction.
+    
+    For models without a chat template (like gpt2), defaults to last token only.
     """
+    # Check if tokenizer has a chat template
+    if tokenizer.chat_template is None:
+        # Default for models without chat template (e.g., gpt2)
+        # Return a single token at the end of sequence
+        return [tokenizer.eos_token_id if tokenizer.eos_token_id else 0]
+    
     # Apply chat template with a placeholder instruction
     messages = [{"role": "user", "content": "{instruction}"}]
-    templated = tokenizer.apply_chat_template(
-        messages, 
-        add_generation_prompt=True, 
-        tokenize=False
-    )
+    try:
+        templated = tokenizer.apply_chat_template(
+            messages, 
+            add_generation_prompt=True, 
+            tokenize=False
+        )
+    except (ValueError, KeyError):
+        # Fallback if chat template application fails
+        print("No chat template found, returing eos token")
+        return [tokenizer.eos_token_id if tokenizer.eos_token_id else 0]
     
     # Split by the placeholder and get the part after it
     parts = templated.split("{instruction}")
     if len(parts) < 2:
-        raise ValueError("Chat template did not contain the instruction placeholder")
+        # Fallback if placeholder not found
+        return [tokenizer.eos_token_id if tokenizer.eos_token_id else 0]
     
     post_instruction_text = parts[-1]
     
@@ -53,7 +67,6 @@ def get_eoi_toks(tokenizer: AutoTokenizer) -> List[int]:
 
 @torch.no_grad()
 def _extract_layer_features(
-    self,
     model: AutoModelForCausalLM,
     input_ids: torch.Tensor,
     attention_mask: torch.Tensor,
@@ -276,11 +289,12 @@ def extract_activations_from_texts(
     max_length: int = 512,
     eoi_tokens: Optional[int] = None,
     layer_indices: Optional[List[int]] = None,
+    specified_eoi_position: Optional[int] = None,
 ) -> tuple:
     """
     Extract activations from texts without saving to disk.
     
-    Used by SklearnProbe.train() to extract activations in-memory.
+    Used by SklearnProbe.train() and predict() to extract activations in-memory.
     
     Args:
         model: The language model
@@ -292,11 +306,13 @@ def extract_activations_from_texts(
         max_length: Maximum sequence length
         eoi_tokens: Number of end-of-instruction tokens. If None, auto-detect from chat template.
         layer_indices: Which layers to extract. If None, extracts all layers.
+        specified_eoi_position: If provided, extract only this specific EOI position (e.g., -1 for last token).
+                                If None, extracts all EOI positions from -n_eoi to 0.
     
     Returns:
         Tuple of (activations, labels_tensor, layer_indices, positions, n_eoi, d_model)
         where:
-            activations: Tensor of shape [N, L, P, D]
+            activations: Tensor of shape [N, L, P, D] or [N, L, D] if specified_eoi_position is used
             labels_tensor: Tensor of shape [N]
             layer_indices: List of extracted layer indices
             positions: List of token positions extracted
@@ -310,7 +326,13 @@ def extract_activations_from_texts(
     else:
         n_eoi = eoi_tokens
     
-    positions = list(range(-n_eoi, 0))
+    # Determine positions to extract
+    if specified_eoi_position is not None:
+        # Extract only the specified position
+        positions = [specified_eoi_position]
+    else:
+        # Extract all EOI positions (default behavior)
+        positions = list(range(-n_eoi, 0))
     
     # Determine number of layers if not provided
     if layer_indices is None:
@@ -351,8 +373,11 @@ def extract_activations_from_texts(
     
     # Concatenate all batches
     all_activations = torch.cat(all_activations, dim=0)  # [N, L, P, D]
-    labels_tensor = torch.tensor(labels, dtype=torch.float32)  # [N]
+    labels_tensor = torch.tensor(labels, dtype=torch.float32) if labels is not None else None  # [N]
     
+    # Squeeze position dimension if only extracting one position
+    if specified_eoi_position is not None:
+        all_activations = all_activations.squeeze(2)  # [N, L, P, D] -> [N, L, D]
     return all_activations, labels_tensor, layer_indices, positions, n_eoi, d_model
 
 
@@ -409,6 +434,7 @@ def extract_or_load_activations(
     layer_indices: Optional[List[int]] = None,
     cache_dir: Optional[str] = None,
     use_cache: bool = True,
+    specified_eoi_position: Optional[int] = None,
 ) -> dict:
     """
     Extract activations from texts, using cache if available.
@@ -432,10 +458,12 @@ def extract_or_load_activations(
         layer_indices: Which layers to extract. If None, extracts all layers.
         cache_dir: Directory to cache in. If None, uses ROOT_ACTIVATION_DATA_DIR
         use_cache: Whether to use cached activations if available
+        specified_eoi_position: If provided, extract only this specific EOI position (e.g., -1).
+                                If None, extracts all EOI positions.
     
     Returns:
         Dictionary with keys:
-            'activations': Tensor of shape [N, L, P, D]
+            'activations': Tensor of shape [N, L, P, D] or [N, L, D] if specified_eoi_position is used
             'labels': Tensor of shape [N]
             'layer_indices': List of extracted layer indices
             'positions': List of token positions extracted
@@ -481,6 +509,7 @@ def extract_or_load_activations(
             max_length=max_length,
             eoi_tokens=eoi_tokens,
             layer_indices=layer_indices,
+            specified_eoi_position=specified_eoi_position,
         )
     
     # Save to cache
