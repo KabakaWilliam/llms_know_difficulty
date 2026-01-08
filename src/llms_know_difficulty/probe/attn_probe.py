@@ -1,4 +1,5 @@
 import itertools
+from typing import Any, Tuple
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 import torch.nn as nn
@@ -8,6 +9,7 @@ from base_probe import Probe
 from torch.utils.data import DataLoader, Dataset
 from dataclasses import dataclass
 from itertools import product
+import numpy as np
 
 class AttnLite(nn.Module):
     
@@ -110,16 +112,15 @@ class AttnProbe(Probe):
         self.d_model = self.model.config.hidden_size
         self.device = self.config.get('device', 'cuda:0')
         self.cv_layers = self.config.get('layer_indices', list(range(29))) # Hard coded for now, TODO: Make this dynamic or stored in config.
-        self.layer_indices = self.config.get('layer_indices', [11])
         
 
     def init_model(self, config: dict):
         """
         Load a prior training checkpoint.
         """
-        pass
+        raise NotImplementedError("Initializing a model from a checkpoint is not implemented for the attention probe.")
 
-    def train(self, train_data: tuple[list[str], list[float]], val_data: tuple[list[str], list[float]]) -> Probe:
+    def train(self, train_data: tuple[list[str], list[float]], val_data: tuple[list[str], list[float]]) -> Tuple[Probe, dict[str, Any]]:
         """
         Train a probe on the training data, evaluate on the validation data, and repeat, returning the best probe.
         """
@@ -127,9 +128,6 @@ class AttnProbe(Probe):
         # Unpack the training and validation data:
         train_prompts, train_targets = train_data
         val_prompts, val_targets = val_data
-
-
-
 
         # Setup cross validation on layers and other hyperparameters:        
         # Use itertools to create list of all combinations of layers and other hyperparameters:
@@ -149,12 +147,68 @@ class AttnProbe(Probe):
             # Create a grid of all combinations of the hyperparameters:
             cv_hypers = product(*[self.config.get(hyper, None) for hyper in cv_hyper_list] + [self.cv_layers])
         
-            for hyper_setup in cv_hypers:
+            cv_results = []
 
-                #TODO: Move hyper_setup from list to dict so it can be passed to fit...
+            #TODO: Move hyper_setup from list to dict so it can be passed to fit... This is likely a bug
+            for hyper_setup in cv_hypers:
+                
                 # Fit the probe to the training data, with these specific hyperparameters:
                 probe = self.fit(train_prompts, train_targets, **hyper_setup)
 
+                # Evaluate the probe's performance on the validation data:
+                evaluate_metrics = self.evaluate(probe, val_prompts, val_targets, hyperparameters)
+                cv_metric = evaluate_metrics[self.config.get('cv_metric', 'mse')]
+                cv_results.append([cv_metric, hyper_setup, probe])
+
+            # After training we select the best cv hyperparameters and evaluate the probe on the test_data
+            max_or_min_cv_metric = self.config.get('max_or_min_cv_metric', 'max')
+            metrics, hyperparameters, probes = zip(*cv_results)
+            if max_or_min_cv_metric == 'max':
+                best_cv_probe_idx = np.argmax(metrics)
+            else:
+                best_cv_probe_idx = np.argmin(metrics)
+
+            return probes[best_cv_probe_idx], hyperparameters[best_cv_probe_idx]
+
+
+    def evaluate(self, probe: AttnLite, prompts: list[str], targets: list[float], hyperparameters: dict) -> dict:
+        """
+        Evaluate the probe's performance on the validation data.
+        """
+        
+        # Setup data loader:
+        eval_dataset = TextNumberDataset(prompts, targets)
+        collate_fn = make_collate_fn(self.tokenizer, CollateConfig(max_length=self.config.get('max_length', 256)))
+        train_loader = DataLoader(eval_dataset, batch_size=self.config.get('batch_size', 128), shuffle=True, collate_fn=collate_fn)
+
+        eval_layer = hyperparameters.get('layer', None)
+        assert eval_layer is not None, "Evaluation layer must be specified."
+
+        # Evaluate the probe:
+        outputs = []
+        targets = []
+        for enc, ys in train_loader:
+            ys = ys.to(self.device)
+
+            # Extract the activations from the model:
+            input_ids = enc["input_ids"].to(self.device)
+            attention_mask = enc["attention_mask"].to(self.device)
+            
+            activations = self._extract_layer_features(
+                model=self.model,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                layer_indices=[eval_layer],
+            )
+
+            preds = probe(activations)
+            outputs.append(preds)
+            targets.append(ys)
+
+        outputs = torch.cat(outputs, dim=0)
+        targets = torch.cat(targets, dim=0)
+
+        
 
     def fit(self, prompts: list[str],
                 targets: list[float],
@@ -234,6 +288,8 @@ class AttnProbe(Probe):
     )-> torch.Tensor:
         """
         Given an input ids, attention mask and model return the activations of a specific layer.
+
+        TODO: More efficient layer hidden state extraction, using hooks.
 
         Returns: A tensor of activations of shape [B, L, T, D] where
             B - batch size
