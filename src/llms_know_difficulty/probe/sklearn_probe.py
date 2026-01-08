@@ -118,6 +118,7 @@ class SklearnProbe(Probe):
                 texts=texts,
                 labels=labels,
                 model_name=self.model_name,
+                split=split_name,  # Pass split type explicitly (train/val/test)
                 device=self.device,
                 batch_size=16,
                 max_length=512,

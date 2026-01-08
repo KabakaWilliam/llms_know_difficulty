@@ -89,8 +89,25 @@ def test_sklearn_probe():
     print(f"   Best val score: {probe.best_val_score:.4f}")
     print("   ✓ Metadata verification complete")
     
+    # Test the best probe on the test set
+    print("\n5. Testing best probe on test set...")
+    try:
+        from sklearn.metrics import roc_auc_score
+        test_predictions = probe.predict(test_texts)
+        test_labels_array = np.array(test_labels)
+        test_score = roc_auc_score(test_labels_array, test_predictions)
+        print(f"   Test set predictions shape: {test_predictions.shape}")
+        print(f"   Test set ROC-AUC score: {test_score:.4f}")
+        assert test_score > 0.0, "Test score should be positive"
+        print("   ✓ Test set evaluation complete")
+    except Exception as e:
+        print(f"   ✗ Test set evaluation failed with error: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    
     # Test prediction on new prompts
-    print("\n5. Testing predictions on new prompts...")
+    print("\n6. Testing predictions on new (unseen) prompts...")
     new_prompts = [
         "This is a new test prompt with some context.",
         "Another test prompt for prediction.",
@@ -110,8 +127,8 @@ def test_sklearn_probe():
     
     # Verify predictions have correct shape
     assert predictions.shape[0] == len(new_prompts), f"Expected {len(new_prompts)} predictions, got {predictions.shape[0]}"
-    print(f"\n6. Verification:")
-    print(f"   Expected {len(new_prompts)} predictions, got {predictions.shape[0]} ✓")
+    print(f"\n7. Final Verification:")
+    print(f"   Expected {len(new_prompts)} predictions on new prompts, got {predictions.shape[0]} ✓")
     
     print("\n" + "=" * 80)
     print("✓ All tests passed!")

@@ -384,6 +384,7 @@ def extract_activations_from_texts(
 def get_cache_path(
     model_name: str,
     texts: List[str],
+    split: str = "train",
     label_column: str = "labels",
     layers_arg: str = "all",
     eoi_tokens: Optional[int] = None,
@@ -393,11 +394,12 @@ def get_cache_path(
 ) -> str:
     """
     Generate a cache path for activations based on model name and data.
-    Uses a hash of the texts to avoid file conflicts.
+    Uses a hash of the first prompt plus explicit split type to ensure unique and traceable filenames.
     
     Args:
         model_name: HuggingFace model identifier
-        texts: List of input texts (hashed to create unique filename)
+        texts: List of input texts (first one hashed to create unique filename)
+        split: Data split type ("train", "val", or "test") - makes it explicit what data is cached
         label_column: Column name for labels (used in filename)
         layers_arg: Layer specification string
         eoi_tokens: Number of end-of-instruction tokens
@@ -407,17 +409,30 @@ def get_cache_path(
     
     Returns:
         Full path to cache file
+        
+    Example:
+        For train split with gpt2 model, texts starting with "Hello world", batch_size 16:
+        {cache_dir}/gpt2_cache/activations_train_a1b2c3d4_len512_bs16.pt
     """
     import hashlib
     
     if cache_dir is None:
         cache_dir = ROOT_ACTIVATION_DATA_DIR
     
-    # Create a hash of the texts to ensure unique paths for different datasets
-    text_hash = hashlib.md5(''.join(texts[:100]).encode()).hexdigest()[:8]
+    # Validate split type
+    if split not in ("train", "val", "test"):
+        raise ValueError(f"split must be 'train', 'val', or 'test', got '{split}'")
+    
+    # Create a hash of the first prompt to ensure unique paths for different datasets
+    # Using only first prompt (not first 100) for more predictable hashing
+    first_text = texts[0] if texts else ""
+    text_hash = hashlib.md5(first_text.encode()).hexdigest()[:8]
     
     model_cache_dir = os.path.join(cache_dir, f"{model_name.replace('/', '-')}_cache")
-    cache_filename = f"activations_{label_column}_{layers_arg}_eoi{eoi_tokens}_len{max_length}_bs{batch_size}_{text_hash}.pt"
+    
+    # New naming scheme: explicit split type + hash of first prompt
+    # Example: activations_train_a1b2c3d4_len512_bs16.pt
+    cache_filename = f"activations_{split}_{text_hash}_len{max_length}_bs{batch_size}.pt"
     
     return os.path.join(model_cache_dir, cache_filename)
 
@@ -427,6 +442,7 @@ def extract_or_load_activations(
     texts: List[str],
     labels: List[float],
     model_name: str,
+    split: str = "train",
     device: str = "cuda",
     batch_size: int = 16,
     max_length: int = 512,
@@ -440,7 +456,7 @@ def extract_or_load_activations(
     Extract activations from texts, using cache if available.
     
     This is a high-level wrapper that:
-    1. Checks if activations are cached
+    1. Checks if activations are cached (using split type for explicit identification)
     2. Loads from cache if available (and use_cache=True)
     3. Extracts fresh activations if not cached
     4. Saves to cache for future use
@@ -451,6 +467,7 @@ def extract_or_load_activations(
         texts: List of input texts/prompts
         labels: List of float labels corresponding to texts
         model_name: Model identifier (used for cache path)
+        split: Data split type ("train", "val", or "test") - must be specified for proper caching
         device: Device to use
         batch_size: Batch size for extraction
         max_length: Maximum sequence length
@@ -470,6 +487,7 @@ def extract_or_load_activations(
             'n_eoi_tokens': Number of end-of-instruction tokens
             'd_model': Hidden dimension size
             'model_name': The model identifier
+            'split': The data split used
             'from_cache': Boolean indicating if loaded from cache
     """
     import os
@@ -477,10 +495,15 @@ def extract_or_load_activations(
     if cache_dir is None:
         cache_dir = ROOT_ACTIVATION_DATA_DIR
     
-    # Generate cache path
+    # Validate split
+    if split not in ("train", "val", "test"):
+        raise ValueError(f"split must be 'train', 'val', or 'test', got '{split}'")
+    
+    # Generate cache path with explicit split type
     cache_path = get_cache_path(
         model_name=model_name,
         texts=texts,
+        split=split,
         label_column="labels",
         layers_arg="all",
         eoi_tokens=eoi_tokens,
@@ -491,13 +514,13 @@ def extract_or_load_activations(
     
     # Try to load from cache
     if use_cache and os.path.exists(cache_path):
-        print(f"Loading cached activations from: {cache_path}")
+        print(f"Loading cached {split} activations from: {cache_path}")
         cached_data = torch.load(cache_path)
         cached_data['from_cache'] = True
         return cached_data
     
     # Extract fresh activations
-    print(f"Extracting activations (not found in cache)...")
+    print(f"Extracting {split} activations (not found in cache)...")
     activations, labels_tensor, extracted_layer_indices, positions, n_eoi, d_model = \
         extract_activations_from_texts(
             model=model,
@@ -513,7 +536,7 @@ def extract_or_load_activations(
         )
     
     # Save to cache
-    print(f"Caching activations to: {cache_path}")
+    print(f"Caching {split} activations to: {cache_path}")
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
     torch.save({
         'activations': activations,
@@ -523,6 +546,7 @@ def extract_or_load_activations(
         'n_eoi_tokens': n_eoi,
         'd_model': d_model,
         'model_name': model_name,
+        'split': split,
     }, cache_path)
     
     return {
@@ -533,5 +557,6 @@ def extract_or_load_activations(
         'n_eoi_tokens': n_eoi,
         'd_model': d_model,
         'model_name': model_name,
+        'split': split,
         'from_cache': False,
     }
