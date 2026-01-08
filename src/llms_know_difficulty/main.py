@@ -8,6 +8,7 @@ def main():
     parser = argparse.ArgumentParser(description="LLMs-Know-Difficulty command line interface")
     parser.add_argument("--probe", type=str, required=False, help="Name of probe to use")
     parser.add_argument("--dataset", type=str, required=False, help="Path to data file")
+    parser.add_argument("--checkpoint_path", type=str, required=False, help="Path to checkpoint file")
     args = parser.parse_args()
 
     print("Args:", args)
@@ -32,8 +33,11 @@ def main():
     # 5. Run probe setup:
     probe.setup(**setup_args)
 
+    if args.checkpoint_path is not None:
+        probe.init_model(checkpoint_path=args.checkpoint_path)
+
     # 6. Run probe training:
-    probe.fit(train_data, val_data)
+    probe.train(train_data, val_data)
 
     # 7. Run probe prediction on the test set:
     probe_preds = probe.predict(test_data)

@@ -25,5 +25,7 @@ class ProbeFactory:
             }
 
             return AttnProbe(ATTN_PROBE_CONFIG), probe_setup_args
+
+            
         else:
             raise NotImplementedError(f"Probe {probe_name} not implemented")

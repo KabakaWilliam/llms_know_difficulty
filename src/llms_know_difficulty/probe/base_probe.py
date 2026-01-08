@@ -3,7 +3,7 @@ from typing import List
 
 class Probe(ABC):
     def __init__(self, config):
-        pass
+        self.config = config
 
     @property
     @abstractmethod
@@ -25,7 +25,14 @@ class Probe(ABC):
         pass
 
     @abstractmethod
-    def fit(self, prompts: List[str], targets: List[float]) -> None:
+    def train(self, train_data: tuple[list[str], list[float]], val_data: tuple[list[str], list[float]]) -> None:
+        """
+        Train the probe on the training data, evaluate on the validation data, and repeat, returning the best probe.
+        """
+        pass
+
+    @abstractmethod
+    def fit(self, prompts: List[str], targets: List[float], **kwargs) -> None:
         """
         Can do whatever you like: cross-validation, backprop, etc.
         """
