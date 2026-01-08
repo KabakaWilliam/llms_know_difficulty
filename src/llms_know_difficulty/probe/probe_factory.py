@@ -2,6 +2,8 @@
 from llms_know_difficulty.config import *
 from probe.base_probe import Probe
 from probe.attn_probe import AttnProbe
+from probe.sklearn_probe import SklearnProbe
+from ..config import SKLEARN_PROBE_CONFIG, ATTN_PROBE_CONFIG
 
 class ProbeFactory:
 
@@ -18,12 +20,17 @@ class ProbeFactory:
         """
 
         if probe_name == "attn_probe":
-
             probe_setup_args = {
                 'model_name': kwargs.get('model_name'),
                 # other huggingface loading args go here ...
             }
-
             return AttnProbe(ATTN_PROBE_CONFIG), probe_setup_args
+        elif probe_name == "sklearn_probe":
+
+            probe_setup_args = {
+                'model_name': kwargs.get('model_name'),
+            }
+            return SklearnProbe(SKLEARN_PROBE_CONFIG), probe_setup_args
+        
         else:
             raise NotImplementedError(f"Probe {probe_name} not implemented")
