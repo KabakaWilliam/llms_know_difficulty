@@ -6,12 +6,12 @@ set -e  # Exit on error
 # List of models to process
 MODELS=(
     # "Qwen/Qwen2.5-1.5B"
-    # "openai/gpt-oss-20b"
+    "openai/gpt-oss-20b"
     # "openai/gpt-oss-120b"
     # "Qwen/Qwen2.5-1.5B-Instruct" 
     # "Qwen/Qwen2-1.5B-Instruct"
     # "Qwen/Qwen2.5-Math-1.5B-Instruct" 
-    "Qwen/Qwen2.5-Math-7B-Instruct" 
+    # "Qwen/Qwen2.5-Math-7B-Instruct" 
     # "Qwen/Qwen2.5-Math-72B-Instruct" 
     # "Qwen/Qwen2.5-Math-1.5B"
     # "Qwen/Qwen2.5-1.5B" 
@@ -24,26 +24,27 @@ MODELS=(
 )
 
 # Configuration (same for all models)
-MAX_LEN=3000
-K=8
-TEMPERATURE=0.7
+MAX_LEN=32678 #32678
+K=5
+TEMPERATURE=1.0
 GEN_OPTIONS=maxlen_${MAX_LEN}_k_${K}_temp_${TEMPERATURE}
 
 MAIN_DATA_DIR="DATA"
-CHOSEN_DATASET="DigitalLearningGmbH_MATH-lighteval" #"gneubig_aime-1983-2024" #"openai_gsm8k" #"DigitalLearningGmbH_MATH-lighteval"
+CHOSEN_DATASET="gneubig_aime-1983-2024" #"DigitalLearningGmbH_MATH-lighteval" #"gneubig_aime-1983-2024" #"openai_gsm8k" #"DigitalLearningGmbH_MATH-lighteval"
 DATASET_DIR="${MAIN_DATA_DIR}/SR_DATA/${CHOSEN_DATASET}"
 
 QUESTION_COL="formatted_prompt"
-LABEL_COL="success_rate"
+LABEL_COL="majority_vote_is_correct" #"success_rate" #majority_vote_is_correct
+
 LAYERS="all"
 BATCH_SIZE=32
-GPU=0
+GPU=2
 
 # Skip activation extraction if they already exist
-SKIP_ACTIVATIONS=true  # Set to true to skip extraction and reuse existing activations
+SKIP_ACTIVATIONS=false  # Set to true to skip extraction and reuse existing activations
 
 # Regularization parameters
-ALPHA_GRID="0, 0.001,0.01,0.1,1,10,100,1000,10000"  # Grid search (nested CV)
+ALPHA_GRID="0,0.001,0.01,0.1,1,10,100,1000,10000"  # Grid search (nested CV)
 # ALPHA_GRID=""  # Uncomment to disable grid search and use fixed alpha
 ALPHA=1000  # Used only if ALPHA_GRID is empty
 
@@ -62,14 +63,14 @@ for MODEL in "${MODELS[@]}"; do
     GENERATION_STR=${MODEL_ALIAS}_${GEN_OPTIONS}
     
     TRAIN_DATASET="${DATASET_DIR}/train-${GENERATION_STR}.parquet"
-    TEST_DATASET="${DATASET_DIR}/test-${GENERATION_STR}.parquet"
+    TEST_DATASET="${DATASET_DIR}/train-${GENERATION_STR}.parquet"
     
     ACTIVATIONS_DIR="${MAIN_DATA_DIR}/activations/${CHOSEN_DATASET}"
-    RESULTS_DIR="probe_results/${DATASET_DIR}/${MODEL_ALIAS}_${GEN_OPTIONS}"
-    TRAIN_ACTIVATIONS="${ACTIVATIONS_DIR}/${GENERATION_STR}_train.pt"
-    TEST_ACTIVATIONS="${ACTIVATIONS_DIR}/${GENERATION_STR}_test.pt"
+    RESULTS_DIR="probe_results/${DATASET_DIR}/${MODEL_ALIAS}_${GEN_OPTIONS}_labelcol_${LABEL_COL}"
+    TRAIN_ACTIVATIONS="${ACTIVATIONS_DIR}/${GENERATION_STR}_labelcol_${LABEL_COL}_train.pt"
+    TEST_ACTIVATIONS="${ACTIVATIONS_DIR}/${GENERATION_STR}_labelcol_${LABEL_COL}_test.pt"
     
-    WANDB_NAME="${MODEL_ALIAS}_${GEN_OPTIONS}"
+    WANDB_NAME="${MODEL_ALIAS}_${GEN_OPTIONS}_labelcol_${LABEL_COL}"
     
     # Create output directories
     mkdir -p "${ACTIVATIONS_DIR}"

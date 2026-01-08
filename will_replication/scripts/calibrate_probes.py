@@ -14,13 +14,17 @@ sys.path.insert(0, str(repo_root))
 from my_utils.utils import load_probe_data, sigmoid_np, fit_platt_binomial, apply_platt, compute_ece_soft
 
 
-MODEL_NAME = "Qwen/Qwen2.5-Math-7B-Instruct"
+# MODEL_NAME = "Qwen/Qwen2.5-Math-1.5B-Instruct"
+MODEL_NAME = "openai/gpt-oss-20b"
 MODEL_ALIAS = "-".join(MODEL_NAME.split("/"))
-K=8
-TEMPERATURE=0.7
-PROBING_DATASET="gneubig_aime-1983-2024" #"DigitalLearningGmbH_MATH-lighteval"
+K=5
+TEMPERATURE=1.0
+PROBING_DATASET="gneubig_aime-1983-2024"
+# PROBING_DATASET="DigitalLearningGmbH_MATH-lighteval"
+MAXLEN=32678 #32678
+IS_MAJORITY_VOTE=True
 
-data = load_probe_data(MODEL_NAME=MODEL_NAME, PROBING_DATASET=PROBING_DATASET, K=K, TEMPERATURE=TEMPERATURE)
+data = load_probe_data(MODEL_NAME=MODEL_NAME, PROBING_DATASET=PROBING_DATASET, K=K, TEMPERATURE=TEMPERATURE, MAXLEN=MAXLEN, IS_MAJORITY_VOTE=IS_MAJORITY_VOTE)
 
 
 # -------- Usage (calibrate on train-split, evaluate on test) --------
@@ -86,7 +90,7 @@ def add_calibrated_probe(
     }
     """
     MODEL_ALIAS = "-".join(MODEL_NAME.split("/"))
-    GEN_STR = f"maxlen_3000_k_{K}_temp_{TEMPERATURE}"
+    GEN_STR = f"maxlen_{MAXLEN}_k_{K}_temp_{TEMPERATURE}_labelcol_majority_vote_is_correct"
     probe_path = Path(f"../probe_results/DATA/SR_DATA/{PROBING_DATASET}/{MODEL_ALIAS}_{GEN_STR}/best_probe_predictions.json")
 
     # 1) Load existing probe data
@@ -111,7 +115,11 @@ def add_calibrated_probe(
 
     return data
 
-DATASETS = ["opencompass/AIME2025","gneubig/aime-1983-2024", "DigitalLearningGmbH/MATH-lighteval", "openai/gsm8k"]
+DATASETS = ["opencompass/AIME2025",
+            "gneubig/aime-1983-2024",
+              "DigitalLearningGmbH/MATH-lighteval",
+                "openai/gsm8k"
+                ]
 
 print(f"Calibrating predictions for {MODEL_ALIAS}: \n")
 print(f"MATH Benchmark score: {data["avg_benchmark_score"]}")
@@ -119,7 +127,8 @@ print(f"MATH Benchmark score: {data["avg_benchmark_score"]}")
 for DATASET_NAME in DATASETS:
     DATASET_NAME = "_".join(DATASET_NAME.split("/"))
     print(f"====================================\n📜 LOADING {DATASET_NAME} 📜\n====================================")
-    PROBE_PREDICTIONS_PATH = f"../probe_results/DATA/Labelled_SR/{PROBING_DATASET}_probe/{DATASET_NAME}/{MODEL_ALIAS}_maxlen_3000_k_{K}_temp_{TEMPERATURE}/scored.parquet"
+    PROBE_PREDICTIONS_PATH = f"../probe_results/DATA/Labelled_SR/{PROBING_DATASET}_probe/{DATASET_NAME}/{MODEL_ALIAS}_maxlen_{MAXLEN}_k_{K}_temp_{TEMPERATURE}_labelcol_majority_vote_is_correct/scored.parquet"
+    
 
     labelled_df = pd.read_parquet(PROBE_PREDICTIONS_PATH)
 

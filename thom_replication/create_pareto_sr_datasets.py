@@ -75,6 +75,7 @@ def main(
     max_response_len: int = 3000,
     temperature: float = 1.0,
     prompt_suffix: str = "Let's think step by step and output the final answer within \\boxed{}.",
+    level_reasoning=None,
     num_rollouts_per_question: int = 50,
     max_questions_per_split: Optional[int] = None,
     tensor_parallel_size: int = 1,
@@ -161,9 +162,9 @@ def main(
     # --------- tasks ----------
     TASKS = [
         "opencompass_AIME2025",
-        # "gneubig_aime-1983-2024",
-        # "DigitalLearningGmbH_MATH-lighteval",
-        # "openai_gsm8k",
+        "gneubig_aime-1983-2024",
+        "DigitalLearningGmbH_MATH-lighteval",
+        "openai_gsm8k",
     ]
 
     seed = 42
@@ -175,9 +176,9 @@ def main(
         formatted_prompt = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
-        if "gpt-oss" in tokenizer.name_or_path.lower():
-            formatted_prompt = formatted_prompt.replace("Reasoning: medium", "Reasoning: high")
-            formatted_prompt = formatted_prompt.replace("Reasoning: easy", "Reasoning: high")
+        if "gpt-oss" in tokenizer.name_or_path.lower() and level_reasoning!=None:
+            formatted_prompt = formatted_prompt.replace("Reasoning: medium", f"Reasoning: {level_reasoning}")
+            formatted_prompt = formatted_prompt.replace("Reasoning: easy", f"Reasoning: {level_reasoning}")
         return formatted_prompt
 
 
@@ -440,12 +441,13 @@ if __name__ == "__main__":
         main(
             model_name=MODEL_TO_ROLLOUT,
             # max_questions_per_split=15,
+            level_reasoning="high",
             tensor_parallel_size=2,
-            num_rollouts_per_question=1,
+            num_rollouts_per_question=5,
             temperature=1.0,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
             batch_size_by_model=batch_size_by_model,
-            max_response_len=16384#131072 #16384
+            max_response_len=32678
         )
         
         print(f"\nFinished processing {MODEL_TO_ROLLOUT}")

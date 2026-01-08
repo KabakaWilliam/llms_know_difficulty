@@ -18,7 +18,7 @@ print(f"Added to path: {repo_root}")
 print(f"Checking if thom_replication exists: {(repo_root / 'thom_replication').exists()}")
 
 # from thom_replication.create_success_rate_datasets import get_task
-from will_replication.my_utils.utils import encode_str
+from will_replication.my_utils.utils import encode_str, prompt_sfx
 # -----------------------------
 # Probe loading
 # -----------------------------
@@ -163,7 +163,7 @@ def score_prompts_with_probe(
         formatted = []
         for p in prompts_raw:
             if isinstance(p, str):
-                messages = [{"role": "user", "content": p}]
+                messages = [{"role": "user", "content": p }]
             else:
                 # assume already a messages list or a dict structure
                 # if you pass a dict like {"role":..,"content":..} wrap into list
@@ -254,16 +254,26 @@ def load_dataset_with_adapter(adapter: DatasetAdapter):
 # Example usage
 # -----------------------------
 if __name__ == "__main__":
-    model_name = "Qwen/Qwen2.5-Math-7B-Instruct"
-    # model_name = "openai/gpt-oss-20b"
+    # model_name = "Qwen/Qwen2.5-Math-1.5B-Instruct"
+    model_name = "openai/gpt-oss-20b"
 
-    DATASETS = ["opencompass/AIME2025", "gneubig/aime-1983-2024", "DigitalLearningGmbH/MATH-lighteval", "openai/gsm8k"]
+    DATASETS = [
+                "opencompass/AIME2025",
+                "gneubig/aime-1983-2024",
+                "DigitalLearningGmbH/MATH-lighteval",
+                "openai/gsm8k"
+                ]
 
     DS_ALIASES = ["_".join(DATASET.split("/")) for DATASET in DATASETS]
-    
-    K=8
-    TEMP=0.7
-    GEN_STR=f"maxlen_3000_k_{K}_temp_{TEMP}"
+    K=5
+    TEMP=1.0
+    MAXLEN=32678#32678
+    IS_MAJORITY_VOTE=True
+    if IS_MAJORITY_VOTE == False:
+        GEN_STR=f"maxlen_{MAXLEN}_k_{K}_temp_{TEMP}"
+    else:
+        GEN_STR=f"maxlen_{MAXLEN}_k_{K}_temp_{TEMP}_labelcol_majority_vote_is_correct"
+
     # TARGET_PROBE_DATASET = 'DigitalLearningGmbH_MATH-lighteval'
     TARGET_PROBE_DATASET = 'gneubig_aime-1983-2024'
     MODEL_ALIAS = "-".join(model_name.split("/"))
@@ -357,9 +367,9 @@ if __name__ == "__main__":
         for i, ex in enumerate(split):
             rec = {
             "idx": i,
-            "problem_id": encode_str(labeled[i]["problem"]),
+            "problem_id": encode_str(labeled[i]["problem"] + f" {prompt_sfx}"),
             "dataset": ADAPTER.name,
-            "problem": labeled[i]["problem"],
+            "problem": labeled[i]["problem"] + f" {prompt_sfx}",
             "formatted_prompt": labeled[i]["formatted_prompt"],
             "score_raw": labeled[i]["score_raw"],
             "score": labeled[i]["score"],

@@ -98,9 +98,12 @@ def evaluate_responses(responses, ground_truths):
     accuracy = sum(is_correct) / len(is_correct) * 100 if is_correct else 0.0
     return is_correct, accuracy, sum(is_correct), len(is_correct)
 
-def load_probe_data(MODEL_NAME, PROBING_DATASET="MATH", K=1, TEMPERATURE=0.0, DATA_PATH="../probe_results/DATA/SR_DATA"):
+def load_probe_data(MODEL_NAME, PROBING_DATASET="MATH", K=1, TEMPERATURE=0.0, DATA_PATH="../probe_results/DATA/SR_DATA", MAXLEN=3000, IS_MAJORITY_VOTE=False):
     MODEL_ALIAS= "-".join(MODEL_NAME.split("/"))
-    GEN_STR = f"maxlen_3000_k_{K}_temp_{TEMPERATURE}"
+    if IS_MAJORITY_VOTE == False:
+        GEN_STR=f"maxlen_{MAXLEN}_k_{K}_temp_{TEMPERATURE}"
+    else:
+        GEN_STR=f"maxlen_{MAXLEN}_k_{K}_temp_{TEMPERATURE}_labelcol_majority_vote_is_correct"
     PROBE_PATH = f"{DATA_PATH}/{PROBING_DATASET}/{MODEL_ALIAS}_{GEN_STR}/best_probe_predictions.json"
 
     with open(PROBE_PATH, "r") as f:
