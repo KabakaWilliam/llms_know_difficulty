@@ -4,7 +4,8 @@ import torch
 
 from sklearn.utils.multiclass import type_of_target
 from sklearn.model_selection import KFold, StratifiedKFold
-
+from sklearn.metrics import roc_auc_score
+from scipy.stats import spearmanr
 
 
 def set_seed(seed: int = 42):
@@ -46,3 +47,25 @@ def make_cv(y: np.ndarray, n_splits: int, shuffle: bool, random_state: int):
 
 def train_probe(train_activations, test_activations, task_type, alpha, alpha_grid, k_fold, n_folds, seed):
     pass
+
+
+def compute_metric(predictions: np.ndarray, labels: np.ndarray, task_type: str) -> tuple:
+    """
+    Compute metric based on task type.
+    
+    Args:
+        predictions: Model predictions [N]
+        labels: Ground truth labels [N]
+        task_type: "regression" or "classification"
+    
+    Returns:
+        (score, metric_name): Tuple of (float score, string metric name)
+    """
+    if task_type == "regression":
+        score, _ = spearmanr(labels, predictions)
+        metric_name = "Spearman correlation"
+    else:  # classification
+        score = roc_auc_score(labels, predictions)
+        metric_name = "ROC-AUC"
+    
+    return float(score), metric_name

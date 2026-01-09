@@ -21,5 +21,7 @@ ATTN_PROBE_CONFIG = {
 
 SKLEARN_PROBE_CONFIG = {
     "use_kfold": True,
-    "alpha_grid": [0, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000]
+    "alpha_grid": [0, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000],
+    "batch_size": 16,
+    "max_length": 1024
 }

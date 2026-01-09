@@ -7,4 +7,5 @@ SRC_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../.." && pwd )"
 
 # Run the test module
 cd "$SRC_DIR"
-python -m llms_know_difficulty.test_sklearn_probe_e2e "$@"
+python -m llms_know_difficulty.tests.test_sklearn_probe_real_data "$@"
+# python -m llms_know_difficulty.tests.test_sklearn_probe_e2e "$@"

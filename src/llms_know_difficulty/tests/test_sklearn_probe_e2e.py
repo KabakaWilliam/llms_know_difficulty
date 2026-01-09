@@ -8,7 +8,8 @@ import torch
 import numpy as np
 from typing import List, Tuple
 
-from .probe.sklearn_probe import SklearnProbe
+from ..probe.sklearn_probe import SklearnProbe
+from ..probe.sk_train_utils import compute_metric
 
 
 def create_synthetic_data(n_samples: int = 50) -> Tuple[List[str], List[float], List[str], List[float], List[str], List[float]]:
@@ -92,12 +93,14 @@ def test_sklearn_probe():
     # Test the best probe on the test set
     print("\n5. Testing best probe on test set...")
     try:
-        from sklearn.metrics import roc_auc_score
         test_predictions = probe.predict(test_texts)
         test_labels_array = np.array(test_labels)
-        test_score = roc_auc_score(test_labels_array, test_predictions)
+        
+        # Use the same metric that was used during training
+        test_score, metric_name = compute_metric(test_predictions, test_labels_array, probe.task_type)
+        
         print(f"   Test set predictions shape: {test_predictions.shape}")
-        print(f"   Test set ROC-AUC score: {test_score:.4f}")
+        print(f"   Test set {metric_name}: {test_score:.4f}")
         assert test_score > 0.0, "Test score should be positive"
         print("   ✓ Test set evaluation complete")
     except Exception as e:

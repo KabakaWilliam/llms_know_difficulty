@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from itertools import product
 
 from typing import List, Tuple, Optional
-from ..config import ROOT_ACTIVATION_DATA_DIR
+from ..config import ROOT_ACTIVATION_DATA_DIR, SKLEARN_PROBE_CONFIG
 from . import sk_activation_utils, sk_train_utils
 from sklearn.linear_model import LogisticRegression, Ridge
 from scipy.stats import spearmanr
@@ -32,6 +32,9 @@ class SklearnProbe(Probe):
         self.model = None
         self.device = None
         self.d_model = None
+        self.batch_size = SKLEARN_PROBE_CONFIG.get("batch_size", 16)
+        self.max_length = SKLEARN_PROBE_CONFIG.get("max_length", 512)
+        self.alpha_grid = SKLEARN_PROBE_CONFIG.get("alpha_grid", [1.0])
         
         # Activation storage
         self.train_activations = None
@@ -120,8 +123,8 @@ class SklearnProbe(Probe):
                 model_name=self.model_name,
                 split=split_name,  # Pass split type explicitly (train/val/test)
                 device=self.device,
-                batch_size=16,
-                max_length=512,
+                batch_size=self.batch_size,
+                max_length=self.max_length,
                 eoi_tokens=None,
                 layer_indices=None,
                 cache_dir=ROOT_ACTIVATION_DATA_DIR,
@@ -201,13 +204,13 @@ class SklearnProbe(Probe):
         Train candidate probes for all (position, layer) combinations, select best by validation score.
         
         Args:
-            alpha_grid: List of alpha values to search over. If None or length 1, uses single alpha.
+            alpha_grid: List of alpha values to search over. If None, uses config default.
         """
         n_positions = len(self.positions)
         n_layers = len(self.layer_indices)
         
         if alpha_grid is None:
-            alpha_grid = [1.0]
+            alpha_grid = self.alpha_grid
         
         print(f"\n{'='*80}")
         print(f"Training candidate probes: {n_positions} positions × {n_layers} layers")
@@ -426,8 +429,8 @@ class SklearnProbe(Probe):
                     texts=texts,
                     labels=None,  # We don't have labels for prediction
                     device=self.device,
-                    batch_size=16,
-                    max_length=512,
+                    batch_size=self.batch_size,
+                    max_length=self.max_length,
                     eoi_tokens=None,
                     layer_indices=None,  # Extract all layers
                     specified_eoi_position=self.best_position_value,  # Extract only the best position
