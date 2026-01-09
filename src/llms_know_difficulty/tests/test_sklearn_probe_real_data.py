@@ -10,10 +10,12 @@ import pandas as pd
 from typing import List, Tuple
 from pathlib import Path
 import time
+import json
 
 from ..probe.sklearn_probe import SklearnProbe
 from ..probe.probe_utils.sklearn_probe.sk_train_utils import compute_metric
 from ..config import ROOT_DATA_DIR
+from ..utils import create_results_path
 
 
 def load_math_data() -> Tuple[List[str], List[float], List[str], List[float], List[str], List[float]]:
@@ -25,7 +27,12 @@ def load_math_data() -> Tuple[List[str], List[float], List[str], List[float], Li
     Returns:
         Tuple of (train_texts, train_labels, val_texts, val_labels, test_texts, test_labels)
     """
-    data_dir = ROOT_DATA_DIR / "SR_DATA" / "DigitalLearningGmbH_MATH-lighteval"
+    DATASET_NAME = "DigitalLearningGmbH_MATH-lighteval"
+    MAXLEN = 3000
+    K=8
+    TEMP=0.7
+    GEN_STR= f"maxlen_{MAXLEN}_k_{K}_temp_{TEMP}"
+    data_dir = ROOT_DATA_DIR / "SR_DATA" / f"{DATASET_NAME}_{GEN_STR}"
     
     # Load train and test data
     train_path = data_dir / "train-Qwen-Qwen2.5-Math-1.5B-Instruct_maxlen_3000_k_8_temp_0.7.parquet"
@@ -199,6 +206,46 @@ def test_sklearn_probe_real_data():
     assert predictions.shape[0] == len(new_prompts), f"Expected {len(new_prompts)} predictions, got {predictions.shape[0]}"
     print(f"\n7. Final Verification:")
     print(f"   Expected {len(new_prompts)} predictions on new prompts, got {predictions.shape[0]} ✓")
+    
+    # Save results
+    print("\n8. Saving probe results...")
+    try:
+        dataset_name = "DigitalLearningGmbH_MATH-lighteval"
+        model_name_for_results = model_name.replace("/", "-")
+        probe_name = "sklearn_probe"
+        
+        results_path = create_results_path(
+            dataset_name=dataset_name,
+            model_name=model_name_for_results,
+            probe_name=probe_name
+        )
+        
+        # Save probe metadata and test predictions
+        results_data = {
+            "best_layer": probe.best_layer_idx,
+            "best_position": probe.best_position_value,
+            "best_alpha": probe.best_alpha,
+            "val_score": float(probe.best_val_score),
+            "test_score": float(test_score),
+            "metric": metric_name,
+            "task_type": probe.task_type,
+            "test_predictions": test_predictions.tolist(),
+            "test_labels": test_labels,
+        }
+        
+        # Save as JSON
+        import json
+        results_file = Path(results_path) / "probe_results.json"
+        with open(results_file, "w") as f:
+            json.dump(results_data, f, indent=2)
+        
+        print(f"   Results saved to: {results_path}")
+        print("   ✓ Results saved successfully")
+    except Exception as e:
+        print(f"   ✗ Failed to save results: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
     
     # Calculate and display timing
     total_time = time.time() - test_start_time

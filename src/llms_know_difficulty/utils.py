@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 from datetime import datetime
-from config import ROOT_DATA_DIR
+from .config import ROOT_DATA_DIR
 
 def create_results_path(dataset_name: str, model_name: str, probe_name: str, ) -> Path:
     """
@@ -12,7 +12,7 @@ def create_results_path(dataset_name: str, model_name: str, probe_name: str, ) -
 
     results_path = os.path.join(ROOT_DATA_DIR, "results", model_name, dataset_name, probe_name, timestamp)
 
-    os.path.makedirs(results_path, exist_ok=True)
+    os.makedirs(results_path, exist_ok=True)
     return results_path
 
 def save_probe_predictions(probe_preds: dict, results_path: Path):
