@@ -18,7 +18,7 @@ from ..config import ROOT_DATA_DIR
 from ..utils import create_results_path
 
 
-def load_math_data() -> Tuple[List[str], List[float], List[str], List[float], List[str], List[float]]:
+def load_math_data() -> Tuple[List[str], List[float], List[str], List[float], List[str], List[float], str]:
     """
     Load data from DigitalLearningGmbH_MATH-lighteval parquet files.
     
@@ -32,11 +32,11 @@ def load_math_data() -> Tuple[List[str], List[float], List[str], List[float], Li
     K=8
     TEMP=0.7
     GEN_STR= f"maxlen_{MAXLEN}_k_{K}_temp_{TEMP}"
-    data_dir = ROOT_DATA_DIR / "SR_DATA" / f"{DATASET_NAME}_{GEN_STR}"
+    data_dir = ROOT_DATA_DIR / "SR_DATA" / DATASET_NAME
     
     # Load train and test data
-    train_path = data_dir / "train-Qwen-Qwen2.5-Math-1.5B-Instruct_maxlen_3000_k_8_temp_0.7.parquet"
-    test_path = data_dir / "test-Qwen-Qwen2.5-Math-1.5B-Instruct_maxlen_3000_k_8_temp_0.7.parquet"
+    train_path = data_dir / f"train-Qwen-Qwen2.5-Math-1.5B-Instruct_{GEN_STR}.parquet"
+    test_path = data_dir / f"test-Qwen-Qwen2.5-Math-1.5B-Instruct_{GEN_STR}.parquet"
 
     print(f"Loading train data from: {train_path}")
     train_df = pd.read_parquet(train_path)
@@ -87,7 +87,7 @@ def load_math_data() -> Tuple[List[str], List[float], List[str], List[float], Li
     print(f"  Val: mean={np.mean(val_mv_correct):.4f}")
     print(f"  Test: mean={np.mean(test_mv_correct):.4f}")
     
-    return train_texts, train_labels, val_texts, val_labels, test_texts, test_labels
+    return train_texts, train_labels, val_texts, val_labels, test_texts, test_labels, GEN_STR
 
 
 def test_sklearn_probe_real_data():
@@ -103,8 +103,8 @@ def test_sklearn_probe_real_data():
     probe = SklearnProbe(config={})
     
     # Setup with gpt2 for testing
-    # model_name = "gpt2"
-    model_name = "Qwen/Qwen2.5-Math-1.5B-Instruct"
+    model_name = "gpt2"
+    # model_name = "Qwen/Qwen2.5-Math-1.5B-Instruct"
     # model_name = "Qwen/Qwen3-0.6B"
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -119,7 +119,7 @@ def test_sklearn_probe_real_data():
     print("\n2. Loading MATH dataset...")
     load_start = time.time()
     try:
-        train_texts, train_labels, val_texts, val_labels, test_texts, test_labels = load_math_data()
+        train_texts, train_labels, val_texts, val_labels, test_texts, test_labels, gen_str = load_math_data()
         load_time = time.time() - load_start
         print("   ✓ Data loaded successfully")
     except Exception as e:
@@ -217,10 +217,15 @@ def test_sklearn_probe_real_data():
         results_path = create_results_path(
             dataset_name=dataset_name,
             model_name=model_name_for_results,
-            probe_name=probe_name
+            probe_name=probe_name,
+            gen_str=gen_str
         )
+        results_path = Path(results_path)
         
-        # Save probe metadata and test predictions
+        # Save probe weights and metadata
+        probe.save_probe(results_path)
+        
+        # Save probe results (predictions and metrics)
         results_data = {
             "best_layer": probe.best_layer_idx,
             "best_position": probe.best_position_value,
@@ -234,8 +239,7 @@ def test_sklearn_probe_real_data():
         }
         
         # Save as JSON
-        import json
-        results_file = Path(results_path) / "probe_results.json"
+        results_file = results_path / "probe_results.json"
         with open(results_file, "w") as f:
             json.dump(results_data, f, indent=2)
         
@@ -243,6 +247,41 @@ def test_sklearn_probe_real_data():
         print("   ✓ Results saved successfully")
     except Exception as e:
         print(f"   ✗ Failed to save results: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    
+    # Test loading the probe from checkpoint
+    print("\n9. Testing probe checkpoint loading...")
+    try:
+        # Load the probe from the saved checkpoint
+        loaded_probe = SklearnProbe.load_from_checkpoint(results_path, device=device)
+        print("   ✓ Probe loaded successfully from checkpoint")
+        
+        # Make predictions with the loaded probe on test data
+        loaded_predictions = loaded_probe.predict(test_texts)
+        
+        # Verify predictions are identical
+        prediction_diff = np.abs(test_predictions - loaded_predictions).max()
+        if prediction_diff < 1e-6:
+            print(f"   Predictions match: max difference = {prediction_diff:.2e}")
+            print("   ✓ Loaded probe produces identical predictions")
+        else:
+            print(f"   ✗ Predictions differ: max difference = {prediction_diff}")
+            return False
+        
+        # Verify scores are the same
+        loaded_score, _ = compute_metric(loaded_predictions, test_labels_array, loaded_probe.task_type)
+        score_diff = abs(test_score - loaded_score)
+        if score_diff < 1e-6:
+            print(f"   Test scores match: {test_score:.4f} vs {loaded_score:.4f}")
+            print("   ✓ Loaded probe produces identical scores")
+        else:
+            print(f"   ✗ Scores differ: {test_score:.4f} vs {loaded_score:.4f}")
+            return False
+            
+    except Exception as e:
+        print(f"   ✗ Failed to load and test probe: {e}")
         import traceback
         traceback.print_exc()
         return False

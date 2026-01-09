@@ -6,6 +6,9 @@ import math
 import einops
 import numpy as np
 import os
+import json
+from pathlib import Path
+import joblib
 
 from .base_probe import Probe
 from torch.utils.data import DataLoader, Dataset
@@ -453,3 +456,87 @@ class SklearnProbe(Probe):
             predictions = self.best_probe.predict_proba(x_pred)[:, 1]
         
         return predictions
+
+    def save_probe(self, results_path: Path | str) -> None:
+        """
+        Save the trained probe weights and metadata to disk.
+        
+        Args:
+            results_path: Directory where to save the probe files
+        
+        Saves:
+            - best_probe.joblib: The sklearn model with trained weights
+            - probe_metadata.json: Probe configuration and layer/position info
+        """
+        results_path = Path(results_path)
+        results_path.mkdir(parents=True, exist_ok=True)
+        
+        if self.best_probe is None:
+            raise RuntimeError("Must call train() before save_probe()")
+        
+        # Save the trained sklearn model
+        model_file = results_path / "best_probe.joblib"
+        joblib.dump(self.best_probe, model_file)
+        
+        # Save metadata needed for loading
+        metadata = {
+            "best_layer_idx": self.best_layer_idx,
+            "best_position_value": self.best_position_value,
+            "best_position_idx": self.best_pos_idx,
+            "best_alpha": self.best_alpha,
+            "best_val_score": float(self.best_val_score),
+            "task_type": self.task_type,
+            "model_name": self.model_name,
+            "d_model": self.d_model,
+        }
+        
+        metadata_file = results_path / "probe_metadata.json"
+        with open(metadata_file, "w") as f:
+            json.dump(metadata, f, indent=2)
+    
+    @classmethod
+    def load_from_checkpoint(cls, results_path: Path | str, device: str = "cuda") -> "SklearnProbe":
+        """
+        Load a trained probe from saved checkpoint.
+        
+        Args:
+            results_path: Directory containing saved probe files
+            device: Device to load the model on (for activation extraction)
+        
+        Returns:
+            SklearnProbe instance ready for prediction
+        """
+        results_path = Path(results_path)
+        
+        # Load metadata
+        metadata_file = results_path / "probe_metadata.json"
+        with open(metadata_file, "r") as f:
+            metadata = json.load(f)
+        
+        # Load the sklearn model
+        model_file = results_path / "best_probe.joblib"
+        best_probe = joblib.load(model_file)
+        
+        # Create probe instance
+        probe = cls(config={})
+        
+        # Restore state
+        probe.best_probe = best_probe
+        probe.best_layer_idx = metadata["best_layer_idx"]
+        probe.best_position_value = metadata["best_position_value"]
+        probe.best_pos_idx = metadata["best_position_idx"]
+        probe.best_alpha = metadata["best_alpha"]
+        probe.best_val_score = metadata["best_val_score"]
+        probe.task_type = metadata["task_type"]
+        probe.model_name = metadata["model_name"]
+        probe.d_model = metadata["d_model"]
+        
+        # Setup the model for activation extraction
+        if torch.cuda.is_available() and device == "cuda":
+            device = "cuda"
+        else:
+            device = "cpu"
+        
+        probe.setup(model_name=probe.model_name, device=device)
+        
+        return probe
