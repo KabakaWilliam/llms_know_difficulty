@@ -1,13 +1,17 @@
 import itertools
+from typing import Any, Tuple
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 import torch.nn as nn
 import math
 import einops
-from base_probe import Probe
+from llms_know_difficulty.probe.base_probe import Probe
 from torch.utils.data import DataLoader, Dataset
 from dataclasses import dataclass
 from itertools import product
+import numpy as np
+from tqdm import tqdm
+from scipy.stats import spearmanr
 
 class AttnLite(nn.Module):
     
@@ -85,7 +89,7 @@ class TextNumberDataset(Dataset):
 class AttnProbe(Probe):
     def __init__(self, config):
         super().__init__(config)
-        self._has_setup_run = False
+        self.config = config.model_dump()
 
     @property
     def name(self) -> str:
@@ -95,6 +99,8 @@ class AttnProbe(Probe):
     def setup(self, model_name: str, device: str) -> None:
         """
         Any pre-training loading steps, run before .fit or .predict.
+
+        TODO: Automatic discovery of number of layers...
         """
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
@@ -110,16 +116,20 @@ class AttnProbe(Probe):
         self.d_model = self.model.config.hidden_size
         self.device = self.config.get('device', 'cuda:0')
         self.cv_layers = self.config.get('layer_indices', list(range(29))) # Hard coded for now, TODO: Make this dynamic or stored in config.
-        self.layer_indices = self.config.get('layer_indices', [11])
         
+        # Variables that store the best probe after training:
+        self.best_probe = None
+        self.best_hyperparameters = None
+        self.best_layer_id = None
 
     def init_model(self, config: dict):
         """
         Load a prior training checkpoint.
         """
-        pass
+        raise NotImplementedError("Initializing a model from a checkpoint is not implemented for the attention probe.")
 
-    def train(self, train_data: tuple[list[str], list[float]], val_data: tuple[list[str], list[float]]) -> Probe:
+    def train(self, train_data: tuple[list[str], list[float]],
+              val_data: tuple[list[str], list[float]]) -> Tuple[Probe, dict[str, Any]]:
         """
         Train a probe on the training data, evaluate on the validation data, and repeat, returning the best probe.
         """
@@ -128,33 +138,146 @@ class AttnProbe(Probe):
         train_prompts, train_targets = train_data
         val_prompts, val_targets = val_data
 
-
-
-
         # Setup cross validation on layers and other hyperparameters:        
         # Use itertools to create list of all combinations of layers and other hyperparameters:
-        cv_hyper_list = self.config.get('cross_validated_hyperparameters', [])
+        cv_hyper_list_names = self.config.get('cross_validated_hyperparameters', [])
+        cv_hyper_values = []
+
+        # Make sure the config provides a grid of values:
+        for hyper_name in cv_hyper_list_names:
+            hyper_values = self.config.get(hyper_name, None)
+            if hyper_values is None or not isinstance(hyper_values, list):
+                raise ValueError(
+                    f"""Attention probe config error!
+                    Cross_validated_hyperparameter includes {hyper_name} but {hyper_name} does not provide a list of values.
+                    {hyper_name} set to {hyper_values} in AttentionProbeConfig inconfig.py""")
+            cv_hyper_values.append(hyper_values)
+
+        # Create a grid of all combinations of the hyperparameters:
+        cv_hypers = product(*cv_hyper_values)    
+        cv_results = []
+
+        for hyper_setup in cv_hypers:
+
+            # Create a dictionary input:
+            hyperparams = {}
+            for i, name in enumerate(cv_hyper_list_names):
+                hyperparams[name] = hyper_setup[i]
+
+            print('-' * 80)
+            print(f'Hyperparams: {hyperparams}')
+            print('-' * 80)
+            # Fit the probe to the training data, with these specific hyperparameters:
+            probe = self.fit(train_prompts, train_targets, **hyperparams)
+
+            # Evaluate the probe's performance on the validation data:
+            evaluate_metrics, _ = self.evaluate(probe, val_prompts, val_targets, hyperparams)
+            cv_metric = evaluate_metrics[self.config.get('cv_metric', 'mse')]
+
+            print('-' * 80)
+            print(f'CV metric: {cv_metric:.4f}')
+            print('-' * 80)
+            
+            cv_results.append([cv_metric, hyperparams, probe])
+
+        # After training we select the best cv hyperparameters and evaluate the probe on the test_data
+        max_or_min_cv_metric = self.config.get('max_or_min_cv_metric', 'max')
+        metrics, hyperparameters, probes = zip(*cv_results)
+        if max_or_min_cv_metric == 'max':
+            best_cv_probe_idx = np.argmax(metrics)
+        else:
+            best_cv_probe_idx = np.argmin(metrics)
+
+        self.best_probe = probes[best_cv_probe_idx]
+        self.best_hyperparameters = hyperparameters[best_cv_probe_idx]
+        self.best_layer_id = self.best_hyperparameters['layer']
+
+        return probes[best_cv_probe_idx], hyperparameters[best_cv_probe_idx]
+
+
+    def evaluate(self, probe: AttnLite, prompts: list[str], targets: list[float], hyperparameters: dict) -> dict:
+        """
+        Evaluate the probe's performance on some eval dataset.
+        """
         
-        if len(cv_hyper_list) > 0:
+        # Setup data loader:
+        eval_dataset = TextNumberDataset(prompts, targets)
+        collate_fn = make_collate_fn(self.tokenizer, CollateConfig(max_length=hyperparameters.get('max_length', 256)))
+        eval_loader = DataLoader(eval_dataset,
+            batch_size=hyperparameters.get('batch_size', 128),
+            shuffle=False,
+            collate_fn=collate_fn)
 
-            # Make sure the config provides a grid of values:
-            for hyper in cv_hyper_list:
-                hyper_values = self.config.get(hyper, None)
-                if hyper_values is None or not isinstance(hyper_values, list):
-                    raise ValueError(
-                        f"""Attention probe config error!
-                        Cross_validated_hyperparameter includes {hyper} but {hyper} does not provide a list of values.
-                        hyper set to {hyper_values} in config.py""")
+        eval_layer = hyperparameters.get('layer', None)
+        assert eval_layer is not None, "Evaluation layer must be specified."
 
-            # Create a grid of all combinations of the hyperparameters:
-            cv_hypers = product(*[self.config.get(hyper, None) for hyper in cv_hyper_list] + [self.cv_layers])
+        # Evaluate the probe:
+        outputs = []
+        targets = []
+        for enc, ys in eval_loader:
+            ys = ys.to(self.device)
+
+            # Extract the activations from the model:
+            input_ids = enc["input_ids"].to(self.device)
+            attention_mask = enc["attention_mask"].to(self.device)
+            
+            activations = self._extract_layer_features(
+                model=self.model,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                layer_indices=[eval_layer],
+            )
+
+            preds = probe(activations)
+            outputs.append(preds)
+            targets.append(ys)
+
+        outputs = torch.cat(outputs, dim=0)
+        targets = torch.cat(targets, dim=0)
+
+        outputs_np = outputs.detach().cpu().numpy()
+        targets_np = targets.detach().cpu().numpy()
+        spearman_corr, _ = spearmanr(outputs_np, targets_np)
+        return {'spearmanr': spearman_corr}, outputs
+
+    def predict(self, prompts: list[str]) -> list[float]:
+        """
+        Predict the success rate using the probe.
+        """
+        assert self.best_probe is not None, \
+            "Best probe not found. Please train the probe first."
         
-            for hyper_setup in cv_hypers:
+        assert self.best_layer_id is not None, \
+            "Evaluation layer must be specified."
 
-                #TODO: Move hyper_setup from list to dict so it can be passed to fit...
-                # Fit the probe to the training data, with these specific hyperparameters:
-                probe = self.fit(train_prompts, train_targets, **hyper_setup)
+        # Setup data loader:
+        eval_dataset = TextNumberDataset(prompts, [0]*len(prompts))
+        collate_fn = make_collate_fn(self.tokenizer, CollateConfig(max_length=self.best_hyperparameters.get('max_length', 256)))
+        train_loader = DataLoader(eval_dataset,
+         batch_size=self.best_hyperparameters.get('batch_size', 128),
+         shuffle=False,
+         collate_fn=collate_fn)
 
+        # Evaluate the probe:
+        outputs = []
+        targets = []
+        for enc, ys in train_loader:
+
+            # Extract the activations from the model:
+            input_ids = enc["input_ids"].to(self.device)
+            attention_mask = enc["attention_mask"].to(self.device)
+            
+            activations = self._extract_layer_features(
+                model=self.model,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                layer_indices=[self.best_layer_id],
+            )
+
+            preds = self.best_probe(activations)
+            outputs.append(preds)
+        
+        return torch.cat(outputs, dim=0)
 
     def fit(self, prompts: list[str],
                 targets: list[float],
@@ -162,7 +285,8 @@ class AttnProbe(Probe):
                 batch_size:int,
                 learning_rate:float,
                 num_epochs:int,
-                weight_decay:float) -> None:
+                weight_decay:float,
+                max_length:int) -> None:
         """
         Run a single training loop for the attention probe. Very simple no validation or logging ortracking etc...
 
@@ -171,29 +295,36 @@ class AttnProbe(Probe):
             targets: A list of targets to train on.
             layer: The layer to train on.
 
-        TODO: Add setup where the activations are extracted via a hook, not using hidden_outputs.
-        TODO: Add some validation loss eventually.
+        TODO: Add some validation loss during training?
         """
 
         # Setup train loader:
-        train_dataset = TextNumberDataset(prompts, targets)
-        collate_fn = make_collate_fn(self.tokenizer, CollateConfig(max_length=self.config.get('max_length', 256)))
-        train_loader = DataLoader(train_dataset, batch_size=self.config.get('batch_size', 128), shuffle=True, collate_fn=collate_fn)
+        if self.config.get('test_mode', False):
+            batch_size_approx = self.config.get('batch_size',128)[0]
+            prompts = prompts[:batch_size_approx]
+            targets = targets[:batch_size_approx]
+            train_dataset = TextNumberDataset(prompts, targets)
+        else:
+            train_dataset = TextNumberDataset(prompts, targets)
+
+        collate_fn = make_collate_fn(self.tokenizer, CollateConfig(max_length=max_length))
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
 
         # Setup the probe:
         probe = AttnLite(self.d_model).to(self.device)
-        optimizer = torch.optim.AdamW(probe.parameters(), lr=self.config.get('learning_rate', 1e-3))
+        optimizer = torch.optim.AdamW(probe.parameters(), lr=learning_rate)
         loss_fn = nn.MSELoss()
 
-        # Train the probe:
-        for epoch in range(1, self.config.get('num_epochs', 2) + 1):
+        # Train the probe:        
+        for epoch in range(1, num_epochs + 1):
             
             probe.train()
             running = 0.0
             step = 0
             n = 0
 
-            for enc, ys in train_loader:
+            pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{num_epochs}", dynamic_ncols=True)
+            for enc, ys in pbar:
                 ys = ys.to(self.device)
 
                 # Extract the activations from the model:
@@ -218,8 +349,12 @@ class AttnProbe(Probe):
                 running += loss.item() * bs
                 n += bs
 
-                if step % 25 == 0:
-                    print(f"  epoch {epoch:03d} | step {step:04d} | batch_mse={loss.item():.6f}")
+                # Update progress bar with step, batch_mse, and epoch
+                pbar.set_postfix({
+                    'step': step,
+                    'epoch': epoch,
+                    'batch_mse': f'{loss.item():.6f}'
+                })
                 step += 1
 
         return probe
@@ -235,9 +370,11 @@ class AttnProbe(Probe):
         """
         Given an input ids, attention mask and model return the activations of a specific layer.
 
-        Returns: A tensor of activations of shape [B, L, T, D] where
+        TODO: More efficient layer hidden state extraction, using hooks.
+        TODO: Re-write to extract only one layer not using a list...
+
+        Returns: A tensor of activations of shape [B, T, D] where
             B - batch size
-            L - layer dimension
             T - sequence length
             D - hidden size
         """
@@ -251,6 +388,6 @@ class AttnProbe(Probe):
         hidden_states = out.hidden_states  # tuple: (emb, layer1, ..., layerN), each [B,T,D]
 
         layer_activations = [hidden_states[layer_idx] * attention_mask.unsqueeze(-1) for layer_idx in layer_indices]
-        return torch.stack(layer_activations, dim=1) # [Batch size, N_layers, Sequence length, hidden size]
+        return torch.stack(layer_activations, dim=1)[:,0,...] # [Batch size, Sequence length, hidden size]
 
         

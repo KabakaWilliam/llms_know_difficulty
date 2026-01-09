@@ -8,6 +8,7 @@ def main():
     parser = argparse.ArgumentParser(description="LLMs-Know-Difficulty command line interface")
     parser.add_argument("--probe", type=str, required=False, help="Name of probe to use")
     parser.add_argument("--dataset", type=str, required=False, help="Path to data file")
+    parser.add_argument("--model", type=str, required=False, help="Name of model to use")
     parser.add_argument("--checkpoint_path", type=str, required=False, help="Path to checkpoint file")
     args = parser.parse_args()
 
