@@ -14,7 +14,7 @@ from itertools import product
 
 from typing import List, Tuple, Optional
 from ..config import ROOT_ACTIVATION_DATA_DIR, SKLEARN_PROBE_CONFIG
-from . import sk_activation_utils, sk_train_utils
+from .probe_utils.sklearn_probe import sk_activation_utils, sk_train_utils
 from sklearn.linear_model import LogisticRegression, Ridge
 from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score

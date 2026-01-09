@@ -9,7 +9,7 @@ import numpy as np
 from typing import List, Tuple
 
 from ..probe.sklearn_probe import SklearnProbe
-from ..probe.sk_train_utils import compute_metric
+from ..probe.probe_utils.sklearn_probe.sk_train_utils import compute_metric
 
 
 def create_synthetic_data(n_samples: int = 50) -> Tuple[List[str], List[float], List[str], List[float], List[str], List[float]]:

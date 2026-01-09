@@ -12,7 +12,8 @@ from pathlib import Path
 import time
 
 from ..probe.sklearn_probe import SklearnProbe
-from ..probe.sk_train_utils import compute_metric
+from ..probe.probe_utils.sklearn_probe.sk_train_utils import compute_metric
+from ..config import ROOT_DATA_DIR
 
 
 def load_math_data() -> Tuple[List[str], List[float], List[str], List[float], List[str], List[float]]:
@@ -24,7 +25,7 @@ def load_math_data() -> Tuple[List[str], List[float], List[str], List[float], Li
     Returns:
         Tuple of (train_texts, train_labels, val_texts, val_labels, test_texts, test_labels)
     """
-    data_dir = Path(__file__).parent.parent / "data" / "SR_DATA" / "DigitalLearningGmbH_MATH-lighteval"
+    data_dir = ROOT_DATA_DIR / "SR_DATA" / "DigitalLearningGmbH_MATH-lighteval"
     
     # Load train and test data
     train_path = data_dir / "train-Qwen-Qwen2.5-Math-1.5B-Instruct_maxlen_3000_k_8_temp_0.7.parquet"
@@ -130,7 +131,7 @@ def test_sklearn_probe_real_data():
         probe.train(
             train_data=(train_texts, train_labels),
             val_data=(val_texts, val_labels),
-            test_data=(test_texts, test_labels),
+            # test_data=(test_texts, test_labels),
             # alpha_grid=None will use default from config
         )
         train_time = time.time() - train_start
@@ -163,10 +164,10 @@ def test_sklearn_probe_real_data():
     try:
         test_predictions = probe.predict(test_texts)
         test_labels_array = np.array(test_labels)
+        print(f"    Len of test set: {len(test_labels_array)}")
         
         # Use the same metric that was used during training
         test_score, metric_name = compute_metric(test_predictions, test_labels_array, probe.task_type)
-        
         print(f"   Test set predictions shape: {test_predictions.shape}")
         print(f"   Test set {metric_name}: {test_score:.4f}")
         print("   ✓ Test set evaluation complete")
