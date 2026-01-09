@@ -26,3 +26,23 @@ SKLEARN_PROBE_CONFIG = {
     "batch_size": 16,
     "max_length": 1024
 }
+
+PROMPTING_BASELINE = {
+    "batch_size": 16,
+    "generation_max_length": 500,
+    "max_length": 1024,
+    "generation_temperature": 1.0,
+
+    "prompt_template": {
+        "System": "You are a metacognitive scoring model. Your job is to estimate the probability that you will solve the problem correctly under the stated constraints. Do NOT solve the problem. Do NOT provide steps. Output a single number between 0.0 and 1.0.",
+
+        "User": """Target solver: {SOLVER_MODEL_NAME}
+Constraints: {k} attempts, max_tokens={T}, temperature={temp}
+
+Problem:
+{problem_text}
+
+Output your probability estimate inside \\boxed{{}}:
+\\boxed{{<float between 0.0 and 1.0>}}"""
+    }
+}
