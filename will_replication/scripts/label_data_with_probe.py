@@ -274,8 +274,8 @@ if __name__ == "__main__":
     else:
         GEN_STR=f"maxlen_{MAXLEN}_k_{K}_temp_{TEMP}_labelcol_majority_vote_is_correct"
 
-    # TARGET_PROBE_DATASET = 'DigitalLearningGmbH_MATH-lighteval'
-    TARGET_PROBE_DATASET = 'gneubig_aime-1983-2024'
+    TARGET_PROBE_DATASET = 'DigitalLearningGmbH_MATH-lighteval'
+    # TARGET_PROBE_DATASET = 'gneubig_aime-1983-2024'
     MODEL_ALIAS = "-".join(model_name.split("/"))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

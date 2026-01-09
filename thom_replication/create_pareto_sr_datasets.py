@@ -416,8 +416,8 @@ if __name__ == "__main__":
     # "Qwen/Qwen2.5-1.5B-Instruct",
     # "Qwen/Qwen2.5-Math-7B-Instruct",
     # "Qwen/Qwen2.5-Math-72B-Instruct",
-    # "openai/gpt-oss-20b"
-    "openai/gpt-oss-120b"
+    "openai/gpt-oss-20b"
+    # "openai/gpt-oss-120b"
     # "Qwen/Qwen2.5-1.5B-Instruct",
     # "Qwen/Qwen2.5-7B-Instruct"
     ]
@@ -441,9 +441,9 @@ if __name__ == "__main__":
         main(
             model_name=MODEL_TO_ROLLOUT,
             # max_questions_per_split=15,
-            level_reasoning="high",
+            # level_reasoning="high",
             tensor_parallel_size=2,
-            num_rollouts_per_question=5,
+            num_rollouts_per_question=8,
             temperature=1.0,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
             batch_size_by_model=batch_size_by_model,
