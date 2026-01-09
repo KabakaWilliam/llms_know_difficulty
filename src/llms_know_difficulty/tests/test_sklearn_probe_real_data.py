@@ -27,9 +27,9 @@ def load_math_data() -> Tuple[List[str], List[float], List[str], List[float], Li
     data_dir = Path(__file__).parent.parent / "data" / "SR_DATA" / "DigitalLearningGmbH_MATH-lighteval"
     
     # Load train and test data
-    train_path = data_dir / "train-openai-gpt-oss-20b_maxlen_3000_k_1_temp_1.0.parquet"
-    test_path = data_dir / "test-openai-gpt-oss-20b_maxlen_3000_k_1_temp_1.0_high.parquet"
-    
+    train_path = data_dir / "train-Qwen-Qwen2.5-Math-1.5B-Instruct_maxlen_3000_k_8_temp_0.7.parquet"
+    test_path = data_dir / "test-Qwen-Qwen2.5-Math-1.5B-Instruct_maxlen_3000_k_8_temp_0.7.parquet"
+
     print(f"Loading train data from: {train_path}")
     train_df = pd.read_parquet(train_path)
     print(f"  Loaded {len(train_df)} samples")
@@ -95,7 +95,8 @@ def test_sklearn_probe_real_data():
     probe = SklearnProbe(config={})
     
     # Setup with gpt2 for testing
-    model_name = "gpt2"
+    # model_name = "gpt2"
+    model_name = "Qwen/Qwen2.5-Math-1.5B-Instruct"
     # model_name = "Qwen/Qwen3-0.6B"
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -207,7 +208,7 @@ def test_sklearn_probe_real_data():
     print("\nTiming Breakdown:")
     print(f"  Setup: {setup_time:.2f}s")
     print(f"  Data loading: {load_time:.2f}s")
-    print(f"  Training (extraction + grid search): {train_time:.2f}s")
+    print(f"  Training (extraction + grid search): {train_time:.2f}s || {train_time/60:.1f} mins")
     print(f"  Total test time: {total_time:.2f}s || {total_time_mins:.1f} mins")
     print("=" * 80)
     
