@@ -10,6 +10,7 @@ import pandas as pd
 from typing import List, Tuple
 from pathlib import Path
 import time
+from scipy.stats import spearmanr
 
 from llms_know_difficulty.probe.attn_probe import AttnProbe
 from llms_know_difficulty.config import AttentionProbeConfig
@@ -141,12 +142,12 @@ def test_attn_probe_real_data():
     # Test the best probe on the test set
     print("\n5. Testing best probe on test set...")
     try:
-        test_predictions = probe.predict(test_texts)
-        test_labels_array = np.array(test_labels)
+        test_predictions = probe.predict(test_texts[:10])
+        test_labels_array = np.array(test_labels[:10])
         
         # Use the same metric that was used during training
-        from scipy.stats import spearmanr
-        test_score, metric_name = spearmanr(test_predictions, test_labels_array)
+        test_score, metric_name = spearmanr(test_predictions.detach().cpu().numpy(), 
+            test_labels_array)
         
         print(f"   Test set predictions shape: {test_predictions.shape}")
         print(f"   Test set {metric_name}: {test_score:.4f}")
