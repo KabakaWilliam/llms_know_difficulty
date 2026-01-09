@@ -5,15 +5,7 @@ from pydantic import BaseModel
 ROOT_DATA_DIR = Path(r"../../data")
 ROOT_ACTIVATION_DATA_DIR = Path(r"../../data/activations") # /model_name/dataset_name/probe_name/activations.pt
 
-ATTN_PROBE_CONFIG = {
-    'learning_rate': 1e-3,
-    'batch_size': 128,
-    'num_epochs': 2,
-    'weight_decay': 10.0
-}
-
 DEVICE = "cuda:0"
-
 MODEL_HYPERPARAMETERS = {
     "Qwen/Qwen2.5-1.5B-Instruct":{
         'num_layers': 29 
@@ -24,10 +16,7 @@ MODEL_HYPERPARAMETERS = {
 class AttentionProbeConfig(BaseModel):
     
     """
-    The cross_validate_hyperparameters are the hyperparameters that will be cross-validated on,
-    all variables that are relevant to training should be listed here, the variables should appear
-    in the config and be a list of values. If more than one values is provided the probe will be cross
-    validated on that value.
+    Attention probe config, contains the hyperparameters which can be cross-validated over.
 
     Args:
     learning_rate: list[float]    List of learning rates to cross-validate during training (e.g. [1e-3, 5e-4]).
@@ -41,7 +30,6 @@ class AttentionProbeConfig(BaseModel):
         ['layers', 'batch_size', 'learning_rate', 'num_epochs', 'weight_decay', 'max_length']
 
     """
-
 
     learning_rate: list[float] = [1e-3]
     batch_size: list[int] = [128]
