@@ -19,4 +19,4 @@ def save_probe_predictions(probe_preds: dict, results_path: Path):
     """
     Save the probe predictions to the results directory
     """
-    pass 
+    pass
