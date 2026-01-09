@@ -2,8 +2,15 @@ from pathlib import Path
 from typing import Union
 from pydantic import BaseModel
 
-ROOT_DATA_DIR = Path(r"../../data")
-ROOT_ACTIVATION_DATA_DIR = Path(r"../../data/activations") # /model_name/dataset_name/probe_name/activations.pt
+# Get the directory where this config file is located
+_CONFIG_DIR = Path(__file__).parent
+
+# Define data directories relative to the config file location
+# config.py is at: src/llms_know_difficulty/config.py
+# So _CONFIG_DIR is: src/llms_know_difficulty/
+# And data should be: src/llms_know_difficulty/data
+ROOT_DATA_DIR = _CONFIG_DIR / "data"
+ROOT_ACTIVATION_DATA_DIR = ROOT_DATA_DIR / "activations"
 
 DEVICE = "cuda:0"
 MODEL_HYPERPARAMETERS = {
@@ -46,3 +53,11 @@ class AttentionProbeConfig(BaseModel):
     'num_epochs',
     'weight_decay',
     'max_length']
+
+
+SKLEARN_PROBE_CONFIG = {
+    "use_kfold": True,
+    "alpha_grid": [0, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000],
+    "batch_size": 16,
+    "max_length": 1024
+}
