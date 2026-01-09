@@ -63,7 +63,7 @@ def compute_metric(predictions: np.ndarray, labels: np.ndarray, task_type: str) 
     """
     if task_type == "regression":
         score, _ = spearmanr(labels, predictions)
-        metric_name = "Spearman correlation"
+        metric_name = "Spearman"
     else:  # classification
         score = roc_auc_score(labels, predictions)
         metric_name = "ROC-AUC"

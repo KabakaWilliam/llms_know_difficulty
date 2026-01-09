@@ -12,7 +12,7 @@ from pathlib import Path
 import time
 
 from ..probe.sklearn_probe import SklearnProbe
-from ..probe import sk_activation_utils
+from ..probe.probe_utils.sklearn_probe import sk_activation_utils
 
 
 def test_cache_verification():
