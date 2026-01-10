@@ -18,6 +18,8 @@ ROOT_ACTIVATION_DATA_DIR = ROOT_DATA_DIR / "activations"
 
 # How much of the train split to use for validation
 VAL_TRAIN_SPLIT_RATIO = 0.2
+PROMPT_COLUMN_NAME = "formatted_prompt"
+LABEL_COLUMN_NAME = "success_rate"
 
 DEVICE = "cuda:0"
 MODEL_HYPERPARAMETERS = {

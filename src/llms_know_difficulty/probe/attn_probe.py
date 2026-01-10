@@ -129,7 +129,7 @@ class AttnProbe(Probe):
         raise NotImplementedError("Initializing a model from a checkpoint is not implemented for the attention probe.")
 
     def train(self, train_data: tuple[list[str], list[float]],
-              val_data: tuple[list[str], list[float]]) -> Tuple[Probe, dict[str, Any]]:
+              val_data: tuple[list[str], list[float]]) -> "AttnProbe":
         """
         Train a probe on the training data, evaluate on the validation data, and repeat, returning the best probe.
         """
@@ -192,7 +192,7 @@ class AttnProbe(Probe):
         self.best_hyperparameters = hyperparameters[best_cv_probe_idx]
         self.best_layer_id = self.best_hyperparameters['layer']
 
-        return probes[best_cv_probe_idx], hyperparameters[best_cv_probe_idx]
+        return self
 
 
     def evaluate(self, probe: AttnLite, prompts: list[str], targets: list[float], hyperparameters: dict) -> dict:

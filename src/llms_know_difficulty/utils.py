@@ -3,10 +3,12 @@ import pandas as pd
 
 from pathlib import Path
 from datetime import datetime
-from .config import (
+from llms_know_difficulty.config import (
     ROOT_DATA_DIR,
     SEED,
-    VAL_TRAIN_SPLIT_RATIO)
+    VAL_TRAIN_SPLIT_RATIO,
+    PROMPT_COLUMN_NAME,
+    LABEL_COLUMN_NAME)
 
 def create_results_path(dataset_name: str, model_name: str, probe_name: str, gen_str: str = None) -> Path:
     """
@@ -71,8 +73,11 @@ class DataIngestionWorkflow:
             dataset_path = DataIngestionWorkflow.create_dataset_path(dataset_name, model_name, split, max_len, k, temperature)
 
             if os.path.exists(dataset_path):
+                print(f"Loading {split} data from {dataset_path}")
                 df = pd.read_parquet(dataset_path)
             elif not os.path.exists(dataset_path) and split == "val":
+
+                print(f"Creating validation split from train split")
                 # If a specific dataset doesn't have a validation split make one from the train split:
                 if "train" not in outputs:
                     raise ValueError("Train split must be loaded before creating a validation split.")
@@ -81,14 +86,19 @@ class DataIngestionWorkflow:
                 df.to_parquet(dataset_path)
 
             else:
+                print(f"Dataset {dataset_name} does not exist, attempting to download...")
                 DataIngestionWorkflow.download(dataset_name, model_name, split, max_len, k, temperature)
 
                 # Reload the data if successful
                 df = pd.read_parquet(dataset_path)
 
             # Shuffle the dataframe with the SEED:
-            df = df.sample(frac=1, random_state=SEED).reset_index(drop=True)
+            df = df.sample(frac=1, random_state=SEED).reset_index(drop=True)            
             outputs[split] = df
+
+        # turn it into a tuple of prompts and labels:
+        for key, value in outputs.items():
+            outputs[key] = (value[PROMPT_COLUMN_NAME].tolist(), value[LABEL_COLUMN_NAME].tolist())
 
         return outputs['train'], outputs['val'], outputs['test']
 
