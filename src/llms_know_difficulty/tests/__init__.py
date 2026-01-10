@@ -1,3 +1,1 @@
-"""
-Tests for llms_know_difficulty sklearn probe implementation.
-"""
+"""Tests for llms_know_difficulty package."""

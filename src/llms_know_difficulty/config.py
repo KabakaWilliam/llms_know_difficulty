@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Union
-
+from pydantic import BaseModel
 
 # Get the directory where this config file is located
 _CONFIG_DIR = Path(__file__).parent
@@ -13,12 +13,48 @@ _CONFIG_DIR = Path(__file__).parent
 ROOT_DATA_DIR = _CONFIG_DIR.parent.parent / "data"
 ROOT_ACTIVATION_DATA_DIR = ROOT_DATA_DIR / "activations"
 
-ATTN_PROBE_CONFIG = {
-    'learning_rate': 1e-3,
-    'batch_size': 128,
-    'num_epochs': 2,
-    'weight_decay': 10.0
+DEVICE = "cuda:0"
+MODEL_HYPERPARAMETERS = {
+    "Qwen/Qwen2.5-1.5B-Instruct":{
+        'num_layers': 29 
+    }
 }
+
+
+class AttentionProbeConfig(BaseModel):
+    
+    """
+    Attention probe config, contains the hyperparameters which can be cross-validated over.
+
+    Args:
+    learning_rate: list[float]    List of learning rates to cross-validate during training (e.g. [1e-3, 5e-4]).
+    batch_size: list[int]         List of batch sizes for mini-batch gradient descent to cross-validate.
+    num_epochs: list[int]         List of number of epochs to try for training.
+    weight_decay: list[float]     List of L2 regularization strengths to cross-validate.
+    layers: list[int]             List of layer indices to cross-validate over during training.
+    max_length: int               Maximum prompt length when tokenizing inputs during training and evaluation.
+    cross_validated_hyperparameters: list[str]  
+        List of parameter names to cross-validate. Should match field names above, e.g. 
+        ['layers', 'batch_size', 'learning_rate', 'num_epochs', 'weight_decay', 'max_length']
+
+    """
+
+    learning_rate: list[float] = [1e-3]
+    batch_size: list[int] = [128]
+    num_epochs: list[int] = [2]
+    weight_decay: list[float] = [10.0]
+    layer: list[int] = list(range(2)) # 29
+    max_length: list[int] = [512]
+    test_mode: bool = True # TODO: Turn off for actual training.
+    cv_metric: str = 'spearmanr'
+    cross_validated_hyperparameters: list[str] = [
+    'layer',
+    'batch_size',
+    'learning_rate',
+    'num_epochs',
+    'weight_decay',
+    'max_length']
+
 
 SKLEARN_PROBE_CONFIG = {
     "use_kfold": True,
@@ -26,6 +62,7 @@ SKLEARN_PROBE_CONFIG = {
     "batch_size": 16,
     "max_length": 1024
 }
+
 
 PROMPTING_BASELINE = {
     "batch_size": 16,
