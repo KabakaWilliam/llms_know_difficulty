@@ -3,7 +3,7 @@ from llms_know_difficulty.config import *
 from probe.base_probe import Probe
 from probe.attn_probe import AttnProbe
 from probe.sklearn_probe import SklearnProbe
-from ..config import SKLEARN_PROBE_CONFIG, ATTN_PROBE_CONFIG
+from llms_know_difficulty.config import SKLEARN_PROBE_CONFIG, AttentionProbeConfig, DEVICE
 
 class ProbeFactory:
 
@@ -13,7 +13,7 @@ class ProbeFactory:
     """
 
     @staticmethod
-    def create_probe(self, probe_name: str, **kwargs) -> Probe:
+    def create_probe(probe_name: str, **kwargs) -> Probe:
         """
         Create a probe with a given name, load the config from the config.py file
         and do any other probe specific init steps that are needed
@@ -21,10 +21,13 @@ class ProbeFactory:
 
         if probe_name == "attn_probe":
             probe_setup_args = {
-                'model_name': kwargs.get('model_name'),
+                'model_name': kwargs.get('model'),
+                'device': DEVICE,
                 # other huggingface loading args go here ...
             }
-            return AttnProbe(ATTN_PROBE_CONFIG), probe_setup_args
+            probe = AttnProbe(AttentionProbeConfig())
+            return probe.setup(**probe_setup_args)
+            
         elif probe_name == "sklearn_probe":
 
             probe_setup_args = {
