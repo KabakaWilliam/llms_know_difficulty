@@ -283,7 +283,7 @@ def extract_activations_from_texts(
     model: AutoModelForCausalLM,
     tokenizer: AutoTokenizer,
     texts: List[str],
-    labels: List[float],
+    labels: List[float] | None,
     device: str = "cuda",
     batch_size: int = 16,
     max_length: int = 512,

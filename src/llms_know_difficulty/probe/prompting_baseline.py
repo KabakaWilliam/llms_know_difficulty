@@ -272,10 +272,10 @@ class PromptingBaseline(Probe):
         """
         if task_type == "regression":
             score, _ = spearmanr(labels, predictions)
-            metric_name = "Spearman"
+            metric_name = "spearman"
         else:  # classification
             score = roc_auc_score(labels, predictions)
-            metric_name = "ROC-AUC"
+            metric_name = "auc"
         
         return float(score), metric_name
 

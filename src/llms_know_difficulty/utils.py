@@ -14,6 +14,20 @@ from llms_know_difficulty.config import (
     LABEL_COLUMN_NAME,
     IDX_COLUMN_NAME)
 
+import numpy as np
+from sklearn.utils.multiclass import type_of_target
+
+def infer_task_type(y: np.ndarray, task_type: str = "auto") -> str:
+    """Infer whether task is regression or classification."""
+    if task_type in ("regression", "classification"):
+        return task_type
+
+    target_type = type_of_target(y)
+    if target_type in ("binary", "multiclass"):
+        return "classification"
+    else:
+        return "regression"
+
 def create_results_path(dataset_name: str, model_name: str, probe_name: str, gen_str: str = None) -> Path:
     """
     Create a path for saving probe results
