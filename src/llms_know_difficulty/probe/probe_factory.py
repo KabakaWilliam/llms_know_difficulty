@@ -25,12 +25,15 @@ class ProbeFactory:
                 # other huggingface loading args go here ...
             }
             return AttnProbe(ATTN_PROBE_CONFIG), probe_setup_args
+        
         elif probe_name == "sklearn_probe":
+            cfg = SKLEARN_PROBE_CONFIG
+            
+            PROBE = SklearnProbe(cfg)
 
-            probe_setup_args = {
-                'model_name': kwargs.get('model_name'),
-            }
-            return SklearnProbe(SKLEARN_PROBE_CONFIG), probe_setup_args
+            PROBE.setup(model_name=cfg.model_name, device=cfg.device)
+
+            return PROBE
         
 
             

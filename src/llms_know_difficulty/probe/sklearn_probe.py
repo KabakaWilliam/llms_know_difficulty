@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from itertools import product
 
 from typing import List, Tuple, Optional
-from ..config import ROOT_ACTIVATION_DATA_DIR, SKLEARN_PROBE_CONFIG
+from ..config import ROOT_ACTIVATION_DATA_DIR
 from .probe_utils.sklearn_probe import sk_activation_utils, sk_train_utils
 from ..metrics import compute_metrics
 from sklearn.linear_model import LogisticRegression, Ridge
@@ -29,14 +29,14 @@ class SklearnProbe(Probe):
     def __init__(self, config):
         super().__init__(config)
         self._has_setup_run = False
-        self.model_name = None
+        self.model_name = config.get("probing_model_name", "gpt2")
         self.tokenizer = None
         self.model = None
         self.device = None
         self.d_model = None
-        self.batch_size = SKLEARN_PROBE_CONFIG.get("batch_size", 16)
-        self.max_length = SKLEARN_PROBE_CONFIG.get("max_length", 512)
-        self.alpha_grid = SKLEARN_PROBE_CONFIG.get("alpha_grid", [1.0])
+        self.batch_size = config.get("batch_size", 16)
+        self.max_length = config.get("max_length", 512)
+        self.alpha_grid = config.get("alpha_grid", [1.0])
         
         # Activation storage
         self.train_activations = None

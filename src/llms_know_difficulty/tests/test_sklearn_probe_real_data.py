@@ -17,6 +17,7 @@ from ..metrics import compute_metrics
 from ..probe.probe_utils.sklearn_probe import sk_train_utils
 from ..config import ROOT_DATA_DIR
 from ..utils import create_results_path, infer_task_type
+from ..config import SKLEARN_PROBE_CONFIG
 
 
 def load_math_data() -> Tuple[List[str], List[float], List[str], List[float], List[str], List[float], str]:
@@ -105,7 +106,7 @@ def test_sklearn_probe_real_data():
     print("=" * 80)
     
     # Create probe instance
-    probe = SklearnProbe(config={})
+    probe = SklearnProbe(config=SKLEARN_PROBE_CONFIG)
     
     # Setup with gpt2 for testing
     model_name = "gpt2"
