@@ -1,14 +1,18 @@
 import os
 import pandas as pd
+import torch
+import json
 
 from pathlib import Path
+from llms_know_difficulty.probe.base_probe import Probe
 from datetime import datetime
 from llms_know_difficulty.config import (
     ROOT_DATA_DIR,
     SEED,
     VAL_TRAIN_SPLIT_RATIO,
     PROMPT_COLUMN_NAME,
-    LABEL_COLUMN_NAME)
+    LABEL_COLUMN_NAME,
+    IDX_COLUMN_NAME)
 
 def create_results_path(dataset_name: str, model_name: str, probe_name: str, gen_str: str = None) -> Path:
     """
@@ -35,13 +39,35 @@ def create_results_path(dataset_name: str, model_name: str, probe_name: str, gen
         results_path = os.path.join(ROOT_DATA_DIR, "results", model_name, dataset_name, probe_name, timestamp)
 
     os.makedirs(results_path, exist_ok=True)
-    return results_path
+    return Path(results_path)
 
-def save_probe_predictions(probe_preds: dict, results_path: Path):
+def save_probe_predictions(probe_preds: dict, probe_metadata: dict, best_probe: Probe, results_path: Path):
     """
     Save the probe predictions to the results directory
     """
-    pass
+
+    assert os.path.exists(results_path), "Results path does not exist"
+    
+    print(f'Saving probe results to {results_path}')
+
+    # Save the probe predictions as a jsonl file:
+    with open(results_path / "probe_preds.jsonl", "w") as f:
+        # assertions on the probe preds:
+        assert probe_preds[0].dtype == torch.int32, \
+            f"probe_preds[0] is the idx must be of type torch.int32, got {probe_preds[0].dtype}"
+        assert probe_preds[1].dtype == torch.float32, \
+            f"probe_preds[1] is the predictions must be of type torch.float32, got {probe_preds[1].dtype}"
+
+        # Combine them as a pandas dataframe:
+        df = pd.DataFrame({"idx": probe_preds[0].tolist(), "pred": probe_preds[1].tolist()})
+        df.to_parquet(results_path / "probe_preds.parquet")
+    
+    # Save the probe metadata as a jsonl file:
+    with open(results_path / "probe_metadata.json", "w") as f:
+        json.dump(probe_metadata, f, indent=2)
+    
+    # Save the best probe as a joblib file:
+    best_probe.save_probe(results_path)
 
 class DataIngestionWorkflow:
 
@@ -55,6 +81,7 @@ class DataIngestionWorkflow:
         3. Load all splits of the dataset, if no val split create one and return to user.
 
         TODO: We might need to adapt this if certain datasets don't have a test split...
+        TODO: Write an optional flag which processes a directory of downloaded datasets into the correct file structure.
 
         Args:
             dataset_name: Name of the dataset (e.g., "DigitalLearningGmbH_MATH-lighteval")
@@ -82,7 +109,13 @@ class DataIngestionWorkflow:
                 if "train" not in outputs:
                     raise ValueError("Train split must be loaded before creating a validation split.")
                 
-                df = outputs["train"].iloc[:-int(len(outputs["train"]) * VAL_TRAIN_SPLIT_RATIO)]
+                df = outputs["train"].iloc[-int(len(outputs["train"]) * VAL_TRAIN_SPLIT_RATIO):]
+
+                # Save the new train split:
+                outputs["train"] = outputs["train"].iloc[:-int(len(outputs["train"]) * VAL_TRAIN_SPLIT_RATIO)]
+                new_train_path = DataIngestionWorkflow.create_dataset_path(dataset_name, model_name, "train", max_len, k, temperature)
+                outputs["train"].to_parquet(new_train_path)
+
                 df.to_parquet(dataset_path)
 
             else:
@@ -98,7 +131,7 @@ class DataIngestionWorkflow:
 
         # turn it into a tuple of prompts and labels:
         for key, value in outputs.items():
-            outputs[key] = (value[PROMPT_COLUMN_NAME].tolist(), value[LABEL_COLUMN_NAME].tolist())
+            outputs[key] = (value[IDX_COLUMN_NAME].tolist(), value[PROMPT_COLUMN_NAME].tolist(), value[LABEL_COLUMN_NAME].tolist())
 
         return outputs['train'], outputs['val'], outputs['test']
 

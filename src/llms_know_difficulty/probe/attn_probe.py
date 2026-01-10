@@ -54,7 +54,7 @@ def make_collate_fn(tokenizer: AutoTokenizer, cfg: CollateConfig):
     """
 
     def collate(batch):
-        texts, ys = zip(*batch)
+        ids, texts, ys = zip(*batch)
         enc = tokenizer(
             list(texts),
             return_tensors="pt",
@@ -63,18 +63,21 @@ def make_collate_fn(tokenizer: AutoTokenizer, cfg: CollateConfig):
             max_length=cfg.max_length,
         )
         ys = torch.stack(list(ys), dim=0)
-        return enc, ys
+        ids = torch.stack(list(ids), dim=0)
+        return ids, enc, ys
     return collate
 
 class TextNumberDataset(Dataset):
     def __init__(
             self, 
+            idx: list[int],
             prompts: list[str],
             targets: list[float]
     ):
 
-        assert len(prompts) == len(targets), \
-        f"Prompts: {len(prompts)} and targets: {len(targets)} must have the same length."
+        assert len(idx) == len(prompts) == len(targets), \
+        f"Idx: {len(idx)}, prompts: {len(prompts)}, and targets: {len(targets)} must have the same length."
+        self.idx = idx
         self.prompts = prompts
         self.targets = targets
 
@@ -82,8 +85,8 @@ class TextNumberDataset(Dataset):
         return len(self.prompts)
 
     def __getitem__(self, idx):
-        text, y = self.prompts[idx], self.targets[idx]
-        return text, torch.tensor(y, dtype=torch.float32)
+        ids, text, y = self.idx[idx], self.prompts[idx], self.targets[idx]
+        return torch.tensor(ids, dtype=torch.int32), text, torch.tensor(y, dtype=torch.float32)
 
 
 class AttnProbe(Probe):
@@ -96,7 +99,7 @@ class AttnProbe(Probe):
         """The name of the probe."""
         return "attn_probe"
 
-    def setup(self, model_name: str, device: str) -> None:
+    def setup(self, model_name: str, device: str) -> "AttnProbe":
         """
         Any pre-training loading steps, run before .fit or .predict.
 
@@ -122,6 +125,8 @@ class AttnProbe(Probe):
         self.best_hyperparameters = None
         self.best_layer_id = None
 
+        return self
+
     def init_model(self, config: dict):
         """
         Load a prior training checkpoint.
@@ -135,8 +140,8 @@ class AttnProbe(Probe):
         """
 
         # Unpack the training and validation data:
-        train_prompts, train_targets = train_data
-        val_prompts, val_targets = val_data
+        train_idx,train_prompts, train_targets = train_data
+        val_idx, val_prompts, val_targets = val_data
 
         # Setup cross validation on layers and other hyperparameters:        
         # Use itertools to create list of all combinations of layers and other hyperparameters:
@@ -168,10 +173,10 @@ class AttnProbe(Probe):
             print(f'Hyperparams: {hyperparams}')
             print('-' * 80)
             # Fit the probe to the training data, with these specific hyperparameters:
-            probe = self.fit(train_prompts, train_targets, **hyperparams)
+            probe = self.fit(train_idx, train_prompts, train_targets, **hyperparams)
 
             # Evaluate the probe's performance on the validation data:
-            evaluate_metrics, _ = self.evaluate(probe, val_prompts, val_targets, hyperparams)
+            evaluate_metrics, _ = self.evaluate(probe, val_idx,val_prompts, val_targets, hyperparams)
             cv_metric = evaluate_metrics[self.config.get('cv_metric', 'mse')]
 
             print('-' * 80)
@@ -191,17 +196,26 @@ class AttnProbe(Probe):
         self.best_probe = probes[best_cv_probe_idx]
         self.best_hyperparameters = hyperparameters[best_cv_probe_idx]
         self.best_layer_id = self.best_hyperparameters['layer']
+        self.best_metrics = metrics[best_cv_probe_idx]
 
         return self
 
 
-    def evaluate(self, probe: AttnLite, prompts: list[str], targets: list[float], hyperparameters: dict) -> dict:
+    def evaluate(self, probe: AttnLite, idx:list[int], prompts: list[str], targets: list[float], hyperparameters: dict) -> dict:
         """
         Evaluate the probe's performance on some eval dataset.
         """
         
         # Setup data loader:
-        eval_dataset = TextNumberDataset(prompts, targets)
+        if self.config.get('test_mode', False):
+            batch_size_approx = self.config.get('batch_size',128)[0]
+            idx = idx[:batch_size_approx]
+            prompts = prompts[:batch_size_approx]
+            targets = targets[:batch_size_approx]
+            eval_dataset = TextNumberDataset(idx, prompts, targets)
+        else:
+            eval_dataset = TextNumberDataset(idx, prompts, targets)
+
         collate_fn = make_collate_fn(self.tokenizer, CollateConfig(max_length=hyperparameters.get('max_length', 256)))
         eval_loader = DataLoader(eval_dataset,
             batch_size=hyperparameters.get('batch_size', 128),
@@ -212,9 +226,12 @@ class AttnProbe(Probe):
         assert eval_layer is not None, "Evaluation layer must be specified."
 
         # Evaluate the probe:
+        ids = []
         outputs = []
         targets = []
-        for enc, ys in eval_loader:
+
+        eval_loader_iter = tqdm(eval_loader, desc="Evaluating", leave=False)
+        for idx, enc, ys in eval_loader_iter:
             ys = ys.to(self.device)
 
             # Extract the activations from the model:
@@ -229,9 +246,11 @@ class AttnProbe(Probe):
             )
 
             preds = probe(activations)
+            ids.append(idx)
             outputs.append(preds)
             targets.append(ys)
 
+        ids = torch.cat(ids, dim=0)
         outputs = torch.cat(outputs, dim=0)
         targets = torch.cat(targets, dim=0)
 
@@ -240,7 +259,7 @@ class AttnProbe(Probe):
         spearman_corr, _ = spearmanr(outputs_np, targets_np)
         return {'spearmanr': spearman_corr}, outputs
 
-    def predict(self, prompts: list[str]) -> list[float]:
+    def predict(self, test_data: tuple[list[int], list[str], list[float]]) -> list[float]:
         """
         Predict the success rate using the probe.
         """
@@ -250,19 +269,33 @@ class AttnProbe(Probe):
         assert self.best_layer_id is not None, \
             "Evaluation layer must be specified."
 
+        idx, prompts, _ = test_data
+
         # Setup data loader:
-        eval_dataset = TextNumberDataset(prompts, [0]*len(prompts))
+        if self.config.get('test_mode', False):
+            batch_size_approx = self.config.get('batch_size',128)[0]
+            idx = idx[:batch_size_approx]
+            prompts = prompts[:batch_size_approx]
+            eval_dataset = TextNumberDataset(idx, prompts, [0]*len(prompts))
+        else:
+            eval_dataset = TextNumberDataset(idx, prompts, [0]*len(prompts))
         collate_fn = make_collate_fn(self.tokenizer, CollateConfig(max_length=self.best_hyperparameters.get('max_length', 256)))
-        train_loader = DataLoader(eval_dataset,
+        eval_loader = DataLoader(eval_dataset,
          batch_size=self.best_hyperparameters.get('batch_size', 128),
          shuffle=False,
          collate_fn=collate_fn)
 
         # Evaluate the probe:
         outputs = []
-        targets = []
-        for enc, ys in train_loader:
-
+        ids_list = []
+        # Use tqdm with manual set_postfix to update with the number of predictions
+        pbar = tqdm(eval_loader)
+        num_pred = 0
+        for ids, enc, ys in pbar:
+            # We'll count predictions as the number of examples processed so far
+            n_batch = ys.size(0)
+            num_pred += n_batch
+            pbar.set_postfix({'probe.predict': num_pred})
             # Extract the activations from the model:
             input_ids = enc["input_ids"].to(self.device)
             attention_mask = enc["attention_mask"].to(self.device)
@@ -275,11 +308,13 @@ class AttnProbe(Probe):
             )
 
             preds = self.best_probe(activations)
-            outputs.append(preds)
+            outputs.append(preds.cpu().detach())
+            ids_list.append(ids)
         
-        return torch.cat(outputs, dim=0)
+        return torch.cat(ids_list, dim=0),torch.cat(outputs, dim=0)
 
-    def fit(self, prompts: list[str],
+    def fit(self, idx: list[int],
+                prompts: list[str],
                 targets: list[float],
                 layer: int,
                 batch_size:int,
@@ -301,11 +336,12 @@ class AttnProbe(Probe):
         # Setup train loader:
         if self.config.get('test_mode', False):
             batch_size_approx = self.config.get('batch_size',128)[0]
+            idx = idx[:batch_size_approx]
             prompts = prompts[:batch_size_approx]
             targets = targets[:batch_size_approx]
-            train_dataset = TextNumberDataset(prompts, targets)
+            train_dataset = TextNumberDataset(idx, prompts, targets)
         else:
-            train_dataset = TextNumberDataset(prompts, targets)
+            train_dataset = TextNumberDataset(idx, prompts, targets)
 
         collate_fn = make_collate_fn(self.tokenizer, CollateConfig(max_length=max_length))
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
@@ -324,7 +360,7 @@ class AttnProbe(Probe):
             n = 0
 
             pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{num_epochs}", dynamic_ncols=True)
-            for enc, ys in pbar:
+            for idx, enc, ys in pbar:
                 ys = ys.to(self.device)
 
                 # Extract the activations from the model:
@@ -390,4 +426,49 @@ class AttnProbe(Probe):
         layer_activations = [hidden_states[layer_idx] * attention_mask.unsqueeze(-1) for layer_idx in layer_indices]
         return torch.stack(layer_activations, dim=1)[:,0,...] # [Batch size, Sequence length, hidden size]
 
-        
+    def save_probe(self, path: Path):
+        """
+        Save the probe state dictionary and other metadata to disk.
+
+        Args:
+            path: The path to save the probe to.
+        """
+
+        assert self.best_probe is not None, "Best probe not found. Please train the probe first."
+        assert self.best_hyperparameters is not None, "Best hyperparameters not found. Please train the probe first."
+        assert self.best_layer_id is not None, "Best layer id not found. Please train the probe first."
+        assert self.best_metrics is not None, "Best metrics not found. Please train the probe first."
+
+        # Save the probe state dictionary:
+        state_dict = {
+            'best_probe_state_dict': self.best_probe.state_dict(),
+            'best_hyperparameters': self.best_hyperparameters,
+            'best_layer_id': self.best_layer_id,
+            'best_metrics': self.best_metrics}
+
+        torch.save(state_dict, path / "best_probe.pt")
+
+    def load_from_checkpoint(self, path: Path):
+        """
+        Load a trained probe from a saved checkpoint.
+
+        Args:
+            path: The path to load the probe from.
+        """
+
+        if self.best_probe is not None:
+            warning("Best probe already loaded. Overwriting...")
+
+        state_dict = torch.load(path / "best_probe.pt")
+        self.best_probe = AttnLite(self.d_model).to(self.device).load_state_dict(state_dict['best_probe_state_dict'])
+        self.best_hyperparameters = state_dict['best_hyperparameters']
+        self.best_layer_id = state_dict['best_layer_id']
+        self.best_metrics = state_dict['best_metrics']
+
+        return self
+
+    def get_metadata(self) -> dict:
+        """
+        Dump the config setup into a dictionary.
+        """
+        return self.config

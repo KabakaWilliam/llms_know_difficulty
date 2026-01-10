@@ -25,7 +25,9 @@ class ProbeFactory:
                 'device': DEVICE,
                 # other huggingface loading args go here ...
             }
-            return AttnProbe(AttentionProbeConfig()), probe_setup_args
+            probe = AttnProbe(AttentionProbeConfig())
+            return probe.setup(**probe_setup_args)
+            
         elif probe_name == "sklearn_probe":
 
             probe_setup_args = {

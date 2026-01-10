@@ -52,7 +52,7 @@ def main():
 
     # 7. Run probe prediction on the test set:
     print(f"Predicting on test data")
-    probe_preds = probe.predict(prompts=test_data[0])
+    probe_preds = probe.predict(test_data=test_data)
 
     # 8. Save the probe predictions to the results directory:
     results_path = create_results_path(args.dataset, args.model, args.probe)
