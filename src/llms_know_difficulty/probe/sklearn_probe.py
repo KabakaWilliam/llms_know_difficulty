@@ -16,9 +16,8 @@ from dataclasses import dataclass
 from itertools import product
 
 from typing import List, Tuple, Optional
-from ..config import ROOT_ACTIVATION_DATA_DIR
-from .probe_utils.sklearn_probe import sk_activation_utils, sk_train_utils
-from ..metrics import compute_metrics
+from llms_know_difficulty.config import ROOT_ACTIVATION_DATA_DIR, SKLEARN_PROBE_CONFIG
+from llms_know_difficulty.probe.probe_utils.sklearn_probe import sk_activation_utils, sk_train_utils
 from sklearn.linear_model import LogisticRegression, Ridge
 from tqdm import tqdm
 
