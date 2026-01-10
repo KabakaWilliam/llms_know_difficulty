@@ -2,6 +2,9 @@ from pathlib import Path
 from typing import Union
 from pydantic import BaseModel
 
+
+SEED = 42
+
 # Get the directory where this config file is located
 _CONFIG_DIR = Path(__file__).parent
 
@@ -12,6 +15,9 @@ _CONFIG_DIR = Path(__file__).parent
 # So we go up 2 levels from config.py location
 ROOT_DATA_DIR = _CONFIG_DIR.parent.parent / "data"
 ROOT_ACTIVATION_DATA_DIR = ROOT_DATA_DIR / "activations"
+
+# How much of the train split to use for validation
+VAL_TRAIN_SPLIT_RATIO = 0.2
 
 DEVICE = "cuda:0"
 MODEL_HYPERPARAMETERS = {
