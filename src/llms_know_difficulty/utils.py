@@ -1,7 +1,21 @@
 import os
 from pathlib import Path
 from datetime import datetime
+import numpy as np
+from sklearn.utils.multiclass import type_of_target
 from .config import ROOT_DATA_DIR
+
+
+def infer_task_type(y: np.ndarray, task_type: str = "auto") -> str:
+    """Infer whether task is regression or classification."""
+    if task_type in ("regression", "classification"):
+        return task_type
+
+    target_type = type_of_target(y)
+    if target_type in ("binary", "multiclass"):
+        return "classification"
+    else:
+        return "regression"
 
 def create_results_path(dataset_name: str, model_name: str, probe_name: str, gen_str: str = None) -> Path:
     """
