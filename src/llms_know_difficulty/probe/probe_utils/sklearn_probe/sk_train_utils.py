@@ -2,10 +2,11 @@ import numpy as np
 import random
 import torch
 
-from sklearn.utils.multiclass import type_of_target
 from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.metrics import roc_auc_score
 from scipy.stats import spearmanr
+from sklearn.utils.multiclass import type_of_target
+from llms_know_difficulty.utils import infer_task_type
 
 
 def set_seed(seed: int = 42):
@@ -17,17 +18,7 @@ def set_seed(seed: int = 42):
         torch.cuda.manual_seed_all(seed)
 
 
-def infer_task_type(y: np.ndarray, task_type: str = "auto") -> str:
-    """Infer whether task is regression or classification."""
-    if task_type in ("regression", "classification"):
-        return task_type
 
-    target_type = type_of_target(y)
-    if target_type in ("binary", "multiclass"):
-        return "classification"
-    else:
-        return "regression"
-    
 def make_cv(y: np.ndarray, n_splits: int, shuffle: bool, random_state: int):
     """Create cross-validator based on target type."""
     target_type = type_of_target(y)
@@ -45,9 +36,6 @@ def make_cv(y: np.ndarray, n_splits: int, shuffle: bool, random_state: int):
         )
 
 
-def train_probe(train_activations, test_activations, task_type, alpha, alpha_grid, k_fold, n_folds, seed):
-    pass
-
 
 def compute_metric(predictions: np.ndarray, labels: np.ndarray, task_type: str) -> tuple:
     """
@@ -63,9 +51,9 @@ def compute_metric(predictions: np.ndarray, labels: np.ndarray, task_type: str) 
     """
     if task_type == "regression":
         score, _ = spearmanr(labels, predictions)
-        metric_name = "Spearman"
+        metric_name = "spearman"
     else:  # classification
         score = roc_auc_score(labels, predictions)
-        metric_name = "ROC-AUC"
+        metric_name = "auc"
     
     return float(score), metric_name

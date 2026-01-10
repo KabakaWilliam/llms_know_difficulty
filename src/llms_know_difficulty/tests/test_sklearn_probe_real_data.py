@@ -13,9 +13,10 @@ import time
 import json
 
 from ..probe.sklearn_probe import SklearnProbe
-from ..probe.probe_utils.sklearn_probe.sk_train_utils import compute_metric
+from ..metrics import compute_metrics
+from ..probe.probe_utils.sklearn_probe import sk_train_utils
 from ..config import ROOT_DATA_DIR
-from ..utils import create_results_path
+from ..utils import create_results_path, infer_task_type
 
 
 def load_math_data() -> Tuple[List[str], List[float], List[str], List[float], List[str], List[float], str]:
@@ -28,15 +29,21 @@ def load_math_data() -> Tuple[List[str], List[float], List[str], List[float], Li
         Tuple of (train_texts, train_labels, val_texts, val_labels, test_texts, test_labels)
     """
     DATASET_NAME = "DigitalLearningGmbH_MATH-lighteval"
-    MAXLEN = 3000
-    K=8
-    TEMP=0.7
+    # MODEL_SOURCE="Qwen-Qwen2.5-Math-1.5B-Instruct"
+    # MAXLEN = 3000
+    # K=8
+    # TEMP=0.7
+    MODEL_SOURCE="openai-gpt-oss-20b"
+    MAXLEN = 32678
+    K=5
+    TEMP=1.0
+
     GEN_STR= f"maxlen_{MAXLEN}_k_{K}_temp_{TEMP}"
     data_dir = ROOT_DATA_DIR / "SR_DATA" / DATASET_NAME
     
     # Load train and test data
-    train_path = data_dir / f"train-Qwen-Qwen2.5-Math-1.5B-Instruct_{GEN_STR}.parquet"
-    test_path = data_dir / f"test-Qwen-Qwen2.5-Math-1.5B-Instruct_{GEN_STR}.parquet"
+    train_path = data_dir / f"train-{MODEL_SOURCE}_{GEN_STR}.parquet"
+    test_path = data_dir / f"test-{MODEL_SOURCE}_{GEN_STR}.parquet"
 
     print(f"Loading train data from: {train_path}")
     train_df = pd.read_parquet(train_path)
@@ -47,25 +54,22 @@ def load_math_data() -> Tuple[List[str], List[float], List[str], List[float], Li
     print(f"  Loaded {len(test_df)} samples")
     
     # Extract formatted_prompt and success_rate columns from train data
+    # NOTE: infer_task_type will automatically detect if these are continuous (regression) or binary (classification)
     train_texts_all = list(train_df["formatted_prompt"].values)
     train_labels_all = list(train_df["success_rate"].values)
-    train_mv_correct_all = list(train_df["majority_vote_is_correct"].values)
     
     # Extract test data as-is
     test_texts = list(test_df["formatted_prompt"].values)
     test_labels = list(test_df["success_rate"].values)
-    test_mv_correct = list(test_df["majority_vote_is_correct"].values)
     
     # Split train data into train (75%) and val (25%)
     train_size = int(0.75 * len(train_texts_all))
     
     train_texts = train_texts_all[:train_size]
     train_labels = train_labels_all[:train_size]
-    train_mv_correct = train_mv_correct_all[:train_size]
     
     val_texts = train_texts_all[train_size:]
     val_labels = train_labels_all[train_size:]
-    val_mv_correct = train_mv_correct_all[train_size:]
     
     print(f"\nData split:")
     print(f"  Train (from train file): {len(train_texts)} samples")
@@ -74,18 +78,19 @@ def load_math_data() -> Tuple[List[str], List[float], List[str], List[float], Li
     
     # Show label statistics
     all_labels = train_labels + val_labels + test_labels
-    all_mv_correct = train_mv_correct + val_mv_correct + test_mv_correct
-    print(f"\nSuccess rate statistics:")
-    print(f"  Overall: mean={np.mean(all_labels):.4f}")
-    print(f"  Train: mean={np.mean(train_labels):.4f}")
-    print(f"  Val: mean={np.mean(val_labels):.4f}")
-    print(f"  Test: mean={np.mean(test_labels):.4f}")
     
-    print(f"\nMajority vote is correct statistics:")
-    print(f"  Overall: mean={np.mean(all_mv_correct):.4f}")
-    print(f"  Train: mean={np.mean(train_mv_correct):.4f}")
-    print(f"  Val: mean={np.mean(val_mv_correct):.4f}")
-    print(f"  Test: mean={np.mean(test_mv_correct):.4f}")
+    
+    
+    
+    # Show label statistics
+    all_labels = train_labels + val_labels + test_labels
+    
+    print(f"\nSuccess rate label statistics:")
+    print(f"  Overall unique values: {sorted(set(np.round(all_labels, 6)))[:10]}...")
+    print(f"  Overall: min={np.min(all_labels):.6f}, max={np.max(all_labels):.6f}, mean={np.mean(all_labels):.6f}")
+    print(f"  Train: min={np.min(train_labels):.6f}, max={np.max(train_labels):.6f}")
+    print(f"  Val: min={np.min(val_labels):.6f}, max={np.max(val_labels):.6f}")
+    print(f"  Test: min={np.min(test_labels):.6f}, max={np.max(test_labels):.6f}")
     
     return train_texts, train_labels, val_texts, val_labels, test_texts, test_labels, GEN_STR
 
@@ -173,10 +178,26 @@ def test_sklearn_probe_real_data():
         test_labels_array = np.array(test_labels)
         print(f"    Len of test set: {len(test_labels_array)}")
         
-        # Use the same metric that was used during training
-        test_score, metric_name = compute_metric(test_predictions, test_labels_array, probe.task_type)
+        # Debug: check task type inference
+        print(f"    Task type detected: {probe.task_type}")
+        print(f"    Test labels stats:")
+        print(f"      Min: {np.min(test_labels_array):.4f}, Max: {np.max(test_labels_array):.4f}")
+        print(f"      Unique values: {len(np.unique(test_labels_array))}")
+        print(f"    Test predictions stats:")
+        print(f"      Min: {np.min(test_predictions):.4f}, Max: {np.max(test_predictions):.4f}")
+        print(f"      Unique values: {len(np.unique(test_predictions))}")
+        
+        # Compute comprehensive metrics on test set using consistent task type
+        test_metrics = compute_metrics(test_labels_array, test_predictions, task_type=probe.task_type, full_metrics=True)
+        
+        # Extract primary metric for display
+        primary_metric = "spearman" if probe.task_type == "regression" else "auc"
+        test_score = test_metrics[primary_metric]
+
+        probe.test_score = test_score
+        
         print(f"   Test set predictions shape: {test_predictions.shape}")
-        print(f"   Test set {metric_name}: {test_score:.4f}")
+        print(f"   Test set {primary_metric}: {test_score:.4f}")
         print("   ✓ Test set evaluation complete")
     except Exception as e:
         print(f"   ✗ Test set evaluation failed with error: {e}")
@@ -232,11 +253,14 @@ def test_sklearn_probe_real_data():
             "best_alpha": probe.best_alpha,
             "val_score": float(probe.best_val_score),
             "test_score": float(test_score),
-            "metric": metric_name,
+            "metric": primary_metric,
             "task_type": probe.task_type,
             "test_predictions": test_predictions.tolist(),
             "test_labels": test_labels,
         }
+        
+        # Add all computed metrics from the full evaluation
+        results_data["all_metrics"] = test_metrics
         
         # Save as JSON
         results_file = results_path / "probe_results.json"
@@ -270,8 +294,10 @@ def test_sklearn_probe_real_data():
             print(f"   ✗ Predictions differ: max difference = {prediction_diff}")
             return False
         
-        # Verify scores are the same
-        loaded_score, _ = compute_metric(loaded_predictions, test_labels_array, loaded_probe.task_type)
+        # Verify scores are the same using consistent task type
+        loaded_metrics = compute_metrics(test_labels_array, loaded_predictions, task_type=loaded_probe.task_type, full_metrics=True)
+        primary_metric = "spearman" if loaded_probe.task_type == "regression" else "auc"
+        loaded_score = loaded_metrics[primary_metric]
         score_diff = abs(test_score - loaded_score)
         if score_diff < 1e-6:
             print(f"   Test scores match: {test_score:.4f} vs {loaded_score:.4f}")

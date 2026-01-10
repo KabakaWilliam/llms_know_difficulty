@@ -18,9 +18,8 @@ from itertools import product
 from typing import List, Tuple, Optional
 from ..config import ROOT_ACTIVATION_DATA_DIR, SKLEARN_PROBE_CONFIG
 from .probe_utils.sklearn_probe import sk_activation_utils, sk_train_utils
+from ..metrics import compute_metrics
 from sklearn.linear_model import LogisticRegression, Ridge
-from scipy.stats import spearmanr
-from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
 
 ROOT_ACTIVATION_DATA_DIR = os.path.join(ROOT_ACTIVATION_DATA_DIR,"sklearn_probe")
@@ -60,10 +59,10 @@ class SklearnProbe(Probe):
         self.best_position_value = None  # Actual position value (e.g., -1, -2) for use in predict()
         self.best_layer_idx = None
         self.best_alpha = None
-        self.best_val_score = None
+        self.best_val_score:float|None = None
         self.test_score = None
-        self.task_type = None
-        self.metric_name = None
+        self.task_type: Optional[str] = None
+        self.metric_name: Optional[str] = None
 
     def name(self) -> str:
         """The name of the probe."""
@@ -172,7 +171,7 @@ class SklearnProbe(Probe):
             probe = self.fit(x_train, y_train, alpha, self.task_type)
             
             # Evaluate on validation set
-            val_score = self._evaluate_probe(probe, x_val, y_val)
+            val_score = self._evaluate_probe(probe, x_val, y_val, full_metrics=False)
             alpha_scores[alpha] = val_score
         
         # Select alpha with best validation score
@@ -180,7 +179,7 @@ class SklearnProbe(Probe):
         
         return best_alpha, alpha_scores
     
-    def _evaluate_probe(self, probe, x: np.ndarray, y: np.ndarray) -> float:
+    def _evaluate_probe(self, probe, x: np.ndarray, y: np.ndarray, full_metrics: bool = False) -> float:
         """
         Evaluate a probe on data and return metric score.
         
@@ -188,17 +187,24 @@ class SklearnProbe(Probe):
             probe: Trained sklearn model (Ridge or LogisticRegression)
             x: Activations [N, D]
             y: Labels [N]
+            full_metrics: If True, compute all metrics. If False, compute only primary metric.
+                         Use False for fast validation/training, True for final test evaluation.
         
         Returns:
             score (float): Spearman correlation for regression, ROC-AUC for classification
         """
+        assert self.task_type is not None, "task_type must be set before calling _evaluate_probe"
+        
         if self.task_type == "regression":
             y_pred = probe.predict(x)
-            corr_result = spearmanr(y, y_pred)
-            score = corr_result[0] if isinstance(corr_result, tuple) else corr_result.correlation
         else:  # classification
-            y_proba = probe.predict_proba(x)[:, 1]
-            score = roc_auc_score(y, y_proba)
+            y_pred = probe.predict_proba(x)[:, 1]
+        
+        # Compute metrics using the centralized metrics module
+        metrics = compute_metrics(y, y_pred, task_type=self.task_type, full_metrics=full_metrics)
+        
+        # Extract the appropriate metric based on task type
+        score = metrics["spearman"] if self.task_type == "regression" else metrics["auc"]
         
         return float(score)
     
@@ -265,7 +271,7 @@ class SklearnProbe(Probe):
                 probe = self.fit(x_train, y_train, best_alpha, self.task_type)
                 
                 # Evaluate on validation set
-                val_score = self._evaluate_probe(probe, x_val, y_val)
+                val_score = self._evaluate_probe(probe, x_val, y_val, full_metrics=False)
                 
                 # Store candidate
                 candidates[(pos_idx, layer_idx)] = {
@@ -295,7 +301,8 @@ class SklearnProbe(Probe):
         if self.test_activations is not None and self.test_labels is not None:
             x_test_best = candidates[best_key]['x_test']
             y_test = np.array(self.test_labels) if not isinstance(self.test_labels, np.ndarray) else self.test_labels
-            self.test_score = self._evaluate_probe(self.best_probe, x_test_best, y_test)
+            # Use full_metrics=True for final test evaluation
+            self.test_score = self._evaluate_probe(self.best_probe, x_test_best, y_test, full_metrics=True)
         
         # Print summary
         best_pos = self.positions[self.best_pos_idx]
@@ -353,9 +360,12 @@ class SklearnProbe(Probe):
         
         # Infer task type from labels
         self.task_type = sk_train_utils.infer_task_type(train_labels)
-        self.metric_name = "spearman" if self.task_type == "regression" else "roc_auc"
+        self.metric_name = "spearman" if self.task_type == "regression" else "auc"
         print(f"Task type: {self.task_type}")
         print(f"Metric: {self.metric_name}")
+        
+        # Assert task_type is set for type checking
+        assert self.task_type is not None, "task_type should be set by infer_task_type"
         
         # Train and select probes
         self._train_and_select_probes(alpha_grid)
@@ -421,6 +431,8 @@ class SklearnProbe(Probe):
         if self.best_probe is None:
             raise RuntimeError("Must call train() before predict()")
         
+        assert self.task_type is not None, "task_type must be set before calling predict"
+        
         # If prompts are strings, extract activations
         if isinstance(prompts, list) and len(prompts) > 0 and isinstance(prompts[0], str):
             # Extract activations for the best position across all layers
@@ -485,6 +497,7 @@ class SklearnProbe(Probe):
             "best_position_idx": self.best_pos_idx,
             "best_alpha": self.best_alpha,
             "best_val_score": float(self.best_val_score),
+            # "test_score": float(self.test_score),
             "task_type": self.task_type,
             "model_name": self.model_name,
             "d_model": self.d_model,
