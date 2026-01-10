@@ -33,7 +33,8 @@ class ProbeFactory:
             probe_setup_args = {
                 'model_name': kwargs.get('model_name'),
             }
-            return SklearnProbe(SKLEARN_PROBE_CONFIG), probe_setup_args
+            probe = SklearnProbe(SKLEARN_PROBE_CONFIG())
+            return probe.setup(**probe_setup_args)
         
 
             
