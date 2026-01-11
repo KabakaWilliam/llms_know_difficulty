@@ -586,3 +586,22 @@ class SklearnProbe(Probe):
         probe.setup(model_name=probe.model_name, device=device)
         
         return probe
+
+    def get_probe_metadata(self) -> dict:
+        """
+        Return probe metadata for saving (sklearn_probe specific format).
+        
+        Returns:
+            Dictionary with all probe attributes ready for serialization
+        """
+        return {
+            'best_layer_idx': self.best_layer_idx,
+            'best_pos_idx': self.best_pos_idx,
+            'best_position_value': self.best_position_value,
+            'best_alpha': self.best_alpha,
+            'best_val_score': self.best_val_score,
+            'test_score': self.test_score,
+            'model_name': self.model_name,
+            'd_model': self.d_model,
+            'task_type': self.task_type,
+        }

@@ -117,6 +117,7 @@ class AttnProbe(Probe):
         for p in self.model.parameters():
             p.requires_grad_(False)
 
+        self.model_name = model_name  # Store model name
         self.d_model = self.model.config.hidden_size
         self.device = self.config.get('device', 'cuda:0')
         self.cv_layers = self.config.get('layer_indices', list(range(29))) # Hard coded for now, TODO: Make this dynamic or stored in config.
@@ -260,9 +261,15 @@ class AttnProbe(Probe):
         spearman_corr, _ = spearmanr(outputs_np, targets_np)
         return {'spearmanr': spearman_corr}, outputs
 
-    def predict(self, test_data: tuple[list[int], list[str], list[float]]) -> list[float]:
+    def predict(self, test_data: tuple[list[int], list[str], list[float]]) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Predict the success rate using the probe.
+        
+        Args:
+            test_data: Tuple of (indices, prompts, targets)
+            
+        Returns:
+            Tuple of (indices_tensor[int32], predictions_tensor[float32])
         """
         assert self.best_probe is not None, \
             "Best probe not found. Please train the probe first."
@@ -272,14 +279,14 @@ class AttnProbe(Probe):
 
         idx, prompts, _ = test_data
 
-        # Setup data loader:
+        # For test_mode, sample a subset of data for quick debugging
         if self.config.get('test_mode', False):
-            batch_size_approx = self.config.get('batch_size',128)[0]
-            idx = idx[:batch_size_approx]
-            prompts = prompts[:batch_size_approx]
-            eval_dataset = TextNumberDataset(idx, prompts, [0]*len(prompts))
-        else:
-            eval_dataset = TextNumberDataset(idx, prompts, [0]*len(prompts))
+            test_sample_size = self.config.get('test_sample_size', 256)
+            idx = idx[:test_sample_size]
+            prompts = prompts[:test_sample_size]
+
+        # Setup data loader - uses full dataset or subset if test_mode
+        eval_dataset = TextNumberDataset(idx, prompts, [0]*len(prompts))
         collate_fn = make_collate_fn(self.tokenizer, CollateConfig(max_length=self.best_hyperparameters.get('max_length', 256)))
         eval_loader = DataLoader(eval_dataset,
          batch_size=self.best_hyperparameters.get('batch_size', 128),
@@ -312,7 +319,10 @@ class AttnProbe(Probe):
             outputs.append(preds.cpu().detach())
             ids_list.append(ids)
         
-        return torch.cat(ids_list, dim=0),torch.cat(outputs, dim=0)
+        # Return formatted tensors: (int32 indices, float32 predictions)
+        indices_tensor = torch.cat(ids_list, dim=0).int()
+        predictions_tensor = torch.cat(outputs, dim=0).float()
+        return indices_tensor, predictions_tensor
 
     def fit(self, idx: list[int],
                 prompts: list[str],
@@ -427,27 +437,34 @@ class AttnProbe(Probe):
         layer_activations = [hidden_states[layer_idx] * attention_mask.unsqueeze(-1) for layer_idx in layer_indices]
         return torch.stack(layer_activations, dim=1)[:,0,...] # [Batch size, Sequence length, hidden size]
 
-    def save_probe(self, path: Path):
+    def save_probe(self, path: Path, metadata: dict | None = None):
         """
         Save the probe state dictionary and other metadata to disk.
 
         Args:
             path: The path to save the probe to.
+            metadata: Optional full metadata dict (e.g., with test metrics).
         """
 
         assert self.best_probe is not None, "Best probe not found. Please train the probe first."
         assert self.best_hyperparameters is not None, "Best hyperparameters not found. Please train the probe first."
         assert self.best_layer_id is not None, "Best layer id not found. Please train the probe first."
-        assert self.best_metrics is not None, "Best metrics not found. Please train the probe first."
 
         # Save the probe state dictionary:
         state_dict = {
             'best_probe_state_dict': self.best_probe.state_dict(),
             'best_hyperparameters': self.best_hyperparameters,
             'best_layer_id': self.best_layer_id,
-            'best_metrics': self.best_metrics}
+            'best_metrics': self.best_metrics if hasattr(self, 'best_metrics') else None}
 
         torch.save(state_dict, path / "best_probe.pt")
+        
+        # Save metadata to JSON if provided
+        if metadata is not None:
+            import json
+            metadata_file = path / "probe_metadata.json"
+            with open(metadata_file, "w") as f:
+                json.dump(metadata, f, indent=2)
 
     def load_from_checkpoint(self, path: Path):
         """
@@ -473,3 +490,21 @@ class AttnProbe(Probe):
         Dump the config setup into a dictionary.
         """
         return self.config
+    def get_probe_metadata(self) -> dict:
+        """
+        Return probe metadata for saving (attn_probe specific format).
+        
+        Returns:
+            Dictionary with attn probe metadata (uses best_layer_id internally but returns standardized format)
+        """
+        return {
+            'best_layer_idx': self.best_layer_id,
+            'best_val_score': self.best_metrics if hasattr(self, 'best_metrics') else None,
+            'model_name': getattr(self, 'model_name', 'unknown'),
+            'd_model': self.d_model,
+            'task_type': 'regression',  # AttnProbe is always regression
+            'best_pos_idx': None,  # AttnProbe doesn't use positions
+            'best_position_value': None,
+            'best_alpha': None,  # AttnProbe doesn't use regularization
+            'test_score': None,  # Computed during evaluation
+        }

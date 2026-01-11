@@ -45,3 +45,12 @@ class Probe(ABC):
         Returns logits or probits
         """
         pass
+    def get_probe_metadata(self) -> dict:
+        """
+        Return a dictionary of probe metadata for saving.
+        Each probe type implements this with its own attributes.
+        
+        Returns:
+            Dictionary containing probe-specific metadata
+        """
+        raise NotImplementedError(f"get_probe_metadata() not implemented for {self.__class__.__name__}")

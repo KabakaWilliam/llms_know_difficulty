@@ -26,6 +26,9 @@ DEVICE = "cuda:0"
 MODEL_HYPERPARAMETERS = {
     "Qwen/Qwen2.5-1.5B-Instruct":{
         'num_layers': 29 
+    },
+    "Qwen/Qwen2.5-Math-1.5B-Instruct":{
+        'num_layers': 29 
     }
 }
 

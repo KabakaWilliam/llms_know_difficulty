@@ -60,24 +60,22 @@ def main():
     print(f"Predicting on test data")
     test_indices_tensor, probe_preds_tensor = probe.predict(test_data)
 
-    # 8. Extract labels and compute metrics
-    test_labels = list(test_data[2])  # Extract labels from (indices, prompts, targets)
-    test_metrics = compute_metrics(test_labels, probe_preds_tensor, task_type=probe.task_type, full_metrics=True)
-
-    # Merge probe metadata with test metrics
-    metadata = {
-        'best_layer_idx': probe.best_layer_idx,
-        'best_pos_idx': probe.best_pos_idx,
-        'best_position_value': probe.best_position_value,
-        'best_alpha': probe.best_alpha,
-        'best_val_score': probe.best_val_score,
-        'test_score': probe.test_score,  # Add test score
-        'model_name': probe.model_name,
-        'd_model': probe.d_model,
-        'task_type': probe.task_type,
-    }
-    # Merge in all test metrics (mse, mae, spearman/auc, acc_all, learnability, precision/recall/f1)
-    metadata.update(test_metrics)
+    # 8. Extract labels - use only the labels for indices that were actually predicted
+    # (in case test_mode limited the predictions)
+    all_test_labels = test_data[2]
+    # Get labels by position (predictions are returned in order, first N labels match first N predictions)
+    test_labels = all_test_labels[:len(test_indices_tensor)]
+    test_metrics = compute_metrics(test_labels, probe_preds_tensor, full_metrics=True)
+    metadata = probe.get_probe_metadata()  # Get probe-specific metadata
+    metadata.update(test_metrics)  # Add test metrics
+    
+    # Add test_score (main evaluation metric) if available from probe
+    if hasattr(probe, 'test_score') and probe.test_score is not None:
+        metadata['test_score'] = probe.test_score
+    elif 'spearman' in test_metrics:
+        metadata['test_score'] = test_metrics['spearman']
+    elif 'auc' in test_metrics:
+        metadata['test_score'] = test_metrics['auc']
 
     print(f"Test performance: {test_metrics.get('spearman', test_metrics.get('auc', 'N/A'))} 🔥\n")
     # 9. Save the probe predictions to the results directory:
