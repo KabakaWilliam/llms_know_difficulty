@@ -82,6 +82,19 @@ class LinearEOIProbeConfig(BaseModel):
     batch_size: int = 16
     max_length: int = 1024
 
+class TfidfProbeConfig(BaseModel):
+    """
+    LinearEOI probe config for ridge/logistic regression probes.
+    
+    Args:
+        model_name: str          Name of the base model to use for activation extraction
+        alpha_grid: list[float]  List of regularization strengths to grid search over
+        batch_size: int          Batch size for activation extraction
+        max_length: int          Maximum prompt length when tokenizing inputs
+    """
+    alpha_grid: list[float] = [0, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000]
+    fit_intercept: bool = True
+
 
 PROMPTING_BASELINE = {
     "batch_size": 16,
