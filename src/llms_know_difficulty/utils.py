@@ -64,24 +64,28 @@ def save_probe_predictions(probe_preds: dict, probe_metadata: dict, best_probe: 
     
     print(f'Saving probe results to {results_path}')
 
-    # Save the probe predictions as a jsonl file:
-    with open(results_path / "probe_preds.jsonl", "w") as f:
-        # assertions on the probe preds:
-        assert probe_preds[0].dtype == torch.int32, \
-            f"probe_preds[0] is the idx must be of type torch.int32, got {probe_preds[0].dtype}"
-        assert probe_preds[1].dtype == torch.float32, \
-            f"probe_preds[1] is the predictions must be of type torch.float32, got {probe_preds[1].dtype}"
+    # Save the probe predictions as a jsonl file and parquet:
+    # assertions on the probe preds:
+    assert probe_preds[0].dtype == torch.int32, \
+        f"probe_preds[0] is the idx must be of type torch.int32, got {probe_preds[0].dtype}"
+    assert probe_preds[1].dtype == torch.float32, \
+        f"probe_preds[1] is the predictions must be of type torch.float32, got {probe_preds[1].dtype}"
+    
 
-        # Combine them as a pandas dataframe:
-        df = pd.DataFrame({"idx": probe_preds[0].tolist(), "pred": probe_preds[1].tolist()})
-        df.to_parquet(results_path / "probe_preds.parquet")
+    # Combine them as a pandas dataframe:
+    df = pd.DataFrame({"idx": probe_preds[0].tolist(), "pred": probe_preds[1].tolist()})
     
-    # Save the probe metadata as a jsonl file:
-    with open(results_path / "probe_metadata.json", "w") as f:
-        json.dump(probe_metadata, f, indent=2)
+    # Save as parquet
+    df.to_parquet(results_path / "probe_preds.parquet")
     
-    # Save the best probe as a joblib file:
-    best_probe.save_probe(results_path)
+    # Save as jsonl
+    with open(results_path / "probe_preds.jsonl", "w") as f:
+        for _, row in df.iterrows():
+            json.dump({"idx": int(row["idx"]), "pred": float(row["pred"])}, f)
+            f.write("\n")
+    
+    # Save the best probe (and pass full metadata to ensure it's saved with test metrics)
+    best_probe.save_probe(results_path, metadata=probe_metadata)
 
 def parse_dataset_str(dataset_str: str) -> dict:
     """
