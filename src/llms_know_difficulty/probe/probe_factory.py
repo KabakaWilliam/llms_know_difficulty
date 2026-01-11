@@ -3,7 +3,7 @@ from llms_know_difficulty.config import *
 from probe.base_probe import Probe
 from probe.attn_probe import AttnProbe
 from probe.sklearn_probe import SklearnProbe
-from llms_know_difficulty.config import SKLEARN_PROBE_CONFIG, AttentionProbeConfig, DEVICE
+from llms_know_difficulty.config import SklearnProbeConfig, AttentionProbeConfig, DEVICE
 
 class ProbeFactory:
 
@@ -28,15 +28,15 @@ class ProbeFactory:
             probe = AttnProbe(AttentionProbeConfig())
             return probe.setup(**probe_setup_args)
             
-        
-        elif probe_name == "sklearn_probe":
-            cfg = SKLEARN_PROBE_CONFIG
-            
-            PROBE = SklearnProbe(cfg)
+        elif probe_name == "eoi_probe":
 
-            PROBE.setup(model_name=cfg.model_name, device=cfg.device)
-
-            return PROBE
+            probe_setup_args = {
+                'model_name': kwargs.get('model'),
+                'device': DEVICE,
+            }
+            probe = SklearnProbe(SklearnProbeConfig())
+            print("Lets set up the probe ⚙️ ...")
+            return probe.setup(**probe_setup_args)
         
 
             

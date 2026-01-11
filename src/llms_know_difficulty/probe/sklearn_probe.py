@@ -16,10 +16,11 @@ from dataclasses import dataclass
 from itertools import product
 
 from typing import List, Tuple, Optional
-from llms_know_difficulty.config import ROOT_ACTIVATION_DATA_DIR, SKLEARN_PROBE_CONFIG
+from llms_know_difficulty.config import ROOT_ACTIVATION_DATA_DIR
 from llms_know_difficulty.probe.probe_utils.sklearn_probe import sk_activation_utils, sk_train_utils
 from sklearn.linear_model import LogisticRegression, Ridge
 from tqdm import tqdm
+from llms_know_difficulty.metrics import compute_metrics
 
 ROOT_ACTIVATION_DATA_DIR = os.path.join(ROOT_ACTIVATION_DATA_DIR,"sklearn_probe")
 
@@ -27,15 +28,21 @@ ROOT_ACTIVATION_DATA_DIR = os.path.join(ROOT_ACTIVATION_DATA_DIR,"sklearn_probe"
 class SklearnProbe(Probe):
     def __init__(self, config):
         super().__init__(config)
+        self.config = config
         self._has_setup_run = False
         self.model_name = config.get("probing_model_name", "gpt2")
         self.tokenizer = None
         self.model = None
         self.device = None
         self.d_model = None
-        self.batch_size = config.get("batch_size", 16)
-        self.max_length = config.get("max_length", 512)
-        self.alpha_grid = config.get("alpha_grid", [1.0])
+        self.batch_size = getattr(self.config, "batch_size", 16)
+        self.max_length = getattr(self.config, "max_length", 512)
+        self.alpha_grid = getattr(self.config, "alpha_grid", [1.0])
+        
+        # Data indices storage
+        self.train_indices = None
+        self.val_indices = None
+        self.test_indices = None
         
         # Activation storage
         self.train_activations = None
@@ -65,15 +72,15 @@ class SklearnProbe(Probe):
 
     def name(self) -> str:
         """The name of the probe."""
-        return "sklearn_probe"
+        return "eoi_probe"
 
     def init_model(self, config: dict):
         """
         Load a prior training checkpoint.
         """
-        pass
+        raise NotImplementedError("Initializing a model from a checkpoint is not implemented for the eoi probe.")
 
-    def setup(self, model_name: str, device: str) -> None:
+    def setup(self, model_name: str, device: str) -> "SklearnProbe":
         """
         Any pre-training loading steps, run before .fit or .predict.
         """
@@ -81,8 +88,7 @@ class SklearnProbe(Probe):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-
-        self.model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
+        self.model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation="eager", device_map=device)
         self.model.eval()
         for p in self.model.parameters():
             p.requires_grad_(False)
@@ -90,6 +96,8 @@ class SklearnProbe(Probe):
         self.d_model = self.model.config.hidden_size
         self.device = device
         self._has_setup_run = True
+
+        return self
 
     def _extract_and_load_all_activations(self, train_texts: List[str], train_labels: List[float], val_texts: List[str], val_labels: List[float], test_texts: Optional[List[str]] = None, test_labels: Optional[List[float]] = None) -> None:
         """
@@ -315,7 +323,7 @@ class SklearnProbe(Probe):
             print(f"  Test {self.metric_name}: {self.test_score:.4f}")
         print(f"{'='*80}")
 
-    def train(self, train_data: Tuple[List[str], List[float]], val_data: Tuple[List[str], List[float]], test_data: Optional[Tuple[List[str], List[float]]] = None, alpha_grid: Optional[List[float]] = None) -> "SklearnProbe":
+    def train(self, train_data: Tuple[List[int], List[str], List[float]], val_data: Tuple[List[int], List[str], List[float]], test_data: Optional[Tuple[List[int], List[str], List[float]]] = None, alpha_grid: Optional[List[float]] = None) -> "SklearnProbe":
         """
         Train probes on train data, select best using validation data, optionally evaluate on test data.
         
@@ -325,9 +333,9 @@ class SklearnProbe(Probe):
         If test data is provided, reports final performance on held-out test set.
         
         Args:
-            train_data: Tuple of (prompts, targets) for training
-            val_data: Tuple of (prompts, targets) for validation
-            test_data: Optional tuple of (prompts, targets) for testing
+            train_data: Tuple of (indices, prompts, targets) for training
+            val_data: Tuple of (indices, prompts, targets) for validation
+            test_data: Optional tuple of (indices, prompts, targets) for testing
             alpha_grid: Optional list of alpha values to search. If None, uses [1.0]
         
         Returns:
@@ -337,12 +345,18 @@ class SklearnProbe(Probe):
             raise RuntimeError("Must call setup() before train()")
         
         # Convert data tuples to lists
-        train_texts, train_labels = list(train_data[0]), list(train_data[1])
-        val_texts, val_labels = list(val_data[0]), list(val_data[1])
+        train_idxs, train_texts, train_labels = train_data
+        val_idxs, val_texts, val_labels = val_data
+        test_idxs = None
         test_texts = None
         test_labels = None
         if test_data is not None:
-            test_texts, test_labels = list(test_data[0]), list(test_data[1])
+            test_idxs, test_texts, test_labels = test_data
+        
+        # Store indices for reference
+        self.train_indices = train_idxs
+        self.val_indices = val_idxs
+        self.test_indices = test_idxs
         
         print(f"\n{'='*80}")
         print(f"SklearnProbe Training: Extracting activations")
@@ -414,23 +428,37 @@ class SklearnProbe(Probe):
         probe_model.fit(prompt_activations, targets)
         return probe_model
 
-    def predict(self, prompts: List[str] | np.ndarray) -> np.ndarray:
+    def predict(self, data) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Make predictions on new prompts using the best trained probe.
-        
-        If prompts are strings, extracts activations first.
-        If prompts are numpy arrays (pre-extracted activations), uses them directly.
+        Make predictions on new data using the best trained probe.
         
         Args:
-            prompts: Either list of prompt strings or pre-extracted activations array
+            data: Either:
+                - Tuple of (indices, prompts, targets) - extracts activations from prompts
+                - List of prompt strings - extracts activations first
+                - Numpy array of pre-extracted activations
         
         Returns:
-            Predictions from best probe (logits for regression, probabilities for classification)
+            Tuple of (indices_tensor, predictions_tensor):
+                - indices_tensor: torch.Tensor of dtype int32 with shape [N]
+                - predictions_tensor: torch.Tensor of dtype float32 with shape [N]
         """
         if self.best_probe is None:
             raise RuntimeError("Must call train() before predict()")
         
         assert self.task_type is not None, "task_type must be set before calling predict"
+        
+        # Handle tuple input (indices, prompts, targets) and extract indices
+        if isinstance(data, tuple) and len(data) == 3:
+            indices = list(data[0])  # Extract indices from (indices, prompts, targets)
+            prompts = list(data[1])  # Extract prompts
+        else:
+            # For non-tuple inputs, generate sequential indices
+            prompts = data
+            if isinstance(prompts, list):
+                indices = list(range(len(prompts)))
+            else:  # numpy array
+                indices = list(range(len(prompts)))
         
         # If prompts are strings, extract activations
         if isinstance(prompts, list) and len(prompts) > 0 and isinstance(prompts[0], str):
@@ -466,14 +494,20 @@ class SklearnProbe(Probe):
         else:  # classification
             predictions = self.best_probe.predict_proba(x_pred)[:, 1]
         
-        return predictions
+        # Return as formatted tensors for consistency with attn_probe
+        return (
+            torch.tensor(indices, dtype=torch.int32),
+            torch.tensor(predictions, dtype=torch.float32)
+        )
 
-    def save_probe(self, results_path: Path | str) -> None:
+    def save_probe(self, results_path: Path | str, metadata: dict | None = None) -> None:
         """
         Save the trained probe weights and metadata to disk.
         
         Args:
             results_path: Directory where to save the probe files
+            metadata: Optional full metadata dict (e.g., with test metrics). 
+                     If not provided, creates minimal metadata.
         
         Saves:
             - best_probe.joblib: The sklearn model with trained weights
@@ -489,18 +523,18 @@ class SklearnProbe(Probe):
         model_file = results_path / "best_probe.joblib"
         joblib.dump(self.best_probe, model_file)
         
-        # Save metadata needed for loading
-        metadata = {
-            "best_layer_idx": self.best_layer_idx,
-            "best_position_value": self.best_position_value,
-            "best_position_idx": self.best_pos_idx,
-            "best_alpha": self.best_alpha,
-            "best_val_score": float(self.best_val_score),
-            # "test_score": float(self.test_score),
-            "task_type": self.task_type,
-            "model_name": self.model_name,
-            "d_model": self.d_model,
-        }
+        # If no metadata provided, create minimal metadata for loading
+        if metadata is None:
+            metadata = {
+                "best_layer_idx": self.best_layer_idx,
+                "best_position_value": self.best_position_value,
+                "best_position_idx": self.best_pos_idx,
+                "best_alpha": self.best_alpha,
+                "best_val_score": float(self.best_val_score),
+                "task_type": self.task_type,
+                "model_name": self.model_name,
+                "d_model": self.d_model,
+            }
         
         metadata_file = results_path / "probe_metadata.json"
         with open(metadata_file, "w") as f:

@@ -64,7 +64,6 @@ class AttentionProbeConfig(BaseModel):
     'weight_decay',
     'max_length']
 
-
 class SklearnProbeConfig(BaseModel):
     """
     Sklearn probe config for ridge/logistic regression probes.
@@ -81,22 +80,13 @@ class SklearnProbeConfig(BaseModel):
     max_length: int = 1024
 
 
-class PromptingBaselineConfig(BaseModel):
-    """
-    Prompting baseline config for scoring models.
-    
-    Args:
-        batch_size: int                  Batch size for inference
-        generation_max_length: int       Maximum tokens for generation
-        max_length: int                  Maximum prompt length
-        generation_temperature: float    Temperature for generation sampling
-        prompt_template: dict            Dictionary with "System" and "User" prompt templates
-    """
-    batch_size: int = 16
-    generation_max_length: int = 500
-    max_length: int = 1024
-    generation_temperature: float = 1.0
-    prompt_template: dict = {
+PROMPTING_BASELINE = {
+    "batch_size": 16,
+    "generation_max_length": 500,
+    "max_length": 1024,
+    "generation_temperature": 1.0,
+
+    "prompt_template": {
         "System": "You are a metacognitive scoring model. Your job is to estimate the probability that you will solve the problem correctly under the stated constraints. Do NOT solve the problem. Do NOT provide steps. Output a single number between 0.0 and 1.0.",
         "User": """Target solver: {SOLVER_MODEL_NAME}
 Constraints: {k} attempts, max_tokens={T}, temperature={temp}
