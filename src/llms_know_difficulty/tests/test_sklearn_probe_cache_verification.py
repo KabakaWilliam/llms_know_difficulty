@@ -11,8 +11,8 @@ import numpy as np
 from pathlib import Path
 import time
 
-from ..probe.sklearn_probe import SklearnProbe
-from ..probe.probe_utils.sklearn_probe import sk_activation_utils
+from ..probe.linear_eoi_probe import LinearEoiProbe
+from ..probe.probe_utils.linear_eoi_probe import linear_eoi_probe_activation_utils
 
 
 def test_cache_verification():
@@ -23,7 +23,7 @@ def test_cache_verification():
     print("=" * 80)
     
     # Create probe instance
-    probe = SklearnProbe(config={})
+    probe = LinearEoiProbe(config={})
     
     # Setup with gpt2
     model_name = "gpt2"
@@ -48,7 +48,7 @@ def test_cache_verification():
     # First extraction - should extract and cache
     print("\n3. First activation extraction (will extract and cache)...")
     extract_start = time.time()
-    result_1 = sk_activation_utils.extract_or_load_activations(
+    result_1 = linear_eoi_probe_activation_utils.extract_or_load_activations(
         model=probe.model,
         tokenizer=probe.tokenizer,
         texts=test_texts,
@@ -76,7 +76,7 @@ def test_cache_verification():
     # Second extraction - should load from cache
     print("\n4. Second activation extraction (should load from cache)...")
     cache_start = time.time()
-    result_2 = sk_activation_utils.extract_or_load_activations(
+    result_2 = linear_eoi_probe_activation_utils.extract_or_load_activations(
         model=probe.model,
         tokenizer=probe.tokenizer,
         texts=test_texts,

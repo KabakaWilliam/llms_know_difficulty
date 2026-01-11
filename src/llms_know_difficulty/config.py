@@ -52,12 +52,12 @@ class AttentionProbeConfig(BaseModel):
     """
 
     learning_rate: list[float] = [1e-3]
-    batch_size: list[int] = [128]
+    batch_size: list[int] = [32]
     num_epochs: list[int] = [2]
     weight_decay: list[float] = [10.0]
     layer: list[int] = list(range(2)) # 29
     max_length: list[int] = [512]
-    test_mode: bool = True # TODO: Turn off for actual training.
+    test_mode: bool = False # TODO: Turn off for actual training.
     cv_metric: str = 'spearmanr'
     cross_validated_hyperparameters: list[str] = [
     'layer',
@@ -67,9 +67,9 @@ class AttentionProbeConfig(BaseModel):
     'weight_decay',
     'max_length']
 
-class SklearnProbeConfig(BaseModel):
+class LinearEOIProbeConfig(BaseModel):
     """
-    Sklearn probe config for ridge/logistic regression probes.
+    LinearEOI probe config for ridge/logistic regression probes.
     
     Args:
         model_name: str          Name of the base model to use for activation extraction

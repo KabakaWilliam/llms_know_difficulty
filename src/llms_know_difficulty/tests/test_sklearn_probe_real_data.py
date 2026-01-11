@@ -12,9 +12,9 @@ from pathlib import Path
 import time
 import json
 
-from ..probe.sklearn_probe import SklearnProbe
+from ..probe.linear_eoi_probe import LinearEoiProbe
 from ..metrics import compute_metrics
-from ..probe.probe_utils.sklearn_probe import sk_train_utils
+from ..probe.probe_utils.linear_eoi_probe import linear_eoi_probe_train_utils
 from ..config import ROOT_DATA_DIR
 from ..utils import create_results_path, infer_task_type
 

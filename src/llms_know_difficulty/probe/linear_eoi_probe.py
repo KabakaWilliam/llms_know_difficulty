@@ -17,15 +17,15 @@ from itertools import product
 
 from typing import List, Tuple, Optional
 from llms_know_difficulty.config import ROOT_ACTIVATION_DATA_DIR
-from llms_know_difficulty.probe.probe_utils.sklearn_probe import sk_activation_utils, sk_train_utils
+from llms_know_difficulty.probe.probe_utils.linear_eoi_probe import linear_eoi_probe_activation_utils, linear_eoi_probe_train_utils
 from sklearn.linear_model import LogisticRegression, Ridge
 from tqdm import tqdm
 from llms_know_difficulty.metrics import compute_metrics
 
-ROOT_ACTIVATION_DATA_DIR = os.path.join(ROOT_ACTIVATION_DATA_DIR,"sklearn_probe")
+ROOT_ACTIVATION_DATA_DIR = os.path.join(ROOT_ACTIVATION_DATA_DIR,"linear_eoi_probe")
 
 
-class SklearnProbe(Probe):
+class LinearEoiProbe(Probe):
     def __init__(self, config):
         super().__init__(config)
         self.config = config
@@ -72,7 +72,7 @@ class SklearnProbe(Probe):
 
     def name(self) -> str:
         """The name of the probe."""
-        return "eoi_probe"
+        return "linear_eoi_probe"
 
     def init_model(self, config: dict):
         """
@@ -80,7 +80,7 @@ class SklearnProbe(Probe):
         """
         raise NotImplementedError("Initializing a model from a checkpoint is not implemented for the eoi probe.")
 
-    def setup(self, model_name: str, device: str) -> "SklearnProbe":
+    def setup(self, model_name: str, device: str) -> "LinearEoiProbe":
         """
         Any pre-training loading steps, run before .fit or .predict.
         """
@@ -124,7 +124,7 @@ class SklearnProbe(Probe):
         for split_name, texts, labels in splits:
             print(f"  {split_name.capitalize()} split...", end=" ")
             
-            activation_data[split_name] = sk_activation_utils.extract_or_load_activations(
+            activation_data[split_name] = linear_eoi_probe_activation_utils.extract_or_load_activations(
                 model=self.model,
                 tokenizer=self.tokenizer,
                 texts=texts,
@@ -323,7 +323,7 @@ class SklearnProbe(Probe):
             print(f"  Test {self.metric_name}: {self.test_score:.4f}")
         print(f"{'='*80}")
 
-    def train(self, train_data: Tuple[List[int], List[str], List[float]], val_data: Tuple[List[int], List[str], List[float]], test_data: Optional[Tuple[List[int], List[str], List[float]]] = None, alpha_grid: Optional[List[float]] = None) -> "SklearnProbe":
+    def train(self, train_data: Tuple[List[int], List[str], List[float]], val_data: Tuple[List[int], List[str], List[float]], test_data: Optional[Tuple[List[int], List[str], List[float]]] = None, alpha_grid: Optional[List[float]] = None) -> "LinearEoiProbe":
         """
         Train probes on train data, select best using validation data, optionally evaluate on test data.
         
@@ -359,7 +359,7 @@ class SklearnProbe(Probe):
         self.test_indices = test_idxs
         
         print(f"\n{'='*80}")
-        print(f"SklearnProbe Training: Extracting activations")
+        print(f"LinearEoiProbe Training: Extracting activations")
         print(f"{'='*80}")
         print(f"Train samples: {len(train_texts)}")
         print(f"Val samples: {len(val_texts)}")
@@ -372,7 +372,7 @@ class SklearnProbe(Probe):
         self._extract_and_load_all_activations(train_texts, train_labels, val_texts, val_labels, test_texts, test_labels)
         
         # Infer task type from labels
-        self.task_type = sk_train_utils.infer_task_type(train_labels)
+        self.task_type = linear_eoi_probe_train_utils.infer_task_type(train_labels)
         self.metric_name = "spearman" if self.task_type == "regression" else "auc"
         print(f"Task type: {self.task_type}")
         print(f"Metric: {self.metric_name}")
@@ -465,7 +465,7 @@ class SklearnProbe(Probe):
             # Extract activations for the best position across all layers
             with torch.no_grad():
                 texts = prompts
-                activations_data = sk_activation_utils.extract_activations_from_texts(
+                activations_data = linear_eoi_probe_activation_utils.extract_activations_from_texts(
                     model=self.model,
                     tokenizer=self.tokenizer,
                     texts=texts,
@@ -541,7 +541,7 @@ class SklearnProbe(Probe):
             json.dump(metadata, f, indent=2)
     
     @classmethod
-    def load_from_checkpoint(cls, results_path: Path | str, device: str = "cuda") -> "SklearnProbe":
+    def load_from_checkpoint(cls, results_path: Path | str, device: str = "cuda") -> "LinearEoiProbe":
         """
         Load a trained probe from saved checkpoint.
         
@@ -550,7 +550,7 @@ class SklearnProbe(Probe):
             device: Device to load the model on (for activation extraction)
         
         Returns:
-            SklearnProbe instance ready for prediction
+            LinearEoiProbe instance ready for prediction
         """
         results_path = Path(results_path)
         

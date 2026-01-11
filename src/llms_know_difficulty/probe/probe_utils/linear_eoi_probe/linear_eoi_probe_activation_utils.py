@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from ....config import ROOT_ACTIVATION_DATA_DIR
 
-ROOT_ACTIVATION_DATA_DIR = os.path.join(ROOT_ACTIVATION_DATA_DIR,"sklearn_probe")
+ROOT_ACTIVATION_DATA_DIR = os.path.join(ROOT_ACTIVATION_DATA_DIR,"Linear_EOI_probe")
 def parse_layers_arg(layers_arg: str, num_hidden_states: int) -> List[int]:
     """
     Parse layer specification string.
