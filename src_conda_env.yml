@@ -1,4 +1,4 @@
-name: yugi
+name: diff-env
 channels:
   - conda-forge
   - defaults
@@ -124,7 +124,6 @@ dependencies:
       - dotenv==0.9.9
       - einops==0.8.1
       - email-validator==2.3.0
-      - en-core-web-sm==3.8.0
       - fastapi==0.121.3
       - fastapi-cli==0.0.16
       - fastapi-cloud-cli==0.5.1
@@ -358,4 +357,4 @@ dependencies:
       - xxhash==3.6.0
       - yarl==1.22.0
       - zipp==3.23.0
-prefix: /opt/anaconda/envs/yugi
+prefix: /opt/anaconda/envs/diff-env
