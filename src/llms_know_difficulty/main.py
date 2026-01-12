@@ -1,7 +1,7 @@
 import argparse
 import torch
-from probe.probe_factory import ProbeFactory
-from utils import (
+from llms_know_difficulty.probe.probe_factory import ProbeFactory
+from llms_know_difficulty.utils import (
     create_results_path,
     DataIngestionWorkflow,
     save_probe_predictions
@@ -29,8 +29,6 @@ def main():
         k=args.k,
         temperature=args.temperature)
     
-    # 2. Setup the various metrics we're using -> TODO
-
     # 3. Setup the results directory for the run 
     results_path = create_results_path(args.dataset, args.model, args.probe)
     print(f"Creating results directory at {results_path}")
