@@ -4,7 +4,7 @@ import torch.nn as nn
 
 from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score
-from .utils import infer_task_type
+from utils import infer_task_type
 
 def bin(y, n_bins=10, min_val=0.0, max_val=1.0):
     # Use torch bucketize to bin y into n_bins between min_val and max_val

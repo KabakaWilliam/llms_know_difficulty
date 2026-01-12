@@ -2,8 +2,9 @@
 from llms_know_difficulty.config import *
 from probe.base_probe import Probe
 from probe.attn_probe import AttnProbe
-from probe.sklearn_probe import SklearnProbe
-from llms_know_difficulty.config import SKLEARN_PROBE_CONFIG, AttentionProbeConfig, DEVICE
+from llms_know_difficulty.probe.linear_eoi_probe import LinearEoiProbe
+from llms_know_difficulty.probe.tfidf_probe import TfidfProbe
+from llms_know_difficulty.config import LinearEOIProbeConfig, AttentionProbeConfig, TfidfProbeConfig, DEVICE
 
 class ProbeFactory:
 
@@ -28,14 +29,21 @@ class ProbeFactory:
             probe = AttnProbe(AttentionProbeConfig())
             return probe.setup(**probe_setup_args)
             
-        elif probe_name == "sklearn_probe":
+        elif probe_name == "linear_eoi_probe":
 
             probe_setup_args = {
-                'model_name': kwargs.get('model_name'),
+                'model_name': kwargs.get('model'),
+                'device': DEVICE,
             }
-            return SklearnProbe(SKLEARN_PROBE_CONFIG), probe_setup_args
+            probe = LinearEoiProbe(LinearEOIProbeConfig())
+            print("Lets set up the probe ⚙️ ...")
+            return probe.setup(**probe_setup_args)
         
+        elif probe_name == "tfidf_probe":
 
+            probe = TfidfProbe(TfidfProbeConfig())
+            print("Lets set up the probe ⚙️ ...")
+            return probe.setup()
             
         else:
             raise NotImplementedError(f"Probe {probe_name} not implemented")

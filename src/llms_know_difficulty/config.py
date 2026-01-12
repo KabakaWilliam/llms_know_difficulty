@@ -26,6 +26,9 @@ DEVICE = "cuda:0"
 MODEL_HYPERPARAMETERS = {
     "Qwen/Qwen2.5-1.5B-Instruct":{
         'num_layers': 29 
+    },
+    "Qwen/Qwen2.5-Math-1.5B-Instruct":{
+        'num_layers': 29 
     }
 }
 
@@ -49,12 +52,12 @@ class AttentionProbeConfig(BaseModel):
     """
 
     learning_rate: list[float] = [1e-3]
-    batch_size: list[int] = [128]
+    batch_size: list[int] = [32]
     num_epochs: list[int] = [2]
     weight_decay: list[float] = [10.0]
     layer: list[int] = list(range(2)) # 29
     max_length: list[int] = [512]
-    test_mode: bool = True # TODO: Turn off for actual training.
+    test_mode: bool = False # TODO: Turn off for actual training.
     cv_metric: str = 'spearmanr'
     cross_validated_hyperparameters: list[str] = [
     'layer',
@@ -64,13 +67,33 @@ class AttentionProbeConfig(BaseModel):
     'weight_decay',
     'max_length']
 
+class LinearEOIProbeConfig(BaseModel):
+    """
+    LinearEOI probe config for ridge/logistic regression probes.
+    
+    Args:
+        model_name: str          Name of the base model to use for activation extraction
+        alpha_grid: list[float]  List of regularization strengths to grid search over
+        batch_size: int          Batch size for activation extraction
+        max_length: int          Maximum prompt length when tokenizing inputs
+    """
+    model_name: str = "gpt2"
+    alpha_grid: list[float] = [0, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000]
+    batch_size: int = 16
+    max_length: int = 1024
 
-SKLEARN_PROBE_CONFIG = {
-    "use_kfold": True,
-    "alpha_grid": [0, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000],
-    "batch_size": 16,
-    "max_length": 1024
-}
+class TfidfProbeConfig(BaseModel):
+    """
+    LinearEOI probe config for ridge/logistic regression probes.
+    
+    Args:
+        model_name: str          Name of the base model to use for activation extraction
+        alpha_grid: list[float]  List of regularization strengths to grid search over
+        batch_size: int          Batch size for activation extraction
+        max_length: int          Maximum prompt length when tokenizing inputs
+    """
+    alpha_grid: list[float] = [0, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000]
+    fit_intercept: bool = True
 
 
 PROMPTING_BASELINE = {

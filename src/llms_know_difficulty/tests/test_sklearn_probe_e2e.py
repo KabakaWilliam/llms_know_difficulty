@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-End-to-end test for SklearnProbe with specified_eoi_position parameter.
+End-to-end test for LinearEoiProbe with specified_eoi_position parameter.
 Tests the full train -> predict pipeline.
 """
 
@@ -8,8 +8,8 @@ import torch
 import numpy as np
 from typing import List, Tuple
 
-from ..probe.sklearn_probe import SklearnProbe
-from ..probe.probe_utils.sklearn_probe.sk_train_utils import compute_metric
+from ..probe.linear_eoi_probe import LinearEoiProbe
+from ..probe.probe_utils.linear_eoi_probe.linear_eoi_probe_train_utils import compute_metric
 
 
 def create_synthetic_data(n_samples: int = 50) -> Tuple[List[str], List[float], List[str], List[float], List[str], List[float]]:
@@ -31,14 +31,14 @@ def create_synthetic_data(n_samples: int = 50) -> Tuple[List[str], List[float], 
 
 
 def test_sklearn_probe():
-    """Test SklearnProbe with specified_eoi_position parameter."""
+    """Test LinearEoiProbe with specified_eoi_position parameter."""
     
     print("=" * 80)
-    print("Testing SklearnProbe End-to-End Pipeline")
+    print("Testing LinearEoiProbe End-to-End Pipeline")
     print("=" * 80)
     
     # Create probe instance
-    probe = SklearnProbe(config={})
+    probe = LinearEoiProbe(config={})
     
     # Setup with a small model for testing
     model_name = "gpt2"  # Small model for fast testing
