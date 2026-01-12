@@ -151,6 +151,102 @@ TOKENS_PER_MILLION = 1_000_000
 
 
 SIMPLE_MODEL_POOL_CONFIG = {
+    "Qwen/Qwen2.5-Coder-0.5B-Instruct": {
+        "model_base": "http://localhost:8001/v1",
+        "api_key": "token-abc1235",
+        "default_temperature": 0.6,
+        "default_max_tokens": 3000,
+        "mode_settings": {
+            "MATH": {
+                "prompt_sfx": prompt_sfx,
+                "default_temperature": 0.6,
+                "default_max_tokens": 3000,
+            }
+        },
+        # Fireworks serverless tier: <4B params = $0.10 / 1M tokens, cached input $0.05 / 1M
+        "model_costs": {
+            "input_per_mill": 0.10,
+            "cached_input_per_mill": 0.05,
+            "output_per_mill": 0.10,
+        }
+    },
+    "Qwen/Qwen2.5-Coder-1.5B-Instruct": {
+        "model_base": "http://localhost:8001/v1",
+        "api_key": "token-abc123",
+        "default_temperature": 0.6,
+        "default_max_tokens": 3000,
+        "mode_settings": {
+            "MATH": {
+                "prompt_sfx": prompt_sfx,
+                "default_temperature": 0.6,
+                "default_max_tokens": 3000,
+            }
+        },
+        # Fireworks serverless tier: <4B params = $0.10 / 1M tokens, cached input $0.05 / 1M
+        "model_costs": {
+            "input_per_mill": 0.10,
+            "cached_input_per_mill": 0.05,
+            "output_per_mill": 0.10,
+        }
+    },
+
+    "Qwen/Qwen2.5-Coder-7B-Instruct": {
+        "model_base": "http://localhost:8001/v2",
+        "api_key": "token-abc123",
+        "default_temperature": 0.6,
+        "default_max_tokens": 3000,
+        "mode_settings": {
+            "MATH": {
+                "prompt_sfx": prompt_sfx,
+                "default_temperature": 0.6,
+                "default_max_tokens": 3000,
+            }
+        },
+        # Fireworks serverless tier: 4B–16B params = $0.20 / 1M tokens, cached input $0.10 / 1M
+        "model_costs": {
+            "input_per_mill": 0.20,
+            "cached_input_per_mill": 0.10,
+            "output_per_mill": 0.20,
+        }
+    },
+    "Qwen/Qwen2.5-Coder-14B-Instruct": {
+        "model_base": "http://localhost:8001/v2",
+        "api_key": "token-abc123",
+        "default_temperature": 0.6,
+        "default_max_tokens": 3000,
+        "mode_settings": {
+            "MATH": {
+                "prompt_sfx": prompt_sfx,
+                "default_temperature": 0.6,
+                "default_max_tokens": 3000,
+            }
+        },
+        # Fireworks serverless tier: 4B–16B params = $0.20 / 1M tokens, cached input $0.10 / 1M
+        "model_costs": {
+            "input_per_mill": 0.20,
+            "cached_input_per_mill": 0.10,
+            "output_per_mill": 0.20,
+        }
+    },
+    "Qwen/Qwen2.5-Coder-32B-Instruct": {
+        "model_base": "http://localhost:8001/v2",
+        "api_key": "token-abc123",
+        "default_temperature": 0.6,
+        "default_max_tokens": 3000,
+        "mode_settings": {
+            "MATH": {
+                "prompt_sfx": prompt_sfx,
+                "default_temperature": 0.6,
+                "default_max_tokens": 3000,
+            }
+        },
+        # Fireworks serverless tier: 4B–16B params = $0.20 / 1M tokens, cached input $0.10 / 1M
+        "model_costs": {
+            "input_per_mill": 0.90,
+            "cached_input_per_mill": 0.10,
+            "output_per_mill": 0.90,
+        }
+    },
     "Qwen/Qwen2.5-Math-1.5B-Instruct": {
         "model_base": "http://localhost:8001/v1",
         "api_key": "token-abc123",

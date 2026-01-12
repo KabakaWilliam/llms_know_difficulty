@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 10
 SANDBOX_FUSION_URL = os.getenv("SANDBOX_FUSION_URL", "http://localhost:8080/run_code")
-
+# run the apptainer.sh script
 
 def _process_single_test_case(
     case_index: int,
@@ -276,6 +276,7 @@ def check_correctness(
     memory_limit_mb: int = 1024,
     language: str = "python",
     concurrent_semaphore: Optional[threading.Semaphore] = None,
+    max_concurrent_API_requests: int = 8,
 ) -> tuple[list[Any], list[dict[str, Any]]]:
     """
     Check correctness of code generation using Sandbox Fusion.
@@ -331,8 +332,8 @@ def check_correctness(
     metadata_list = [None] * num_cases
 
     # Process all test cases using ThreadPoolExecutor with limited concurrency
-    # Limit to fewer workers to avoid overwhelming the sandbox
-    max_workers = min(2, num_cases)  # Use at most 2 concurrent workers
+    # max_workers = 2x the API concurrency limit to allow task queueing without excessive threading
+    max_workers = min(max_concurrent_API_requests * 2, num_cases)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_index = {
             executor.submit(
@@ -367,3 +368,151 @@ def check_correctness(
         logger.info(f"Correctness check finished. Results: {results}")
 
     return results, metadata_list
+
+def compute_sample_pass(solution_str, ground_truth, concurrent_semaphore: Optional[threading.Semaphore] = None, memory_limit_mb: int = 512, max_concurrent_API_requests: int = 8) -> bool:
+    try:
+        results, _ = check_correctness(
+            in_outs=ground_truth,
+            generation=solution_str,
+            timeout=10,
+            debug=False,
+            memory_limit_mb=memory_limit_mb,
+            language="python",
+            concurrent_semaphore=concurrent_semaphore,
+            max_concurrent_API_requests=max_concurrent_API_requests,
+        )
+        return all(r is True for r in results)
+    except Exception:
+        return False
+
+
+def pass_at_k_direct(solution_list, ground_truth, k: int, concurrent_semaphore: Optional[threading.Semaphore] = None, memory_limit_mb: int = 512, max_concurrent_API_requests: int = 8) -> float:
+    """1.0 if any of the first k solutions solves the problem, else 0.0"""
+    k = min(k, len(solution_list))
+    for sol in solution_list[:k]:
+        if compute_sample_pass(sol, ground_truth, concurrent_semaphore=concurrent_semaphore, memory_limit_mb=memory_limit_mb, max_concurrent_API_requests=max_concurrent_API_requests):
+            return 1.0
+    return 0.0
+
+def compute_score(solution_list, ground_truth, max_concurrent_API_requests: int = 8, sandbox_memory_limit_mb: int = 1024):
+    """Compute pass@k score with coordinated concurrency control.
+    
+    Args:
+        solution_list: List of solution strings to evaluate
+        ground_truth: Expected outputs for scoring
+        max_concurrent_API_requests: Max concurrent sandbox API calls (default 8 to avoid sandbox overload)
+        sandbox_memory_limit_mb: Memory limit per sandbox execution
+    """
+    concurrent_semaphore = threading.Semaphore(max_concurrent_API_requests)
+    return pass_at_k_direct(solution_list, ground_truth, k=len(solution_list), concurrent_semaphore=concurrent_semaphore, memory_limit_mb=sandbox_memory_limit_mb, max_concurrent_API_requests=max_concurrent_API_requests)
+
+
+
+def format_test_case(test_case):
+    """
+    Transform test_case from list format to dict format expected by compute_score.
+    
+    Converts: [{"input": "...", "output": "...", ...}]
+    To:       {"inputs": [...], "outputs": [...]}
+    """
+    # If it's a JSON string, parse it first
+    if isinstance(test_case, str):
+        try:
+            test_case = json.loads(test_case)
+        except json.JSONDecodeError:
+            raise ValueError(f"Invalid JSON string: {test_case[:100]}")
+
+    # Now convert from list format to dict format
+    if isinstance(test_case, list):
+        inputs = [tc["input"] for tc in test_case]
+        outputs = [tc["output"] for tc in test_case]
+        test_case_formatted = {"inputs": inputs, "outputs": outputs}
+    elif isinstance(test_case, dict):
+        # Already in dict format
+        test_case_formatted = test_case
+    else:
+        raise ValueError(f"Unexpected test_case type: {type(test_case)}")
+
+    return test_case_formatted
+
+def load_encoded_test_case(encoded_test_case):
+    """
+    Decode a test case that has been base64 encoded, zlib compressed, and pickled.
+    
+    Args:
+        encoded_test_case: String containing base64-encoded, zlib-compressed, pickled data
+        
+    Returns:
+        Decoded test case (usually a list of dicts with 'input' and 'output' keys)
+    """
+    import base64
+    import zlib
+    import pickle
+    try:
+        # Decode from base64
+        decoded = base64.b64decode(encoded_test_case)
+        # print(f"✓ Base64 decoded: {len(decoded)} bytes")
+        
+        # Decompress with zlib
+        decompressed = zlib.decompress(decoded)
+        # print(f"✓ Zlib decompressed: {len(decompressed)} bytes")
+        
+        # Unpickle
+        test_case = pickle.loads(decompressed)
+        # print(f"✓ Unpickled: {type(test_case)}")
+        return test_case
+    except Exception as e:
+        print(f"✗ Error decoding test case:")
+        print(f"  Type: {type(e).__name__}")
+        print(f"  Message: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+def decode_public_test_case(public_test_case_str):
+    """
+    Decode public test cases from JSON string format.
+    
+    Args:
+        public_test_case_str: JSON string containing test cases
+        
+    Returns:
+        List of test case dicts with 'input' and 'output' keys
+    """
+    try:
+        test_cases = json.loads(public_test_case_str)
+        test_cases = format_test_case(test_cases)
+        return test_cases
+    except json.JSONDecodeError as e:
+        print(f"✗ Error decoding public test case: {e}")
+        raise
+
+def extract_solution(private_test_case):
+    loaded_test_case = load_encoded_test_case(private_test_case)
+    test_case_formatted = format_test_case(loaded_test_case)
+    return test_case_formatted
+
+CODING_SYSTEM_PROMPT = (
+  "You are an expert Python programmer. You will be given a question "
+  "(problem specification) and will generate a correct Python program that "
+  "matches the specification and passes all tests. You will NOT return anything "
+  "except for the program."
+)
+
+PROBLEM_STATEMENT = """### Question:
+{PROMPT}
+
+### Format:
+Return ONLY the program in a single Python markdown code block.
+
+```python
+# YOUR CODE HERE
+```"""
+
+def format_prompts_for_eval(prompt, tokenizer):
+    sample_messages=[{"role": "system", "content": CODING_SYSTEM_PROMPT},{"role": "user", "content": PROBLEM_STATEMENT.format(PROMPT=prompt)}]
+    templated_prompt = tokenizer.apply_chat_template(sample_messages, tokenize=False, add_generation_prompt=True)
+    # added for gpt-oss models
+    templated_prompt = templated_prompt.replace("Reasoning: medium", "Reasoning: high")
+
+    return templated_prompt
