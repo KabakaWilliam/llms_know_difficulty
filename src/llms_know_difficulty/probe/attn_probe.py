@@ -22,7 +22,7 @@ class AttnLite(nn.Module):
         self.context_query = nn.Linear(d_model, 1)
         self.classifier = nn.Linear(d_model, 1)
 
-    def forward(self, xs): # xs: [B, T, D]
+    def forward(self, xs: torch.Tensor, mask: torch.Tensor): # xs: [B, T, D]
         """
         Forward pass through the attention probe.
 
@@ -31,6 +31,10 @@ class AttnLite(nn.Module):
                 B - batch size
                 T - sequence length
                 D - hidden size
+            mask: A tensor of shape [B, T] where:
+                B - batch size
+                T - sequence length
+                The mask is used to mask out the padding tokens.
         Returns:
             A tensor of shape [B] where each element is the logit for the next token in the sequence.
 
@@ -256,7 +260,7 @@ class AttnProbe(Probe):
                 layer_indices=[eval_layer],
             )
 
-            preds = probe(activations)
+            preds = probe(activations, mask=attention_mask)
             ids.append(idx)
             outputs.append(preds)
             targets.append(ys)
@@ -324,7 +328,7 @@ class AttnProbe(Probe):
                 layer_indices=[self.best_layer_id],
             )
 
-            preds = self.best_probe(activations)
+            preds = self.best_probe(activations, attention_mask=attention_mask)
             outputs.append(preds.cpu().detach())
             ids_list.append(ids)
         
@@ -394,7 +398,7 @@ class AttnProbe(Probe):
                     layer_indices=[layer],
                 )
 
-                preds = probe(activations)
+                preds = probe(activations, mask=attention_mask)
                 loss = loss_fn(preds, ys)
 
                 optimizer.zero_grad(set_to_none=True)

@@ -67,6 +67,31 @@ class AttentionProbeConfig(BaseModel):
     'weight_decay',
     'max_length']
 
+class LinearThenMaxProbeConfig(AttentionProbeConfig):
+    """
+    Inherits from the AttentionProbeConfig. Adds no new hyperparameters. 
+    """
+
+class LinearThenSoftmaxProbeConfig(AttentionProbeConfig):
+    """
+    Inherits from the AttentionProbeConfig. Adds no new hyperparameters. 
+    """
+
+class LinearThenRollingMaxProbeConfig(AttentionProbeConfig):
+    """
+    Inherits from the AttentionProbeConfig. Adds no new hyperparameters. 
+    """
+    window_size: list[int] = [10]
+    cross_validated_hyperparameters: list[str] = [
+        'layer',
+        'batch_size',
+        'learning_rate',
+        'num_epochs',
+        'weight_decay',
+        'max_length',
+        'window_size']
+
+
 class LinearEOIProbeConfig(BaseModel):
     """
     LinearEOI probe config for ridge/logistic regression probes.
