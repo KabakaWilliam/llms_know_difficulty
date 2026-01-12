@@ -55,7 +55,7 @@ class AttentionProbeConfig(BaseModel):
     batch_size: list[int] = [128]
     num_epochs: list[int] = [4]
     weight_decay: list[float] = [10.0]
-    layer: list[int] = list(range(0, 29, 2))
+    layer: list[int] = [-1]
     max_length: list[int] = [512]
     test_mode: bool = False # TODO: Turn off for actual training.
     cv_metric: str = 'spearmanr'

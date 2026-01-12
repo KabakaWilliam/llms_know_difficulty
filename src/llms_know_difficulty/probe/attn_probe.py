@@ -1,7 +1,7 @@
 import itertools
 from typing import Any, Tuple
 from pathlib import Path
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 import torch
 import torch.nn as nn
 import math
@@ -117,11 +117,14 @@ class AttnProbe(Probe):
         for p in self.model.parameters():
             p.requires_grad_(False)
 
+        model_config = AutoConfig.from_pretrained(model_name)
+        self.n_layers = model_config.num_hidden_layers
+
         self.model_name = model_name  # Store model name
         self.d_model = self.model.config.hidden_size
         self.device = self.config.get('device', 'cuda:0')
-        self.cv_layers = self.config.get('layer_indices', list(range(29))) # Hard coded for now, TODO: Make this dynamic or stored in config.
-        
+
+     
         # Variables that store the best probe after training:
         self.best_probe = None
         self.best_hyperparameters = None
@@ -155,9 +158,15 @@ class AttnProbe(Probe):
             hyper_values = self.config.get(hyper_name, None)
             if hyper_values is None or not isinstance(hyper_values, list):
                 raise ValueError(
-                    f"""Attention probe config error!
-                    Cross_validated_hyperparameter includes {hyper_name} but {hyper_name} does not provide a list of values.
+                    f"""Attention probe config error! Cross_validated_hyperparameter includes {hyper_name} but {hyper_name} does not provide a list of values.
                     {hyper_name} set to {hyper_values} in AttentionProbeConfig inconfig.py""")
+            
+            if hyper_name == 'layer':
+                if hyper_values[0] == -1:
+                    hyper_values = list(range(0, self.n_layers, 2))
+                else:
+                    hyper_values = [int(layer) for layer in hyper_values]
+
             cv_hyper_values.append(hyper_values)
 
         # Create a grid of all combinations of the hyperparameters:
