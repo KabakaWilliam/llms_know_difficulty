@@ -16,13 +16,13 @@ from scipy.stats import spearmanr
 
 class AttnLite(nn.Module):
     
-    def __init__(self, d_model: int):
+    def __init__(self, d_model: int, **kwargs: Any):
         super().__init__()
         self.scale = math.sqrt(d_model)
         self.context_query = nn.Linear(d_model, 1)
         self.classifier = nn.Linear(d_model, 1)
 
-    def forward(self, xs): # xs: [B, T, D]
+    def forward(self, xs: torch.Tensor, mask: torch.Tensor): # xs: [B, T, D]
         """
         Forward pass through the attention probe.
 
@@ -31,6 +31,10 @@ class AttnLite(nn.Module):
                 B - batch size
                 T - sequence length
                 D - hidden size
+            mask: A tensor of shape [B, T] where:
+                B - batch size
+                T - sequence length
+                The mask is used to mask out the padding tokens.
         Returns:
             A tensor of shape [B] where each element is the logit for the next token in the sequence.
 
@@ -44,6 +48,72 @@ class AttnLite(nn.Module):
         sequence_logits = self.classifier(context).squeeze(-1)
 
         return sequence_logits
+
+class LinearThenAgg(nn.Module):
+    """
+    Base class for linear then aggregation probes.
+    Subclasses must implement the agg method.
+    """
+
+    def __init__(
+        self,
+        embed_dim: int,
+        **kwargs: Any,
+    ):
+        super().__init__()
+        self.linear = nn.Linear(embed_dim, 1)
+        self.kwargs = kwargs
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Forward pass through a linear layer then aggregate the outputs.
+
+        Args:
+            x: A tensor of shape [B, T, D] where:
+                B - batch size
+                T - sequence length
+                D - hidden size
+            mask: A tensor of shape [B, T] where:
+                B - batch size
+                T - sequence length
+                The mask is used to mask out the padding tokens.
+        Returns:
+            A tensor of shape [B] where each element is the aggregated output of the linear layer.
+        """
+
+        x = self.linear(x).squeeze(-1)
+        x = self.agg(x, mask)
+        return x
+
+    def agg(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError("Subclass must implement this method")
+
+
+class LinearThenMax(LinearThenAgg):
+    def agg(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        return x.max(dim=1).values
+
+
+class LinearThenSoftmax(LinearThenAgg):
+    def agg(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+
+        mask = mask.to(torch.bool)
+        temperature = self.kwargs["temperature"]
+        x_for_softmax = x.masked_fill(~mask, float("-inf"))
+        weights = torch.softmax(x_for_softmax / temperature, dim=1)
+        return (x * weights).sum(dim=1)
+
+
+class LinearThenRollingMax(LinearThenAgg):
+    def agg(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        window_size = self.kwargs["window_size"]
+        windows = x.unfold(1, window_size, 1)
+        window_means = windows.mean(dim=2)
+        return window_means.max(dim=1).values
 
 @dataclass
 class CollateConfig:
@@ -90,8 +160,16 @@ class TextNumberDataset(Dataset):
         return torch.tensor(ids, dtype=torch.int32), text, torch.tensor(y, dtype=torch.float32)
 
 
-class AttnProbe(Probe):
+class TorchProbe(Probe):
     def __init__(self, config):
+        """
+        TorchProbe trains a vareity of probes using a standard torch training loop.
+
+        Args:
+            config: The configuration for the probe.
+        """
+
+
         super().__init__(config)
         self.config = config.model_dump()
 
@@ -100,12 +178,14 @@ class AttnProbe(Probe):
         """The name of the probe."""
         return "attn_probe"
 
-    def setup(self, model_name: str, device: str) -> "AttnProbe":
+    def setup(self, model_name: str, device: str, ProbeClass: nn.Module) -> "TorchProbe":
         """
         Any pre-training loading steps, run before .fit or .predict.
 
         TODO: Automatic discovery of number of layers...
         """
+
+        self.ProbeClass = ProbeClass
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
         if self.tokenizer.pad_token is None:
@@ -139,7 +219,7 @@ class AttnProbe(Probe):
         raise NotImplementedError("Initializing a model from a checkpoint is not implemented for the attention probe.")
 
     def train(self, train_data: tuple[list[str], list[float]],
-              val_data: tuple[list[str], list[float]]) -> "AttnProbe":
+              val_data: tuple[list[str], list[float]]) -> "TorchProbe":
         """
         Train a probe on the training data, evaluate on the validation data, and repeat, returning the best probe.
         """
@@ -212,7 +292,11 @@ class AttnProbe(Probe):
         return self
 
 
-    def evaluate(self, probe: AttnLite, idx:list[int], prompts: list[str], targets: list[float], hyperparameters: dict) -> dict:
+    def evaluate(self, probe: AttnLite,
+                        idx:list[int],
+                        prompts: list[str],
+                        targets: list[float],
+                        hyperparameters: dict) -> dict:
         """
         Evaluate the probe's performance on some eval dataset.
         """
@@ -256,7 +340,7 @@ class AttnProbe(Probe):
                 layer_indices=[eval_layer],
             )
 
-            preds = probe(activations)
+            preds = probe(activations, mask=attention_mask)
             ids.append(idx)
             outputs.append(preds)
             targets.append(ys)
@@ -324,7 +408,7 @@ class AttnProbe(Probe):
                 layer_indices=[self.best_layer_id],
             )
 
-            preds = self.best_probe(activations)
+            preds = self.best_probe(activations, attention_mask=attention_mask)
             outputs.append(preds.cpu().detach())
             ids_list.append(ids)
         
@@ -341,7 +425,8 @@ class AttnProbe(Probe):
                 learning_rate:float,
                 num_epochs:int,
                 weight_decay:float,
-                max_length:int) -> None:
+                max_length:int,
+                **kwargs) -> None:
         """
         Run a single training loop for the attention probe. Very simple no validation or logging ortracking etc...
 
@@ -367,7 +452,7 @@ class AttnProbe(Probe):
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
 
         # Setup the probe:
-        probe = AttnLite(self.d_model).to(self.device)
+        probe = self.ProbeClass(self.d_model, **kwargs).to(self.device)
         optimizer = torch.optim.AdamW(probe.parameters(), lr=learning_rate)
         loss_fn = nn.MSELoss()
 
@@ -394,7 +479,7 @@ class AttnProbe(Probe):
                     layer_indices=[layer],
                 )
 
-                preds = probe(activations)
+                preds = probe(activations, mask=attention_mask)
                 loss = loss_fn(preds, ys)
 
                 optimizer.zero_grad(set_to_none=True)
@@ -487,8 +572,8 @@ class AttnProbe(Probe):
             warning("Best probe already loaded. Overwriting...")
 
         state_dict = torch.load(path / "best_probe.pt")
-        self.best_probe = AttnLite(self.d_model).to(self.device).load_state_dict(state_dict['best_probe_state_dict'])
         self.best_hyperparameters = state_dict['best_hyperparameters']
+        self.best_probe = self.ProbeClass(self.d_model, **self.best_hyperparameters).to(self.device).load_state_dict(state_dict['best_probe_state_dict'])
         self.best_layer_id = state_dict['best_layer_id']
         self.best_metrics = state_dict['best_metrics']
 
