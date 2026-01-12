@@ -1,15 +1,16 @@
 
 from llms_know_difficulty.config import *
 from llms_know_difficulty.probe.base_probe import Probe
-from llms_know_difficulty.probe.attn_probe import AttnProbe
-from llms_know_difficulty.probe.linear_eoi_probe import LinearEoiProbe
-from llms_know_difficulty.probe.linear_then_probes import (
+from llms_know_difficulty.probe.torch_probe import (
+    TorchProbe,
+    AttnLite,
     LinearThenMax,
     LinearThenSoftmax,
     LinearThenRollingMax,
-    LinearThenProbe
-)
-#from llms_know_difficulty.probe.tfidf_probe import TfidfProbe
+) 
+from llms_know_difficulty.probe.linear_eoi_probe import LinearEoiProbe
+
+from llms_know_difficulty.probe.tfidf_probe import TfidfProbe
 from llms_know_difficulty.config import LinearEOIProbeConfig, AttentionProbeConfig, TfidfProbeConfig, DEVICE
 
 class ProbeFactory:
@@ -30,9 +31,9 @@ class ProbeFactory:
             probe_setup_args = {
                 'model_name': kwargs.get('model'),
                 'device': DEVICE,
-                # other huggingface loading args go here ...
+                'ProbeClass': AttnLite,
             }
-            probe = AttnProbe(AttentionProbeConfig())
+            probe = TorchProbe(AttentionProbeConfig())
             return probe.setup(**probe_setup_args)
             
         elif probe_name == "linear_eoi_probe":
@@ -59,7 +60,7 @@ class ProbeFactory:
                 'ProbeClass': LinearThenMax
             }
 
-            probe = LinearThenProbe(LinearThenMaxProbeConfig())
+            probe = TorchProbe(LinearThenMaxProbeConfig())
             print("Lets set up the probe ⚙️ ...")
             return probe.setup(**probe_setup_args)
 
@@ -71,7 +72,7 @@ class ProbeFactory:
                 'ProbeClass': LinearThenSoftmax
             }
 
-            probe = LinearThenProbe(LinearThenSoftmaxProbeConfig())
+            probe = TorchProbe(LinearThenSoftmaxProbeConfig())
             print("Lets set up the probe ⚙️ ...")
             return probe.setup(**probe_setup_args)
 
@@ -83,7 +84,7 @@ class ProbeFactory:
                 'ProbeClass': LinearThenRollingMax
             }
 
-            probe = LinearThenProbe(LinearThenRollingMaxProbeConfig())
+            probe = TorchProbe(LinearThenRollingMaxProbeConfig())
             print("Lets set up the probe ⚙️ ...")
             return probe.setup(**probe_setup_args)
 
