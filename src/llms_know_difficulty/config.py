@@ -54,7 +54,7 @@ class AttentionProbeConfig(BaseModel):
     learning_rate: list[float] = [1e-3]
     batch_size: list[int] = [128]
     num_epochs: list[int] = [4]
-    weight_decay: list[float] = [10.0]
+    weight_decay: list[float] = [1000.0]
     layer: list[int] = [-1]
     max_length: list[int] = [512]
     test_mode: bool = False # TODO: Turn off for actual training.
@@ -66,6 +66,41 @@ class AttentionProbeConfig(BaseModel):
     'num_epochs',
     'weight_decay',
     'max_length']
+
+class LinearThenMaxProbeConfig(AttentionProbeConfig):
+    """
+    Inherits from the AttentionProbeConfig. Adds no new hyperparameters. 
+    """
+
+class LinearThenSoftmaxProbeConfig(AttentionProbeConfig):
+    """
+    Inherits from the AttentionProbeConfig. Adds no new hyperparameters. 
+    """
+    temperature: list[float] = [5.0]
+    weight_decay: list[float] = [1000.0]
+    cross_validated_hyperparameters: list[str] = [
+        'layer',
+        'batch_size',
+        'learning_rate',
+        'num_epochs',
+        'weight_decay',
+        'max_length',
+        'temperature']
+
+class LinearThenRollingMaxProbeConfig(AttentionProbeConfig):
+    """
+    Inherits from the AttentionProbeConfig. Adds no new hyperparameters. 
+    """
+    window_size: list[int] = [40]
+    cross_validated_hyperparameters: list[str] = [
+        'layer',
+        'batch_size',
+        'learning_rate',
+        'num_epochs',
+        'weight_decay',
+        'max_length',
+        'window_size']
+
 
 class LinearEOIProbeConfig(BaseModel):
     """

@@ -1,8 +1,15 @@
 
 from llms_know_difficulty.config import *
-from probe.base_probe import Probe
-from probe.attn_probe import AttnProbe
+from llms_know_difficulty.probe.base_probe import Probe
+from llms_know_difficulty.probe.torch_probe import (
+    TorchProbe,
+    AttnLite,
+    LinearThenMax,
+    LinearThenSoftmax,
+    LinearThenRollingMax,
+) 
 from llms_know_difficulty.probe.linear_eoi_probe import LinearEoiProbe
+
 from llms_know_difficulty.probe.tfidf_probe import TfidfProbe
 from llms_know_difficulty.config import LinearEOIProbeConfig, AttentionProbeConfig, TfidfProbeConfig, DEVICE
 
@@ -24,9 +31,9 @@ class ProbeFactory:
             probe_setup_args = {
                 'model_name': kwargs.get('model'),
                 'device': DEVICE,
-                # other huggingface loading args go here ...
+                'ProbeClass': AttnLite,
             }
-            probe = AttnProbe(AttentionProbeConfig())
+            probe = TorchProbe(AttentionProbeConfig())
             return probe.setup(**probe_setup_args)
             
         elif probe_name == "linear_eoi_probe":
@@ -44,6 +51,42 @@ class ProbeFactory:
             probe = TfidfProbe(TfidfProbeConfig())
             print("Lets set up the probe ⚙️ ...")
             return probe.setup()
-            
+
+        elif probe_name == "linear_then_max_probe":
+
+            probe_setup_args = {
+                'model_name': kwargs.get('model'),
+                'device': DEVICE,
+                'ProbeClass': LinearThenMax
+            }
+
+            probe = TorchProbe(LinearThenMaxProbeConfig())
+            print("Lets set up the probe ⚙️ ...")
+            return probe.setup(**probe_setup_args)
+
+        elif probe_name == "linear_then_softmax_probe":
+
+            probe_setup_args = {
+                'model_name': kwargs.get('model'),
+                'device': DEVICE,
+                'ProbeClass': LinearThenSoftmax
+            }
+
+            probe = TorchProbe(LinearThenSoftmaxProbeConfig())
+            print("Lets set up the probe ⚙️ ...")
+            return probe.setup(**probe_setup_args)
+
+
+        elif probe_name == "linear_then_rolling_max_probe":
+            probe_setup_args = {
+                'model_name': kwargs.get('model'),
+                'device': DEVICE,
+                'ProbeClass': LinearThenRollingMax
+            }
+
+            probe = TorchProbe(LinearThenRollingMaxProbeConfig())
+            print("Lets set up the probe ⚙️ ...")
+            return probe.setup(**probe_setup_args)
+
         else:
             raise NotImplementedError(f"Probe {probe_name} not implemented")

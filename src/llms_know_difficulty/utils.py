@@ -288,5 +288,5 @@ class DataIngestionWorkflow:
                                 file_name)
 
 
-    def download(file_id: str, output_dir: str):
-        pass
+    def download(file_id: str, output_dir: str, **kwargs):
+        raise NotImplementedError("Download functionality not implemented yet")
