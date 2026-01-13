@@ -4,14 +4,12 @@ from create_success_rate_datasets import main
 import pprint
 
 if __name__ == "__main__":
-    temperatures = [0.0, 0.5, 1.0]
+    temperatures = [1.0]
     models = [
-        "Qwen/Qwen2.5-Math-1.5B-Instruct",
+        # "Qwen/Qwen2.5-Math-1.5B-Instruct",
         "Qwen/Qwen2.5-Math-7B-Instruct",
-        "Qwen/Qwen2.5-Math-72B-Instruct",
-        "Qwen/Qwen2.5-1.5B-Instruct",
-        "Qwen/Qwen2.5-7B-Instruct",
-        "Qwen/Qwen2.5-72B-Instruct",
+        # "Qwen/Qwen2.5-1.5B-Instruct",
+        # "Qwen/Qwen2.5-7B-Instruct",
     ]
 
     executor = submitit.AutoExecutor(folder="logs")
@@ -22,7 +20,7 @@ if __name__ == "__main__":
         cpus_per_task=96,
         gpus_per_node=8,
         mem=128000,
-        slurm_array_parallelism=6,  # max concurrent jobs
+        slurm_array_parallelism=4,  # max concurrent jobs
     )
 
     jobs = []
@@ -32,11 +30,11 @@ if __name__ == "__main__":
         else:
             num_rollouts_per_question = 50
         if "72B" in model:
-            max_questions_per_split = 100
             tensor_parallel_size = 8
         else:
-            max_questions_per_split = 1000
             tensor_parallel_size = 1
+
+        max_questions_per_split = None
 
         job = executor.submit(
             main, 

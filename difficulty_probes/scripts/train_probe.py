@@ -225,13 +225,16 @@ def train_single_layer_probe(
         final_model.fit(x_train, y_train)
         
         train_preds = final_model.predict(x_train)
-        test_preds = final_model.predict(x_test)
-        
         train_corr = spearmanr(y_train, train_preds)
         train_perf = train_corr[0] if isinstance(train_corr, tuple) else train_corr.correlation
         
-        test_corr = spearmanr(y_test, test_preds)
-        test_perf = test_corr[0] if isinstance(test_corr, tuple) else test_corr.correlation
+        if x_test is not None:
+            test_preds = final_model.predict(x_test)
+            test_corr = spearmanr(y_test, test_preds)
+            test_perf = test_corr[0] if isinstance(test_corr, tuple) else test_corr.correlation
+        else:
+            test_preds = None
+            test_perf = None
         
     else:  # classification
         if selected_alpha == 0:
@@ -253,11 +256,16 @@ def train_single_layer_probe(
         final_model.fit(x_train, y_train)
         
         train_preds = final_model.predict_proba(x_train)[:, 1]
-        test_preds = final_model.predict_proba(x_test)[:, 1]
-        
         train_perf = roc_auc_score(y_train, train_preds)
-        test_perf = roc_auc_score(y_test, test_preds)
+
+        if x_test is not None:
+            test_preds = final_model.predict_proba(x_test)[:, 1]
+            test_perf = roc_auc_score(y_test, test_preds)
+        else:
+            test_preds = None
+            test_perf = None
     
+    # TODO: Messy, this should be a dict
     return train_preds, test_preds, cv_preds, train_perf, test_perf, cv_perf, final_model, selected_alpha, alpha_scores
 
 

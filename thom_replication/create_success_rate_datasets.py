@@ -1,6 +1,8 @@
 # Largely the same as predicting_learnability/rollout_success_rate.py but a bit cleaner
 # and uses our own verification functions
 
+import base64
+
 
 def get_task(name):
     import os

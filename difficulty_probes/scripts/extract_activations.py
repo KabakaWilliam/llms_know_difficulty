@@ -13,6 +13,7 @@ import torch
 import pandas as pd
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from tqdm import tqdm
+from datasets import load_dataset
 
 
 def get_eoi_toks(tokenizer: AutoTokenizer) -> List[int]:
@@ -193,26 +194,27 @@ def extract_and_save_activations(
 
     # Load dataset
     print(f"Loading dataset from {dataset_path}...")
-    df = pd.read_parquet(dataset_path)
+    # df = pd.read_parquet(dataset_path)
+    df = load_dataset(dataset_path)['train'].to_pandas()
     
     # Check required columns exist
     if question_column not in df.columns:
         raise ValueError(f"Column '{question_column}' not found in dataset. Available: {df.columns.tolist()}")
-    if label_column not in df.columns:
-        raise ValueError(f"Column '{label_column}' not found in dataset. Available: {df.columns.tolist()}")
+    # if label_column not in df.columns:
+        # raise ValueError(f"Column '{label_column}' not found in dataset. Available: {df.columns.tolist()}")
     
     print(f"Dataset columns: {df.columns.tolist()}")
     print(f"Using '{question_column}' as questions, '{label_column}' as labels")
 
     # Prepare data
     texts = []
-    labels = []
+    # labels = []
     
     n_samples = min(len(df), max_samples) if max_samples is not None else len(df)
     
     for idx in range(n_samples):
         question = df[question_column].iloc[idx]
-        label = df[label_column].iloc[idx]
+        # label = df[label_column].iloc[idx]
         
         # Apply chat template if needed (though usually already formatted)
         if use_chat_template and hasattr(tokenizer, 'apply_chat_template'):
@@ -220,8 +222,9 @@ def extract_and_save_activations(
             question = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         
         texts.append(question)
-        labels.append(float(label))
+        # labels.append(float(label))
 
+    breakpoint()
     print(f"Processing {len(texts)} samples...")
 
     # Extract activations in batches
@@ -252,10 +255,10 @@ def extract_and_save_activations(
 
     # Concatenate all batches
     all_activations = torch.cat(all_activations, dim=0)  # [N, L, P, D]
-    labels = torch.tensor(labels, dtype=torch.float32)  # [N]
+    # labels = torch.tensor(labels, dtype=torch.float32)  # [N]
 
     print(f"Activations shape: {all_activations.shape}")
-    print(f"Labels shape: {labels.shape}")
+    # print(f"Labels shape: {labels.shape}")
     print(f"  N={all_activations.shape[0]} samples")
     print(f"  L={all_activations.shape[1]} layers")
     print(f"  P={all_activations.shape[2]} positions")
@@ -265,7 +268,7 @@ def extract_and_save_activations(
     os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
     torch.save({
         'activations': all_activations,
-        'labels': labels,
+        # 'labels': labels,
         'layer_indices': layer_indices,
         'positions': positions,
         'n_eoi_tokens': n_eoi,
