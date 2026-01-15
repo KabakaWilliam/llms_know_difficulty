@@ -267,7 +267,8 @@ class TorchProbe(Probe):
             probe = self.fit(train_idx, train_prompts, train_targets, **hyperparams)
 
             # Evaluate the probe's performance on the validation data:
-            evaluate_metrics, _ = self.evaluate(probe, val_idx,val_prompts, val_targets, hyperparams)
+            with torch.no_grad():
+                evaluate_metrics, _ = self.evaluate(probe, val_idx,val_prompts, val_targets, hyperparams)
             cv_metric = evaluate_metrics[self.config.get('cv_metric', 'mse')]
 
             print('-' * 80)
@@ -291,7 +292,7 @@ class TorchProbe(Probe):
 
         return self
 
-
+    @torch.no_grad()
     def evaluate(self, probe: AttnLite,
                         idx:list[int],
                         prompts: list[str],
@@ -354,6 +355,7 @@ class TorchProbe(Probe):
         spearman_corr, _ = spearmanr(outputs_np, targets_np)
         return {'spearmanr': spearman_corr}, outputs
 
+    @torch.no_grad()
     def predict(self, test_data: tuple[list[int], list[str], list[float]]) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Predict the success rate using the probe.
@@ -478,7 +480,7 @@ class TorchProbe(Probe):
                     attention_mask=attention_mask,
                     layer_indices=[layer],
                 )
-
+            
                 preds = probe(activations, mask=attention_mask)
                 loss = loss_fn(preds, ys)
 
@@ -497,7 +499,10 @@ class TorchProbe(Probe):
                     'batch_mse': f'{loss.item():.6f}'
                 })
                 step += 1
+                del activations
 
+        # Empty the cache to free up memory for the evaluation step.
+        torch.cuda.empty_cache()
         return probe
 
     @torch.no_grad()
@@ -509,7 +514,39 @@ class TorchProbe(Probe):
         layer_indices: list[int],
     )-> torch.Tensor:
         """
+        Extract the activations of a specific layer using the layer_features method.
+        """
+
+        assert len(layer_indices) == 1, "Only one layer can be extracted at a time."
+
+        if self.config.get('use_hooks', False):
+                    activations = self._extract_hooked_activations(
+                    model=self.model,
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    layer_idx=layer_indices,
+                )
+        else:
+            activations = self._extract_hidden_outputs(
+                model=self.model,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                layer_indices=[layer_indices[0]],
+            )
+
+        return activations
+
+    @torch.no_grad()
+    def _extract_hidden_outputs(
+        self,
+        model: AutoModelForCausalLM,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        layer_indices: list[int],
+    )-> torch.Tensor:
+        """
         Given an input ids, attention mask and model return the activations of a specific layer.
+        Do this through the hidden_states tuple, returned by the model.
 
         TODO: More efficient layer hidden state extraction, using hooks.
         TODO: Re-write to extract only one layer not using a list...
@@ -530,6 +567,59 @@ class TorchProbe(Probe):
 
         layer_activations = [hidden_states[layer_idx] * attention_mask.unsqueeze(-1) for layer_idx in layer_indices]
         return torch.stack(layer_activations, dim=1)[:,0,...] # [Batch size, Sequence length, hidden size]
+
+    def _extract_residual(self, model: AutoModelForCausalLM, input_ids: torch.Tensor, attention_mask: torch.Tensor, layer_idx: int) -> torch.Tensor:
+        """
+        Extract the residual output at a specific transformer layer using a hook.
+
+        Args:
+            model: The transformer model.
+            input_ids: Input tensor [B, T].
+            attention_mask: Attention mask tensor [B, T].
+            layer_idx: Index of the transformer block/layer to extract the residual from.
+
+        Returns:
+            Tensor of shape [B, T, D] for the specified layer residual.
+        """
+        residuals = {}
+
+        def hook_fn(module, input, output):
+            # output is typically [B, T, D]
+            # Store the output of the forward hook
+            if isinstance(output, tuple):
+                residuals['value'] = output[0].detach()
+            else:
+                residuals['value'] = output.detach()
+
+        # Find the transformer block module (most models: model.transformer.h[layer_idx] or model.transformer.blocks[layer_idx])
+        # Support common naming
+        if hasattr(model, 'transformer') and hasattr(model.transformer, 'h'):
+            block_module = model.transformer.h[layer_idx]
+        elif hasattr(model, 'transformer') and hasattr(model.transformer, 'blocks'):
+            block_module = model.transformer.blocks[layer_idx]
+        elif hasattr(model, 'gpt_neox') and hasattr(model.gpt_neox, 'layers'):
+            block_module = model.gpt_neox.layers[layer_idx]
+        elif hasattr(model, 'model') and hasattr(model.model, 'layers'):
+            block_module = model.model.layers[layer_idx]
+        else:
+            raise ValueError("Cannot find transformer block in model for hooks.")
+
+        # Register a forward hook on the block; typically, the output of the whole block is the residual before it goes into the next block
+        hook = block_module.register_forward_hook(hook_fn)
+
+        # Forward pass (with gradients off)
+        with torch.no_grad():
+            _ = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                output_hidden_states=False,
+                use_cache=False,
+            )
+
+        hook.remove()
+
+        # The stored 'value' should be [B, T, D]
+        return residuals['value'] * attention_mask.unsqueeze(-1)
 
     def save_probe(self, path: Path, metadata: dict | None = None):
         """

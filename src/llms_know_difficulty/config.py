@@ -45,6 +45,8 @@ class AttentionProbeConfig(BaseModel):
     weight_decay: list[float]     List of L2 regularization strengths to cross-validate.
     layers: list[int]             List of layer indices to cross-validate over during training.
     max_length: int               Maximum prompt length when tokenizing inputs during training and evaluation.
+    use_hooks: bool               Whether to use hooks to extract activations or just use the hidden_states tuple, 
+                                  hooks take slightly longer but use less memory.
     cross_validated_hyperparameters: list[str]  
         List of parameter names to cross-validate. Should match field names above, e.g. 
         ['layers', 'batch_size', 'learning_rate', 'num_epochs', 'weight_decay', 'max_length']
@@ -53,12 +55,13 @@ class AttentionProbeConfig(BaseModel):
 
     learning_rate: list[float] = [1e-3]
     batch_size: list[int] = [128]
-    num_epochs: list[int] = [4]
+    num_epochs: list[int] = [4] # TODO: Change back after debugging.
     weight_decay: list[float] = [1000.0]
     layer: list[int] = [-1]
     max_length: list[int] = [512]
     test_mode: bool = False # TODO: Turn off for actual training.
     cv_metric: str = 'spearmanr'
+    use_hooks: bool = False
     cross_validated_hyperparameters: list[str] = [
     'layer',
     'batch_size',
