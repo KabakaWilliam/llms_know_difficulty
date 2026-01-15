@@ -56,10 +56,10 @@ class AttentionProbeConfig(BaseModel):
     learning_rate: list[float] = [1e-3]
     batch_size: list[int] = [128]
     num_epochs: list[int] = [4] # TODO: Change back after debugging.
-    weight_decay: list[float] = [10.0, 1000.0]
+    weight_decay: list[float] = [10.0]
     layer: list[int] = [11,15,19,23]
     max_length: list[int] = [512]
-    test_mode: bool = False # TODO: Turn off for actual training.
+    test_mode: bool = True # TODO: Turn off for actual training.
     cv_metric: str = 'spearmanr'
     use_hooks: bool = False
     cross_validated_hyperparameters: list[str] = [
@@ -116,7 +116,7 @@ class LayerAttnProbeConfig(AttentionProbeConfig):
     TODO: Restructure the torch probe so this framework is more flexible and we can use a more aptly named parameter here.
     e.g. sequence_position or token_position.
     """
-    layer: list[int] = [1,2,3,4,5] # USE THIS TO SELECT THE SEQUENCE POSITION - WILL FIX NOMENCLATURE LATER
+    layer: list[int] = [1] # USE THIS TO SELECT THE SEQUENCE POSITION - WILL FIX NOMENCLATURE LATER
     cross_validated_hyperparameters: list[str] = [
         'layer',
         'batch_size',

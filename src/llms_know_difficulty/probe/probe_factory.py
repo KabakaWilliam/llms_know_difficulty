@@ -2,6 +2,7 @@
 from llms_know_difficulty.config import *
 from llms_know_difficulty.probe.base_probe import Probe
 from llms_know_difficulty.probe.torch_probe import (
+    TorchLayerProbe,
     TorchProbe,
     AttnLite,
     LinearThenMax,
@@ -10,7 +11,7 @@ from llms_know_difficulty.probe.torch_probe import (
 ) 
 from llms_know_difficulty.probe.linear_eoi_probe import LinearEoiProbe
 
-from llms_know_difficulty.probe.tfidf_probe import TfidfProbe
+#from llms_know_difficulty.probe.tfidf_probe import TfidfProbe
 from llms_know_difficulty.config import LinearEOIProbeConfig, AttentionProbeConfig, TfidfProbeConfig, DEVICE
 
 class ProbeFactory:
@@ -85,6 +86,16 @@ class ProbeFactory:
             }
 
             probe = TorchProbe(LinearThenRollingMaxProbeConfig())
+            print("Lets set up the probe ⚙️ ...")
+            return probe.setup(**probe_setup_args)
+
+        elif probe_name == "layer_attn_probe":
+            probe_setup_args = {
+                'model_name': kwargs.get('model'),
+                'device': DEVICE,
+                'ProbeClass': AttnLite
+            }
+            probe = TorchLayerProbe(LayerAttnProbeConfig())
             print("Lets set up the probe ⚙️ ...")
             return probe.setup(**probe_setup_args)
 
