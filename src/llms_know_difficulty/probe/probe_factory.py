@@ -11,7 +11,7 @@ from llms_know_difficulty.probe.torch_probe import (
 ) 
 from llms_know_difficulty.probe.linear_eoi_probe import LinearEoiProbe
 
-#from llms_know_difficulty.probe.tfidf_probe import TfidfProbe
+from llms_know_difficulty.probe.tfidf_probe import TfidfProbe
 from llms_know_difficulty.config import LinearEOIProbeConfig, AttentionProbeConfig, TfidfProbeConfig, DEVICE
 
 class ProbeFactory:

@@ -59,7 +59,7 @@ class AttentionProbeConfig(BaseModel):
     weight_decay: list[float] = [10.0]
     layer: list[int] = [11,15,19,23]
     max_length: list[int] = [512]
-    test_mode: bool = True # TODO: Turn off for actual training.
+    test_mode: bool = False # TODO: Turn off for actual training.
     cv_metric: str = 'spearmanr'
     use_hooks: bool = False
     cross_validated_hyperparameters: list[str] = [
