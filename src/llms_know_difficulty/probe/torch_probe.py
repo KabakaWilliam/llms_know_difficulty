@@ -414,7 +414,7 @@ class TorchProbe(Probe):
                 layer_indices=[self.best_layer_id],
             )
 
-            preds = self.best_probe(activations, attention_mask=attention_mask)
+            preds = self.best_probe(activations, mask=attention_mask)
             outputs.append(preds.cpu().detach())
             ids_list.append(ids)
         
