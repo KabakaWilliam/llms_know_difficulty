@@ -56,8 +56,8 @@ class AttentionProbeConfig(BaseModel):
     learning_rate: list[float] = [1e-3]
     batch_size: list[int] = [128]
     num_epochs: list[int] = [4] # TODO: Change back after debugging.
-    weight_decay: list[float] = [1000.0]
-    layer: list[int] = [-1]
+    weight_decay: list[float] = [10.0, 1000.0]
+    layer: list[int] = [11,15,19,23]
     max_length: list[int] = [512]
     test_mode: bool = False # TODO: Turn off for actual training.
     cv_metric: str = 'spearmanr'
@@ -79,8 +79,9 @@ class LinearThenSoftmaxProbeConfig(AttentionProbeConfig):
     """
     Inherits from the AttentionProbeConfig. Adds no new hyperparameters. 
     """
-    temperature: list[float] = [5.0]
-    weight_decay: list[float] = [1000.0]
+    temperature: list[float] = [1.0, 5.0, 10.0]
+    weight_decay: list[float] = [10.0, 1000.0]
+    layer: list[int] = [11,15,19,23]
     cross_validated_hyperparameters: list[str] = [
         'layer',
         'batch_size',
@@ -103,6 +104,27 @@ class LinearThenRollingMaxProbeConfig(AttentionProbeConfig):
         'weight_decay',
         'max_length',
         'window_size']
+
+class LayerAttnProbeConfig(AttentionProbeConfig):
+    """
+    Inherits from the AttentionProbeConfig. Adapts the layer parameter . 
+
+    Args:
+        layer: list[int] Used to select which sequence position to extract the hidden state from,
+        this is negative index from the end of the sequence i.e. layer = [1] will select position -1 on the sequence dimension.
+
+    TODO: Restructure the torch probe so this framework is more flexible and we can use a more aptly named parameter here.
+    e.g. sequence_position or token_position.
+    """
+    layer: list[int] = [1,2,3,4,5] # USE THIS TO SELECT THE SEQUENCE POSITION - WILL FIX NOMENCLATURE LATER
+    cross_validated_hyperparameters: list[str] = [
+        'layer',
+        'batch_size',
+        'learning_rate',
+        'num_epochs',
+        'weight_decay',
+        'max_length']
+
 
 
 class LinearEOIProbeConfig(BaseModel):
@@ -132,6 +154,7 @@ class TfidfProbeConfig(BaseModel):
     """
     alpha_grid: list[float] = [0, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000]
     fit_intercept: bool = True
+
 
 
 PROMPTING_BASELINE = {

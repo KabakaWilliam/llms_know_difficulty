@@ -1,4 +1,5 @@
 import itertools
+from logging import warning
 from typing import Any, Tuple
 from pathlib import Path
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
@@ -176,7 +177,7 @@ class TorchProbe(Probe):
     @property
     def name(self) -> str:
         """The name of the probe."""
-        return "attn_probe"
+        return "torch_probe"
 
     def setup(self, model_name: str, device: str, ProbeClass: nn.Module) -> "TorchProbe":
         """
@@ -187,7 +188,9 @@ class TorchProbe(Probe):
 
         self.ProbeClass = ProbeClass
 
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name,
+         use_fast=True,
+         padding_side="left")
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         
@@ -197,6 +200,7 @@ class TorchProbe(Probe):
         for p in self.model.parameters():
             p.requires_grad_(False)
 
+        # n_layers important for inhereted probe classes.
         model_config = AutoConfig.from_pretrained(model_name)
         self.n_layers = model_config.num_hidden_layers
 
@@ -515,6 +519,11 @@ class TorchProbe(Probe):
     )-> torch.Tensor:
         """
         Extract the activations of a specific layer using the layer_features method.
+
+        Returns: A tensor of activations of shape [B, T, D] where
+            B - batch size
+            T - sequence length
+            D - hidden size
         """
 
         assert len(layer_indices) == 1, "Only one layer can be extracted at a time."
@@ -692,3 +701,97 @@ class TorchProbe(Probe):
             'best_alpha': None,  # AttnProbe doesn't use regularization
             'test_score': None,  # Computed during evaluation
         }
+
+
+class TorchLayerProbe(TorchProbe):
+
+    def __init__(self, config: dict):
+        """
+        The torch layer probe inherits from the torch probe, it adapts the activations to 
+        allow for layer wise probing rather than probing along the sequence dimension.
+        """
+        super().__init__(config)
+        
+
+    @property
+    def name(self) -> str:
+        return "torch_layer_probe"
+
+    def _extract_layer_features(self,
+        model: AutoModelForCausalLM,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        layer_indices: list[int]) -> torch.Tensor:
+        """
+        Extract the activations of a specific layer
+
+        Args:
+            model: The transformer model.
+            input_ids: The input ids tensor.
+            attention_mask: The attention mask tensor.
+            layer_indices: The layer indices to extract.
+
+        Returns:
+            Returns: A tensor of activations of shape [B, T, D] where
+            B - batch size
+            L - Layer dimension
+            D - hidden size
+            Here the layer_indices is adapted and used to select a single sequence position working backwards
+            from the last token of the sequence.
+        """
+
+        if self.config.get('use_hooks', False):
+            raise NotImplementedError("Hooks are not supported for layer probing.")
+
+        else:
+            return self._extract_hidden_outputs(
+                model=model,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                layer_indices=layer_indices,
+            )
+    
+    
+    @torch.no_grad()
+    def _extract_hidden_outputs(
+        self,
+        model: AutoModelForCausalLM,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        layer_indices: list[int],
+    )-> torch.Tensor:
+        """
+        Given an input ids, attention mask and model return the activations of a specific layer.
+        Do this through the hidden_states tuple, returned by the model.
+
+        Args:
+            model: The transformer model.
+            input_ids: The input ids tensor.
+            attention_mask: The attention mask tensor.
+            layer_indices: The sequence position from the end of the input ids to extract.
+
+        Returns:
+            A tensor of activations of shape [B, L, D] where
+            B - batch size
+            L: - Layer dimension
+            D - hidden size
+        """
+
+        assert len(layer_indices) == 1, "Only one layer can be extracted at a time."
+
+        sequence_position = layer_indices[0] * -1
+
+        # Extract the hidden states from the model.
+        out = model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
+            use_cache=False,
+        )
+
+        # To avoid OOM errors we extract the sequence position before stacking the hidden states.
+        hidden_states = out.hidden_states  # tuple: (emb, layer1, ..., layerN), each [B,T,D]
+        layer_activations = [hidden_state[:, sequence_position, ...] * attention_mask.unsqueeze(-1)[:, sequence_position, ...] \
+            for hidden_state in hidden_states]
+        
+        return torch.stack(layer_activations, dim=1) # [Batch size, Layer dimension, Seq position, hidden size]
