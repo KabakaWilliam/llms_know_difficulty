@@ -22,7 +22,7 @@ def infer_task_type(y: np.ndarray, task_type: str = "auto") -> str:
     else:
         return "regression"
 
-def create_results_path(dataset_name: str, model_name: str, probe_name: str, gen_str: str = None) -> Path:
+def create_results_path(root_data_dir: str, dataset_name: str, model_name: str, probe_name: str, gen_str: str = None) -> Path:
     """
     Create a path for saving probe results
     
@@ -42,9 +42,9 @@ def create_results_path(dataset_name: str, model_name: str, probe_name: str, gen
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     if gen_str:
-        results_path = os.path.join(ROOT_DATA_DIR, "results", model_name, dataset_name, probe_name, gen_str, timestamp)
+        results_path = os.path.join(root_data_dir, "results", model_name, dataset_name, probe_name, gen_str, timestamp)
     else:
-        results_path = os.path.join(ROOT_DATA_DIR, "results", model_name, dataset_name, probe_name, timestamp)
+        results_path = os.path.join(root_data_dir, "results", model_name, dataset_name, probe_name, timestamp)
 
     os.makedirs(results_path, exist_ok=True)
     return Path(results_path)
@@ -266,7 +266,9 @@ class DataIngestionWorkflow:
                 df.to_parquet(dataset_path)
 
             else:
+                print(f"Checked dataset path {dataset_path}")
                 print(f"Dataset {dataset_name} does not exist, attempting to download...")
+                import IPython; IPython.embed()
                 DataIngestionWorkflow.download(dataset_name, model_name, split, max_len, k, temperature)
 
                 # Reload the data if successful
@@ -307,6 +309,5 @@ class DataIngestionWorkflow:
                                 dataset_name,
                                 file_name)
 
-
-    def download(file_id: str, output_dir: str, **kwargs):
+    def download(**kwargs):
         raise NotImplementedError("Download functionality not implemented yet")

@@ -7,7 +7,7 @@ name = "llms-know-difficulty"
 version = "0.1.0"
 description = "LLMs Know Difficulty - Attention probe for predicting task difficulty"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 license = {text = "MIT"}
 authors = [
     {name = "LLMs Know Difficulty Team"}
@@ -185,6 +185,7 @@ dependencies = [
     "wcwidth==0.2.14",
     "xxhash==3.6.0",
     "yarl==1.22.0",
+    "hydra-core>=0.11.3",
 ]
 
 [tool.setuptools]

@@ -25,11 +25,15 @@ def main(cfg: DictConfig) -> None:
     
     print("Creating results directory...")
     # TODO: Now that a different model can be passed to the probe, add this to the results path...
-    results_path = create_results_path(cfg.dataset.dataset_name, cfg.dataset.model_name, cfg.probe.name)
+    results_path = create_results_path(root_data_dir=cfg.dataset.root_data_dir,
+                                        dataset_name=cfg.dataset.dataset_name,
+                                        model_name=cfg.dataset.model_name,
+                                        probe_name=cfg.probe.name,
+                                        gen_str=None)
     print(f"Creating results directory at {results_path}")
 
     # 4. Initialize the probe:
-    print(f"Initializing probe {args.probe}\n")
+    print(f"Initializing probe {cfg.probe.probe_class}\n")
     probe = hydra.utils.instantiate(cfg.probe, device=cfg.device)
     if args.checkpoint_path is not None:
         print(f"Loading probe from checkpoint {args.checkpoint_path}")
