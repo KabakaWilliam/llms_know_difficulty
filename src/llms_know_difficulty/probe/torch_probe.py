@@ -47,8 +47,16 @@ class AttnLite(nn.Module):
             attn_weights, xs, "batch seq, batch seq embed -> batch embed"
         )
         sequence_logits = self.classifier(context).squeeze(-1)
-
         return sequence_logits
+
+class SigmoidAttnLite(AttnLite):
+    def __init__(self, d_model: int, **kwargs: Any):
+        super().__init__(d_model, **kwargs)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, xs: torch.Tensor, mask: torch.Tensor):
+        sequence_logits = super().forward(xs, mask)
+        return self.sigmoid(sequence_logits)
 
 class LinearThenAgg(nn.Module):
     """
@@ -432,7 +440,7 @@ class TorchProbe(Probe):
                 num_epochs:int,
                 weight_decay:float,
                 max_length:int,
-                **kwargs) -> None:
+                **kwargs) -> nn.Module:
         """
         Run a single training loop for the attention probe. Very simple no validation or logging ortracking etc...
 
@@ -446,7 +454,7 @@ class TorchProbe(Probe):
 
         # Setup train loader:
         if self.config.get('test_mode', False):
-            batch_size_approx = self.config.get('batch_size',128)[0]
+            batch_size_approx = self.config.get('batch_size', 128)[0]
             idx = idx[:batch_size_approx]
             prompts = prompts[:batch_size_approx]
             targets = targets[:batch_size_approx]

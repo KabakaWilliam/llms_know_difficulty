@@ -50,13 +50,12 @@ class AttentionProbeConfig(BaseModel):
     cross_validated_hyperparameters: list[str]  
         List of parameter names to cross-validate. Should match field names above, e.g. 
         ['layers', 'batch_size', 'learning_rate', 'num_epochs', 'weight_decay', 'max_length']
-
     """
 
     learning_rate: list[float] = [1e-3]
     batch_size: list[int] = [128]
-    num_epochs: list[int] = [4] # TODO: Change back after debugging.
-    weight_decay: list[float] = [10.0]
+    num_epochs: list[int] = [2] # TODO: Change back after debugging.
+    weight_decay: list[float] = [10.0, 1000.0]
     layer: list[int] = [11,15,19,23]
     max_length: list[int] = [512]
     test_mode: bool = False # TODO: Turn off for actual training.

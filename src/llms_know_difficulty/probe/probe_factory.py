@@ -5,13 +5,14 @@ from llms_know_difficulty.probe.torch_probe import (
     TorchLayerProbe,
     TorchProbe,
     AttnLite,
+    SigmoidAttnLite,
     LinearThenMax,
     LinearThenSoftmax,
     LinearThenRollingMax,
 ) 
 from llms_know_difficulty.probe.linear_eoi_probe import LinearEoiProbe
 
-from llms_know_difficulty.probe.tfidf_probe import TfidfProbe
+#from llms_know_difficulty.probe.tfidf_probe import TfidfProbe
 from llms_know_difficulty.config import LinearEOIProbeConfig, AttentionProbeConfig, TfidfProbeConfig, DEVICE
 
 class ProbeFactory:
@@ -33,6 +34,15 @@ class ProbeFactory:
                 'model_name': kwargs.get('model'),
                 'device': DEVICE,
                 'ProbeClass': AttnLite,
+            }
+            probe = TorchProbe(AttentionProbeConfig())
+            return probe.setup(**probe_setup_args)
+        
+        elif probe_name == "sigmoid_attn_probe":
+            probe_setup_args = {
+                'model_name': kwargs.get('model'),
+                'device': DEVICE,
+                'ProbeClass': SigmoidAttnLite,
             }
             probe = TorchProbe(AttentionProbeConfig())
             return probe.setup(**probe_setup_args)
