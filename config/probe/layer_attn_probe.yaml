@@ -1,0 +1,19 @@
+# Layer Attention Probe Configuration
+# Inherits from torch_probe_default.yaml with modified layer parameter
+
+defaults:
+  - torch_probe_default
+
+#@package _global_
+
+# Override layer parameter - used to select sequence position (negative index from end)
+layer: [1]  # Sequence position (negative index from end)
+
+# Override cross-validated hyperparameters
+cross_validated_hyperparameters:
+  - layer
+  - batch_size
+  - learning_rate
+  - num_epochs
+  - weight_decay
+  - max_length

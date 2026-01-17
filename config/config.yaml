@@ -1,0 +1,34 @@
+# Hydra configuration file for LLMs Know Difficulty
+# This file contains default configurations for datasets, models, and probes
+
+defaults:
+  - _self_
+  - probe: attn_probe  # Default probe configuration
+              # Options: attn_probe, sigmoid_attn_probe, linear_eoi_probe, tfidf_probe,
+              #          linear_then_max_probe, linear_then_softmax_probe, 
+              #          linear_then_rolling_max_probe, layer_attn_probe
+
+# Dataset configuration
+dataset:
+  name: "DigitalLearningGmbH_MATH-lighteval"  # Dataset name (e.g., "DigitalLearningGmbH_MATH-lighteval", "gneubig_aime-1983-2024")
+  max_len: 3000  # Maximum length of the response
+  k: 5  # Number of rollouts per question
+  temperature: 1.0  # Temperature for the model
+  generation_model: Qwen/Qwen2.5-1.5B-Instruct # The model which generated the completions
+
+# Model configuration
+model:
+  name: "Qwen/Qwen2.5-1.5B-Instruct"  # Model name (e.g., "gpt2", "Qwen/Qwen2.5-1.5B-Instruct")
+  checkpoint_path: null  # Optional path to checkpoint file
+
+# Probe name (used for probe selection)
+probe:
+  name: "attn_probe"  # Probe name - should match the probe config file name
+
+# General settings
+seed: 42
+device: "cuda:0"
+val_train_split_ratio: 0.2
+prompt_column_name: "formatted_prompt"
+label_column_name: "success_rate"
+idx_column_name: "idx"

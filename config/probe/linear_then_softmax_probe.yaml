@@ -1,0 +1,20 @@
+# Linear Then Softmax Probe Configuration
+# Inherits from torch_probe_default.yaml and adds temperature parameter
+
+defaults:
+  - torch_probe_default
+
+#@package _global_
+
+# Additional parameter specific to softmax probe
+temperature: [1.0, 5.0, 10.0]
+
+# Override cross-validated hyperparameters to include temperature
+cross_validated_hyperparameters:
+  - layer
+  - batch_size
+  - learning_rate
+  - num_epochs
+  - weight_decay
+  - max_length
+  - temperature

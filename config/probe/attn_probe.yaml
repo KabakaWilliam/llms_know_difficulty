@@ -1,0 +1,10 @@
+# Attention Probe Configuration
+# Inherits from torch_probe_default.yaml
+
+defaults:
+  - torch_probe_default
+
+#@package _global_
+
+# All parameters inherited from torch_probe_default
+# No additional parameters needed for this probe type

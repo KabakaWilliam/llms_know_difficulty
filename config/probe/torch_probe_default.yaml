@@ -1,0 +1,26 @@
+# Default configuration for all torch-based probes
+# This file contains common hyperparameters shared by all torch probes
+
+#@package _global_
+
+_target_: llms_know_difficulty.probe.torch_probe.TorchProbe
+
+# Common hyperparameters for torch probes
+learning_rate: [1e-3]
+batch_size: [128]
+num_epochs: [2]
+weight_decay: [10.0, 1000.0]
+layer: [11, 15, 19, 23]
+max_length: [512]
+test_mode: false
+cv_metric: "spearmanr"
+use_hooks: false
+
+# Default cross-validated hyperparameters
+cross_validated_hyperparameters:
+  - layer
+  - batch_size
+  - learning_rate
+  - num_epochs
+  - weight_decay
+  - max_length

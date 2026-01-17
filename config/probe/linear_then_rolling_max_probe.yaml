@@ -1,0 +1,20 @@
+# Linear Then Rolling Max Probe Configuration
+# Inherits from torch_probe_default.yaml and adds window_size parameter
+
+defaults:
+  - torch_probe_default
+
+#@package _global_
+
+# Additional parameter specific to rolling max probe
+window_size: [40]
+
+# Override cross-validated hyperparameters to include window_size
+cross_validated_hyperparameters:
+  - layer
+  - batch_size
+  - learning_rate
+  - num_epochs
+  - weight_decay
+  - max_length
+  - window_size
