@@ -30,7 +30,8 @@ def main():
         temperature=args.temperature)
     
     # 3. Setup the results directory for the run 
-    results_path = create_results_path(args.dataset, args.model, args.probe)
+    gen_str = f"maxlen_{args.max_len}_k_{args.k}_temp_{args.temperature}"
+    results_path = create_results_path(args.dataset, args.model, args.probe, gen_str=gen_str)
     print(f"Creating results directory at {results_path}")
 
     # 4. Initialize the probe:
@@ -77,7 +78,7 @@ def main():
 
     print(f"Test performance: {test_metrics.get('spearman', test_metrics.get('auc', 'N/A'))} 🔥\n")
     # 9. Save the probe predictions to the results directory:
-    results_path = create_results_path(args.dataset, args.model, args.probe)
+    # results_path = create_results_path(args.dataset, args.model, args.probe, gen_str=gen_str)
     print(f"Saving probe predictions to {results_path}")
     
     # Already formatted as tensors from predict()

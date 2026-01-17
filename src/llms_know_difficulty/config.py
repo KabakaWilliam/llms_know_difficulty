@@ -19,7 +19,7 @@ ROOT_ACTIVATION_DATA_DIR = ROOT_DATA_DIR / "activations"
 # How much of the train split to use for validation
 VAL_TRAIN_SPLIT_RATIO = 0.2
 PROMPT_COLUMN_NAME = "formatted_prompt"
-LABEL_COLUMN_NAME = "success_rate"
+LABEL_COLUMN_NAME = "success_rate" #"pass_at_k" #"success_rate"
 IDX_COLUMN_NAME = "idx"
 
 DEVICE = "cuda:0"
@@ -114,7 +114,7 @@ class LinearEOIProbeConfig(BaseModel):
     """
     model_name: str = "gpt2"
     alpha_grid: list[float] = [0, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000]
-    batch_size: int = 16
+    batch_size: int = 1
     max_length: int = 1024
 
 class TfidfProbeConfig(BaseModel):

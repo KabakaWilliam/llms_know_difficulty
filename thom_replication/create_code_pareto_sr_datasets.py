@@ -3,6 +3,10 @@
 # run the apptainer.sh script first
 from typing import Dict, Optional
 from datetime import datetime
+import os
+import threading
+
+sandbox_fusion_url = os.getenv("SANDBOX_FUSION_URL", "http://localhost:8080/run_code")
 
 def filter_by_date(example, cutoff_date):
     try:
@@ -34,7 +38,7 @@ def get_task(name):
     cutoff_date = datetime.strptime("2024-10-01", "%Y-%m-%d") #qwen coder came out 2024/09
 
     if name == "livecodebench_code_generation_lite":
-        from utils.LiveCodeBench.utils import  compute_score
+        from utils.LiveCodeBench import  compute_score
         ds = load_dataset("livecodebench/code_generation_lite", version_tag="release_v6")
             
         # Create test split (problems >= cutoff_date) and train split (problems < cutoff_date)
@@ -65,7 +69,7 @@ def main(
     max_questions_per_split: Optional[int] = None,
     tensor_parallel_size: int = 1,
     pricing_config: Optional[dict] = None,
-    output_root: str = "../will_replication/DATA/SR_DATA",
+    output_root: str = "../data",
     # batch_size: int = 16,  # generation batching; tune for your GPU
     batch_size_by_model: Optional[dict] = None,
     max_concurrent_API_requests: int = 16,
@@ -260,9 +264,12 @@ def main(
             out_tok = len(out.outputs[0].token_ids) if out.outputs[0].token_ids is not None else np.nan
             in_tok = key_to_in_tok[(split, idx)]
 
-            # score
-            score = compute_score(generated_text, results[split][idx]["ground_truth"], max_concurrent_API_requests=max_concurrent_API_requests,
-            sandbox_memory_limit_mb=sandbox_memory_limit_mb)
+            # score - compute_score returns (score, metadata_list)
+            score, score_metadata = compute_score(sandbox_fusion_url=sandbox_fusion_url,
+            concurrent_semaphore = threading.Semaphore(max_concurrent_API_requests), memory_limit_mb=sandbox_memory_limit_mb, completion=generated_text, test_cases=results[split][idx]["ground_truth"])
+
+            # score = compute_score(generated_text, results[split][idx]["ground_truth"], max_concurrent_API_requests=max_concurrent_API_requests,
+            # sandbox_memory_limit_mb=sandbox_memory_limit_mb)
 
             # cost per rollout
             if has_pricing and not np.isnan(out_tok):
@@ -273,6 +280,7 @@ def main(
                 output_cost = np.nan
 
             # ---- record rollout ----
+            import json
             results[split][idx]["generated_solutions"].append(
                 {
                     "text": generated_text,
@@ -283,6 +291,7 @@ def main(
                     "output_cost_usd": float(output_cost) if not np.isnan(output_cost) else np.nan,
                     # better name: this is output-only for this rollout
                     "rollout_cost_usd": float(output_cost) if not np.isnan(output_cost) else np.nan,
+                    "execution_metadata": json.dumps(score_metadata)
                 }
             )
 
@@ -310,9 +319,10 @@ def main(
             overall_success_rate = total_success / total_questions if total_questions > 0 else 0.0
             print(f"Overall success rate for split {split}: {overall_success_rate:.4f}")
 
+        model_alias = model_name.split("/")[-1]
         # --- save per split ---
         os.makedirs(output_root, exist_ok=True)
-        output_dir = os.path.join(output_root, TASK.replace("/", "_"))
+        output_dir = os.path.join(output_root, model_name.split("/")[0], model_alias, TASK.replace("/", "_"))
         os.makedirs(output_dir, exist_ok=True)
 
         for split in results:
@@ -321,10 +331,9 @@ def main(
             results_df["task"] = TASK
             results_df["split"] = split
 
-            model_alias = model_name.replace("/", "-")
             if max_questions_per_split is not None:
                 filepath = (
-                    f"{output_dir}/{split}-{len(results[split])}-{model_alias}"
+                    f"{output_dir}/{split}-{len(results[split])}"
                     f"_maxlen_{max_response_len}_k_{num_rollouts_per_question}_temp_{temperature}.parquet"
                 )
             else:
@@ -340,6 +349,9 @@ def main(
                 results_df["total_output_tokens"] = results_df["generated_solutions"].apply(get_output_tokens)
                 results_df["total_output_cost_usd"] = results_df["generated_solutions"].apply(get_output_cost)
                 results_df["total_cost_usd"] = results_df["input_cost_usd_once"] + results_df["total_output_cost_usd"]
+
+            # Convert generated_solutions to JSON strings for proper parquet serialization
+            results_df["generated_solutions"] = results_df["generated_solutions"].apply(lambda sols: json.dumps(sols))
 
             results_df.to_parquet(filepath)
             print(f"Saved {TASK} / {split} split to: {filepath}")
@@ -378,16 +390,17 @@ if __name__ == "__main__":
     )
     
     MODELS_TO_RUN = [
-    "Qwen/Qwen2.5-Coder-0.5B-Instruct",
+    # "Qwen/Qwen2.5-Coder-0.5B-Instruct",
     # "Qwen/Qwen2.5-Coder-1.5B-Instruct",
     # "Qwen/Qwen2.5-Coder-3B-Instruct",
     # "Qwen/Qwen2.5-Coder-7B-Instruct",
     # "Qwen/Qwen2.5-Coder-14B-Instruct",
-    # "Qwen/Qwen2.5-Coder-32B-Instruct",
+    "Qwen/Qwen2.5-Coder-32B-Instruct",
+    # "openai/gpt-oss-20b"
     ]
 
     batch_size_by_model = {
-    "Qwen/Qwen2.5-Coder-0.5B-Instruct": 16,
+    "Qwen/Qwen2.5-Coder-0.5B-Instruct": 256,
     "Qwen/Qwen2.5-Math-1.5B-Instruct": 256,
     "Qwen/Qwen2.5-Math-7B-Instruct":  256,
     "Qwen/Qwen2.5-Math-72B-Instruct":  128,
@@ -405,14 +418,14 @@ if __name__ == "__main__":
         
         main(
             model_name=MODEL_TO_ROLLOUT,
-            max_questions_per_split=5,
+            # max_questions_per_split=5,
             # level_reasoning="high",
-            tensor_parallel_size=2,
+            tensor_parallel_size=1,
             num_rollouts_per_question=1,
-            temperature=0.2,
+            temperature=0.7,
             top_p=0.95,
             top_k=-1,
-            gpu_memory_utilization=0.10, #increase according to VRAM available
+            gpu_memory_utilization=0.90, #increase according to VRAM available
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
             batch_size_by_model=batch_size_by_model,
             max_response_len=4096,

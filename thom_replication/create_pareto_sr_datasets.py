@@ -66,6 +66,45 @@ def get_task(name):
             ds[split] = ds[split].map(add_extracted_solution)
 
         return ds, compute_score
+    
+    elif name.startswith('Qwen_PolyMath_'):
+        from utils.verification_math import compute_score
+        from datasets import concatenate_datasets
+        
+        # Extract language suffix (e.g., "en" from "Qwen_PolyMath_en")
+        language = name.split('Qwen_PolyMath_')[1]
+        
+        ds = load_dataset("Qwen/PolyMath", language)
+        
+        LEVELS = ["top", "high", "medium", "low"]
+        
+        # Process each level: rename columns, add level, and create train/test splits in one pass
+        train_datasets = []
+        test_datasets = []
+        
+        for level in LEVELS:
+            data = ds[level]
+            
+            # Combined processing: extract solution, rename column, add level
+            def process_data(example, level=level):
+                example['extracted_solution'] = example['answer']
+                example['level'] = level
+                return example
+            
+            processed = data.map(process_data).rename_column("question", "problem")
+            
+            # Create train/test split (80/20)
+            train_test = processed.train_test_split(test_size=0.2, seed=42)
+            train_datasets.append(train_test['train'])
+            test_datasets.append(train_test['test'])
+        
+        # Combine all levels into single train and test datasets
+        ds_final = {
+            'train': concatenate_datasets(train_datasets),
+            'test': concatenate_datasets(test_datasets)
+        }
+
+        return ds_final, compute_score
 
     raise ValueError(f"Unknown task {name}")
 
@@ -80,7 +119,7 @@ def main(
     max_questions_per_split: Optional[int] = None,
     tensor_parallel_size: int = 1,
     pricing_config: Optional[dict] = None,
-    output_root: str = "../will_replication/DATA/SR_DATA",
+    output_root: str = "../data/",
     # batch_size: int = 16,  # generation batching; tune for your GPU
     batch_size_by_model: Optional[dict] = None,
 ):
@@ -156,16 +195,18 @@ def main(
         llm = LLM(
             model=model_name,
             tensor_parallel_size=tensor_parallel_size,
-            gpu_memory_utilization=0.70,
+            gpu_memory_utilization=0.85,
         )
 
+    LANGUAGE_SUFFIXES = ["en", "sw", "zh", "es", "ar", "fr", "bn", "pt", "ru", "id", "de", "ja", "vi", "it", "te", "ko", "th", "ms"]
     # --------- tasks ----------
     TASKS = [
-        "opencompass_AIME2025",
-        "gneubig_aime-1983-2024",
+        # "opencompass_AIME2025",
+        # "gneubig_aime-1983-2024",
         "DigitalLearningGmbH_MATH-lighteval",
-        "openai_gsm8k",
-    ]
+        # "openai_gsm8k",
+    ] 
+    # + [f"Qwen_PolyMath_{lang}" for lang in LANGUAGE_SUFFIXES]
 
     seed = 42
     rng = random.Random(seed)
@@ -305,13 +346,15 @@ def main(
                     results[split][idx]["input_cost_usd_once"] = float(input_cost_once)
                     results[split][idx]["total_cost_usd"] += float(input_cost_once)
 
-        # --- compute success rates ---
+        # --- compute success rates and pass@k ---
         for split in results:
             for idx in results[split]:
                 gen_sols = results[split][idx]["generated_solutions"]
                 correct = sum(gs["score"] for gs in gen_sols)
                 total = len(gen_sols)
                 results[split][idx]["success_rate"] = correct / total if total > 0 else 0.0
+                # pass@k: whether at least one solution is correct
+                results[split][idx]["pass_at_k"] = 1.0 if correct > 0 else 0.0
 
                 # majority_vote_extracted_answer = add_majority_vote_answer(gen_sols)
                 # # majority_vote_extracted_answer = majority_vote_from_samples(gen_sols, extract_answer_fn=try_extract_solution)[1]
@@ -323,16 +366,31 @@ def main(
                 # results[split][idx]["majority_vote_is_correct"] = majority_vote_score
                 
 
-        # --- print overall success rates ---
+        # --- print overall success rates and pass@k ---
         for split in results:
             total_questions = len(results[split])
             total_success = sum(results[split][idx]["success_rate"] for idx in results[split])
             overall_success_rate = total_success / total_questions if total_questions > 0 else 0.0
+            total_pass_at_k = sum(results[split][idx]["pass_at_k"] for idx in results[split])
+            overall_pass_at_k = total_pass_at_k / total_questions if total_questions > 0 else 0.0
             print(f"Overall success rate for split {split}: {overall_success_rate:.4f}")
+            print(f"Overall Pass@k for split {split}: {overall_pass_at_k:.4f}")
 
         # --- save per split ---
         os.makedirs(output_root, exist_ok=True)
-        output_dir = os.path.join(output_root, TASK.replace("/", "_"))
+        
+        # Extract model family and model name for output directory
+        # e.g., "Qwen/Qwen2.5-1.5B-Instruct" -> family="Qwen", name="Qwen2.5-1.5B-Instruct"
+        if "/" in model_name:
+            model_family, model_full_name = model_name.split("/", 1)
+        else:
+            model_family = model_name.split("-")[0]
+            model_full_name = model_name
+
+        if "gpt" in model_full_name.lower():
+            model_full_name += f"_{level_reasoning}"
+        
+        output_dir = os.path.join(output_root, model_family, model_full_name, TASK.replace("/", "_"))
         os.makedirs(output_dir, exist_ok=True)
 
         for split in results:
@@ -340,8 +398,8 @@ def main(
             results_df["model_name"] = model_name
             results_df["task"] = TASK
             results_df["split"] = split
-
             model_alias = model_name.replace("/", "-")
+
             if max_questions_per_split is not None:
                 filepath = (
                     f"{output_dir}/{split}-{len(results[split])}-{model_alias}"
@@ -373,8 +431,9 @@ def main(
             results_df.to_parquet(filepath)
             print(f"Saved {TASK} / {split} split to: {filepath}")
             
-            # Calculate Pass@K
-            pass_at_k = results_df["success_rate"].mean()
+            # Calculate Pass@K (fraction of questions with at least one correct solution)
+            pass_at_k = results_df["pass_at_k"].mean()
+            success_rate = results_df["success_rate"].mean()
             
             # Send notification via ntfy.sh
             try:
@@ -382,7 +441,7 @@ def main(
                     f"✅ {TASK}\n"
                     f"Split: {split} | Model: {model_name}\n"
                     f"Config: k={num_rollouts_per_question}, τ={temperature}, maxlen={max_response_len}\n"
-                    f"Pass@{num_rollouts_per_question}: {pass_at_k:.4f} | MV Acc: {mv_accuracy:.4f}"
+                    f"Pass@{num_rollouts_per_question}: {pass_at_k:.4f} | Success Rate: {success_rate:.4f} | MV Acc: {mv_accuracy:.4f}"
                 )
                 requests.post("https://ntfy.sh/llms_know_difficulty", data=ntfy_message)
                 print('✅ Metrics sent to ntfy.sh')
@@ -414,7 +473,7 @@ if __name__ == "__main__":
     # "Qwen/Qwen2.5-Math-1.5B-Instruct",
     # "Qwen/Qwen2.5-1.5B",
     # "Qwen/Qwen2.5-1.5B-Instruct",
-    # "Qwen/Qwen2.5-Math-7B-Instruct",
+    # "Qwen/Qwen2.5-Math-1.5B-Instruct",
     # "Qwen/Qwen2.5-Math-72B-Instruct",
     "openai/gpt-oss-20b"
     # "openai/gpt-oss-120b"
@@ -423,51 +482,58 @@ if __name__ == "__main__":
     ]
 
     batch_size_by_model = {
-    "Qwen/Qwen2.5-Math-1.5B-Instruct": 256,
+    "Qwen/Qwen2.5-Math-1.5B-Instruct": 768,
     "Qwen/Qwen2.5-Math-7B-Instruct":  256,
     "Qwen/Qwen2.5-Math-72B-Instruct":  128,
-    "Qwen/Qwen2.5-1.5B-Instruct": 256,
+    "Qwen/Qwen2.5-1.5B-Instruct": 128,
     "Qwen/Qwen2.5-7B-Instruct":  256,
     "Qwen/Qwen2.5-72B-Instruct":  128,
-    "openai/gpt-oss-20b":  256,
+    "openai/gpt-oss-20b":  768,
     "openai/gpt-oss-120b":  64,
     }
+    TEMPERATURES = [0.2, 0.5, 0.8, 0.9, 1.0, 1.5]
+    NUM_ROLLOUTS=10
     
     for i, MODEL_TO_ROLLOUT in enumerate(MODELS_TO_RUN):
-        print(f"\n{'='*60}")
-        print(f"Processing model {i+1}/{len(MODELS_TO_RUN)}: {MODEL_TO_ROLLOUT}")
-        print(f"{'='*60}\n")
-        
-        main(
-            model_name=MODEL_TO_ROLLOUT,
-            # max_questions_per_split=15,
-            # level_reasoning="high",
-            tensor_parallel_size=2,
-            num_rollouts_per_question=8,
-            temperature=1.0,
-            pricing_config=SIMPLE_MODEL_POOL_CONFIG,
-            batch_size_by_model=batch_size_by_model,
-            max_response_len=32678
-        )
-        
-        print(f"\nFinished processing {MODEL_TO_ROLLOUT}")
-            # Send notification via ntfy.sh
-        try:
-            requests.post("https://ntfy.sh/llms_know_difficulty", data=f"Finished processing {MODEL_TO_ROLLOUT}")
-            print('✅ notification request sent')
-        except Exception as e:
-            print(f"ntfy.sh notification failed: {e}")
-        
-        # Clean up and wait for vLLM to die before loading next model
-        if i < len(MODELS_TO_RUN) - 1:  # Don't wait after the last model
-            print("Cleaning up and waiting for vLLM to release resources...")
-            gc.collect()
-            import torch
 
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            time.sleep(10)  # Wait 10 seconds for vLLM to fully shutdown
-            print(f"Ready to load next model: {MODELS_TO_RUN[i+1]}\n")
+        for SELECTED_TEMP in TEMPERATURES:
+            print(f"\n{'='*60}")
+            print(f"Processing model {i+1}/{len(MODELS_TO_RUN)}: {MODEL_TO_ROLLOUT} at temp {SELECTED_TEMP}")
+            print(f"{'='*60}\n")
+
+            if SELECTED_TEMP == 0.0:
+                NUM_ROLLOUTS = 1
+            
+            main(
+                model_name=MODEL_TO_ROLLOUT,
+                # max_questions_per_split=15,
+                level_reasoning="medium",
+                tensor_parallel_size=1,
+                num_rollouts_per_question=NUM_ROLLOUTS,
+                temperature=SELECTED_TEMP,
+                pricing_config=SIMPLE_MODEL_POOL_CONFIG,
+                batch_size_by_model=batch_size_by_model,
+                max_response_len=3000
+            )
+            
+            print(f"\nFinished processing {MODEL_TO_ROLLOUT} at temp {SELECTED_TEMP}")
+                # Send notification via ntfy.sh
+            try:
+                requests.post("https://ntfy.sh/llms_know_difficulty", data=f"Finished processing {MODEL_TO_ROLLOUT}")
+                print('✅ notification request sent')
+            except Exception as e:
+                print(f"ntfy.sh notification failed: {e}")
+            
+            # Clean up and wait for vLLM to die before loading next model
+            if i < len(MODELS_TO_RUN) - 1:  # Don't wait after the last model
+                print("Cleaning up and waiting for vLLM to release resources...")
+                gc.collect()
+                import torch
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                time.sleep(10)  # Wait 10 seconds for vLLM to fully shutdown
+                print(f"Ready to load next model: {MODELS_TO_RUN[i+1]}\n")
 
 
 

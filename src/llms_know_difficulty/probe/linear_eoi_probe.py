@@ -88,7 +88,7 @@ class LinearEoiProbe(Probe):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-        self.model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation="eager", device_map=device)
+        self.model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation="eager", torch_dtype="auto", device_map=device, low_cpu_mem_usage=True)
         self.model.eval()
         for p in self.model.parameters():
             p.requires_grad_(False)
@@ -248,15 +248,15 @@ class LinearEoiProbe(Probe):
                     x_train = self.train_activations[:, layer_idx, pos_idx, :].numpy()
                     x_val = self.val_activations[:, layer_idx, pos_idx, :].numpy()
                 except:
-                    x_train = self.train_activations[:, layer_idx, pos_idx, :].detach().cpu().numpy()
-                    x_val = self.val_activations[:, layer_idx, pos_idx, :].detach().cpu().numpy()
+                    x_train = self.train_activations[:, layer_idx, pos_idx, :].detach().to(torch.float16).cpu().numpy()  # [N, D]
+                    x_val = self.val_activations[:, layer_idx, pos_idx, :].detach().to(torch.float16).cpu().numpy()  # [N, D]
                 
                 # Extract test activations if available
                 if self.test_activations is not None:
                     try:
                         x_test = self.test_activations[:, layer_idx, pos_idx, :].numpy()
                     except:
-                        x_test = self.test_activations[:, layer_idx, pos_idx, :].detach().cpu().numpy()
+                        x_test = self.test_activations[:, layer_idx, pos_idx, :].detach().to(torch.float16).cpu().numpy()  # [N, D]
                 else:
                     x_test = None
                 
@@ -483,7 +483,10 @@ class LinearEoiProbe(Probe):
             # Index [:, best_layer_idx, :] to get [N, D]
             # activations_data is a tuple: (activations, labels, layer_indices, positions, n_eoi, d_model)
             activations = activations_data[0]  # [N, L, D] when specified_eoi_position used
-            x_pred = activations[:, self.best_layer_idx, :].numpy()
+            try:
+                x_pred = activations[:, self.best_layer_idx, :].numpy()
+            except:
+                x_pred = activations[:, self.best_layer_idx, :].detach().to(torch.float16).cpu().numpy() 
         else:
             # Assume already extracted activations
             x_pred = np.array(prompts)

@@ -391,10 +391,11 @@ def get_cache_path(
     max_length: int = 512,
     batch_size: int = 16,
     cache_dir: Optional[str] = None,
+    labels: Optional[List[float]] = None,
 ) -> str:
     """
     Generate a cache path for activations based on model name and data.
-    Uses a hash of the first prompt plus explicit split type to ensure unique and traceable filenames.
+    Uses a hash of the first prompt, labels hash, and explicit split type to ensure unique and traceable filenames.
     
     Args:
         model_name: HuggingFace model identifier
@@ -406,13 +407,14 @@ def get_cache_path(
         max_length: Maximum sequence length
         batch_size: Batch size used for extraction
         cache_dir: Directory to cache in. If None, uses ROOT_ACTIVATION_DATA_DIR
+        labels: List of labels to include in cache path hash (ensures different label sets get different caches)
     
     Returns:
         Full path to cache file
         
     Example:
         For train split with gpt2 model, texts starting with "Hello world", batch_size 16:
-        {cache_dir}/gpt2_cache/activations_train_a1b2c3d4_len512_bs16.pt
+        {cache_dir}/gpt2_cache/activations_train_a1b2c3d4_xyz789ab_len512_bs16.pt
     """
     import hashlib
     
@@ -428,11 +430,24 @@ def get_cache_path(
     first_text = texts[0] if texts else ""
     text_hash = hashlib.md5(first_text.encode()).hexdigest()[:8]
     
+    # Create a hash of labels to distinguish datasets with different k values (e.g., k=1 vs k=50)
+    # This ensures that different label distributions get different cache files
+    labels_hash = ""
+    if labels is not None:
+        import numpy as np
+        labels_array = np.array(labels)
+        # Hash based on: number of unique labels + min/max/mean values
+        labels_str = f"{len(np.unique(labels_array))}-{labels_array.min():.6f}-{labels_array.max():.6f}-{labels_array.mean():.6f}"
+        labels_hash = hashlib.md5(labels_str.encode()).hexdigest()[:8]
+    
     model_cache_dir = os.path.join(cache_dir, f"{model_name.replace('/', '-')}_cache")
     
-    # New naming scheme: explicit split type + hash of first prompt
-    # Example: activations_train_a1b2c3d4_len512_bs16.pt
-    cache_filename = f"activations_{split}_{text_hash}_len{max_length}_bs{batch_size}.pt"
+    # New naming scheme: explicit split type + hash of first prompt + hash of labels
+    # Example: activations_train_a1b2c3d4_xyz789ab_len512_bs16.pt
+    if labels_hash:
+        cache_filename = f"activations_{split}_{text_hash}_{labels_hash}_len{max_length}_bs{batch_size}.pt"
+    else:
+        cache_filename = f"activations_{split}_{text_hash}_len{max_length}_bs{batch_size}.pt"
     
     return os.path.join(model_cache_dir, cache_filename)
 
@@ -499,7 +514,7 @@ def extract_or_load_activations(
     if split not in ("train", "val", "test"):
         raise ValueError(f"split must be 'train', 'val', or 'test', got '{split}'")
     
-    # Generate cache path with explicit split type
+    # Generate cache path with explicit split type and labels hash
     cache_path = get_cache_path(
         model_name=model_name,
         texts=texts,
@@ -510,6 +525,7 @@ def extract_or_load_activations(
         max_length=max_length,
         batch_size=batch_size,
         cache_dir=cache_dir,
+        labels=labels,
     )
     
     # Try to load from cache
