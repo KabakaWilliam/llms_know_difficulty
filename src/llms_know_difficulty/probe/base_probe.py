@@ -3,8 +3,9 @@ from typing import List
 
 class Probe(ABC):
     
-    def __init__(self, config):
+    def __init__(self, config, **kwargs):
         self.config = config
+        self.setup()
 
     @property
     @abstractmethod

@@ -1,0 +1,14 @@
+# Dataset default configuration
+# This file contains default settings for dataset loading and processing
+
+_target_: llms_know_difficulty.utils.DataIngestionWorkflow.load_dataset
+dataset_name: null  # Dataset name (e.g., "DigitalLearningGmbH_MATH-lighteval", "gneubig_aime-1983-2024")
+max_len: 3000  # Maximum length of the response
+k: 5  # Number of rollouts per question
+temperature: 1.0  # Temperature for the model
+model_name: null # The model name is null as this must be specified by the user
+val_train_split_ratio: 0.2
+prompt_column_name: "formatted_prompt"
+label_column_name: "success_rate"
+idx_column_name: "idx"
+root_data_dir: "../../data"

@@ -7,42 +7,30 @@ from llms_know_difficulty.utils import (
     save_probe_predictions
 )
 from llms_know_difficulty.metrics import compute_metrics
+import hydra
+from omegaconf import DictConfig, OmegaConf
 
-def main():
-    parser = argparse.ArgumentParser(description="LLMs-Know-Difficulty command line interface")
-    parser.add_argument("--probe", type=str, required=False, help="Name of probe to use")
-    parser.add_argument("--dataset", type=str, required=False, help="Path to data file")
-    parser.add_argument("--model", type=str, required=False, help="Name of model to use")
-    parser.add_argument("--checkpoint_path", type=str, required=False, help="Path to checkpoint file")
-    parser.add_argument("--max_len", type=int, required=False, help="Maximum length of the response")
-    parser.add_argument("--k", type=int, required=False, help="Number of rollouts per question")
-    parser.add_argument("--temperature", type=float, required=False, help="Temperature for the model")
-    args = parser.parse_args()
 
-    print("Args:", args)
-
-    # 1. Load the dataset from the config
-    train_data, val_data, test_data = DataIngestionWorkflow.load_dataset(
-        dataset_name=args.dataset,
-        model_name=args.model,
-        max_len=args.max_len,
-        k=args.k,
-        temperature=args.temperature)
+@hydra.main(version_base=None, config_path="../../config", config_name="config")
+def main(cfg: DictConfig) -> None:
     
-    # 3. Setup the results directory for the run 
-    results_path = create_results_path(args.dataset, args.model, args.probe)
+    print("RUNNING WITH CONFIG:")
+    print(OmegaConf.to_yaml(cfg))
+
+    print("Loading dataset...")
+    # 1. Load the dataset from the config
+    # Filter out 'name' field if present (Hydra may add it automatically)
+    dataset_cfg = OmegaConf.create({k: v for k, v in cfg.dataset.items() if k != 'name'})
+    train_data, val_data, test_data = hydra.utils.instantiate(dataset_cfg, seed=cfg.seed)
+    
+    print("Creating results directory...")
+    # TODO: Now that a different model can be passed to the probe, add this to the results path...
+    results_path = create_results_path(cfg.dataset.dataset_name, cfg.dataset.model_name, cfg.probe.name)
     print(f"Creating results directory at {results_path}")
 
     # 4. Initialize the probe:
     print(f"Initializing probe {args.probe}\n")
-
-    probe = ProbeFactory.create_probe(probe_name=args.probe, 
-                                        model=args.model,
-                                        dataset=args.dataset,
-                                        max_len=args.max_len,
-                                        k=args.k,
-                                        temperature=args.temperature)
-
+    probe = hydra.utils.instantiate(cfg.probe, device=cfg.device)
     if args.checkpoint_path is not None:
         print(f"Loading probe from checkpoint {args.checkpoint_path}")
         probe.init_model(checkpoint_path=args.checkpoint_path)

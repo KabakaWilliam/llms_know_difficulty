@@ -6,13 +6,7 @@ import json
 from pathlib import Path
 from llms_know_difficulty.probe.base_probe import Probe
 from datetime import datetime
-from llms_know_difficulty.config import (
-    ROOT_DATA_DIR,
-    SEED,
-    VAL_TRAIN_SPLIT_RATIO,
-    PROMPT_COLUMN_NAME,
-    LABEL_COLUMN_NAME,
-    IDX_COLUMN_NAME)
+
 
 import numpy as np
 from sklearn.utils.multiclass import type_of_target
@@ -207,7 +201,17 @@ def parse_dataset_from_path(full_path: str) -> dict:
 class DataIngestionWorkflow:
 
     @staticmethod
-    def load_dataset(dataset_name: str, model_name: str, max_len: int, k: int, temperature: float):
+    def load_dataset(dataset_name: str,
+     model_name: str,
+     max_len: int,
+     k: int,
+     temperature: float,
+     root_data_dir: Path,
+     seed: int = 42,
+     val_train_split_ratio: float = 0.2,
+     prompt_column_name: str = "formatted_prompt",
+     label_column_name: str = "success_rate",
+     idx_column_name: str = "idx"):
         """
         1. Check if the dataset exists at the expected directory.
 
@@ -232,7 +236,15 @@ class DataIngestionWorkflow:
         outputs = {}
         for split in ["train", "test", "val"]:
 
-            dataset_path = DataIngestionWorkflow.create_dataset_path(dataset_name, model_name, split, max_len, k, temperature)
+            dataset_path = DataIngestionWorkflow.create_dataset_path(
+                root_data_dir=root_data_dir,
+                dataset_name=dataset_name,
+                model_name=model_name,
+                split=split,
+                max_len=max_len,
+                k=k,
+                temperature=temperature
+            )
 
             if os.path.exists(dataset_path):
                 print(f"Loading {split} data from {dataset_path}")
@@ -244,10 +256,10 @@ class DataIngestionWorkflow:
                 if "train" not in outputs:
                     raise ValueError("Train split must be loaded before creating a validation split.")
                 
-                df = outputs["train"].iloc[-int(len(outputs["train"]) * VAL_TRAIN_SPLIT_RATIO):]
+                df = outputs["train"].iloc[-int(len(outputs["train"]) * val_train_split_ratio):]
 
                 # Save the new train split:
-                outputs["train"] = outputs["train"].iloc[:-int(len(outputs["train"]) * VAL_TRAIN_SPLIT_RATIO)]
+                outputs["train"] = outputs["train"].iloc[:-int(len(outputs["train"]) * val_train_split_ratio)]
                 new_train_path = DataIngestionWorkflow.create_dataset_path(dataset_name, model_name, "train", max_len, k, temperature)
                 outputs["train"].to_parquet(new_train_path)
 
@@ -261,17 +273,25 @@ class DataIngestionWorkflow:
                 df = pd.read_parquet(dataset_path)
 
             # Shuffle the dataframe with the SEED:
-            df = df.sample(frac=1, random_state=SEED).reset_index(drop=True)            
+            df = df.sample(frac=1, random_state=seed).reset_index(drop=True)            
             outputs[split] = df
 
         # turn it into a tuple of prompts and labels:
         for key, value in outputs.items():
-            outputs[key] = (value[IDX_COLUMN_NAME].tolist(), value[PROMPT_COLUMN_NAME].tolist(), value[LABEL_COLUMN_NAME].tolist())
+            outputs[key] = (value[idx_column_name].tolist(), value[prompt_column_name].tolist(), value[label_column_name].tolist())
 
         return outputs['train'], outputs['val'], outputs['test']
 
     @staticmethod
-    def create_dataset_path(dataset_name: str, model_name: str, split:str, max_len: int, k: int, temperature: float):
+    def create_dataset_path(
+                    root_data_dir: str,
+                    dataset_name: str,
+                    model_name: str,
+                    split:str,
+                    max_len: int,
+                    k: int,
+                    temperature: float
+                    ) -> str:
         """
         Create the path to the dataset:
         """
@@ -281,7 +301,7 @@ class DataIngestionWorkflow:
         model_family, specific_model_name = name_split[0], name_split[1]
         file_name = f"{split}_maxlen_{max_len}_k_{k}_temp_{temperature}.parquet"
 
-        return os.path.join(ROOT_DATA_DIR,
+        return os.path.join(root_data_dir,
                                 model_family,
                                 specific_model_name,
                                 dataset_name,

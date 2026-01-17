@@ -1,0 +1,9 @@
+# DigitalLearningGmbH_MATH-lighteval-Qwen2.5-1.5B-Instruct Configuration
+# Inherits from dataset_default.yaml with modified model_name and dataset_name parameters
+
+defaults:
+  - dataset_default
+
+# Override model name and dataset name parameters
+model_name: "Qwen/Qwen2.5-1.5B-Instruct"
+dataset_name: "DigitalLearningGmbH_MATH-lighteval"
