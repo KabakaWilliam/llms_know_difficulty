@@ -5,7 +5,6 @@ class Probe(ABC):
     
     def __init__(self, config, **kwargs):
         self.config = config
-        self.setup()
 
     @property
     @abstractmethod
@@ -18,13 +17,6 @@ class Probe(ABC):
         """Load a probe from checkpoint"""
         pass
 
-    @abstractmethod
-    def setup(self, model_name: str):
-        """
-        Any pre-training steps, extracting activations,
-        loading a model to extract activations on the fly
-        """
-        pass
 
     @abstractmethod
     def train(self, train_data: tuple[list[str], list[float]], val_data: tuple[list[str], list[float]]) -> None:

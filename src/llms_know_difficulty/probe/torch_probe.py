@@ -1,6 +1,6 @@
 import itertools
 from logging import warning
-from typing import Any, Tuple
+from typing import Any, Optional, Tuple
 from pathlib import Path
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 import torch
@@ -14,6 +14,7 @@ from itertools import product
 import numpy as np
 from tqdm import tqdm
 from scipy.stats import spearmanr
+from hydra.utils import get_class
 
 class AttnLite(nn.Module):
     
@@ -170,31 +171,53 @@ class TextNumberDataset(Dataset):
 
 
 class TorchProbe(Probe):
-    def __init__(self, config):
+
+    def __init__(self,
+        model_name: str,
+        device: str,
+        probe_class: nn.Module,
+        learning_rate: list[float],
+        batch_size: list[int],
+        num_epochs: list[int],
+        weight_decay: list[float],
+        max_length: list[int],
+        layer: list[int],
+        cv_metric: str,
+        max_or_min_cv_metric: str,
+        cross_validated_hyperparameters: list[str],
+        checkpoint_path: Optional[Path] = None,
+        _probe_name: str = "torch_probe",
+        test_mode: bool = False,
+        test_sample_size: int = 128,
+        use_hooks: bool = False,
+        **kwargs: Any,
+    ):
         """
         TorchProbe trains a vareity of probes using a standard torch training loop.
 
         Args:
-            config: The configuration for the probe.
+            model_name: The name of the LLM to use and extract activations from.
+            device: The device to use for the model and probe training.
+            ProbeClass: The class of the probe to train.
         """
 
-
-        super().__init__(config)
-        self.config = config.model_dump()
-
-    @property
-    def name(self) -> str:
-        """The name of the probe."""
-        return "torch_probe"
-
-    def setup(self, model_name: str, device: str, ProbeClass: nn.Module) -> "TorchProbe":
-        """
-        Any pre-training loading steps, run before .fit or .predict.
-
-        TODO: Automatic discovery of number of layers...
-        """
-
-        self.ProbeClass = ProbeClass
+        self.ProbeClass = get_class(probe_class)
+        self._probe_name = _probe_name
+        self.test_mode = test_mode
+        self.test_sample_size = test_sample_size
+        self.use_hooks = use_hooks
+        
+        # Cast learning hyperparameters to lists:
+        self.learning_rate = list(learning_rate)
+        self.batch_size = list(batch_size)
+        self.num_epochs = list(num_epochs)
+        self.weight_decay = list(weight_decay)
+        self.max_length = list(max_length)
+        self.cv_metric = cv_metric
+        self.max_or_min_cv_metric = max_or_min_cv_metric
+        self.layer = list(layer)
+        self.cross_validated_hyperparameters = cross_validated_hyperparameters
+    
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name,
          use_fast=True,
@@ -214,19 +237,25 @@ class TorchProbe(Probe):
 
         self.model_name = model_name  # Store model name
         self.d_model = self.model.config.hidden_size
-        self.device = self.config.get('device', 'cuda:0')
-
+        self.device = device
      
         # Variables that store the best probe after training:
         self.best_probe = None
         self.best_hyperparameters = None
         self.best_layer_id = None
+        
+        if checkpoint_path is not None:
+            # TOOD: init model should handle loading the best probe parameters.
+            self.init_model(checkpoint_path)
 
-        return self
-
-    def init_model(self, config: dict):
+    @property
+    def name(self) -> str:
+        """The name of the probe."""
+        return self._probe_name
+        
+    def init_model(self, config: dict) -> None:
         """
-        Load a prior training checkpoint.
+        Load a prior training checkpoint. Updates best_probe, best_hyperparameters
         """
         raise NotImplementedError("Initializing a model from a checkpoint is not implemented for the attention probe.")
 
@@ -242,13 +271,14 @@ class TorchProbe(Probe):
 
         # Setup cross validation on layers and other hyperparameters:        
         # Use itertools to create list of all combinations of layers and other hyperparameters:
-        cv_hyper_list_names = self.config.get('cross_validated_hyperparameters', [])
+        cv_hyper_list_names = self.cross_validated_hyperparameters
         cv_hyper_values = []
 
         # Make sure the config provides a grid of values:
         for hyper_name in cv_hyper_list_names:
-            hyper_values = self.config.get(hyper_name, None)
+            hyper_values = getattr(self, hyper_name, None)
             if hyper_values is None or not isinstance(hyper_values, list):
+                import IPython; IPython.embed()
                 raise ValueError(
                     f"""Attention probe config error! Cross_validated_hyperparameter includes {hyper_name} but {hyper_name} does not provide a list of values.
                     {hyper_name} set to {hyper_values} in AttentionProbeConfig inconfig.py""")
@@ -281,7 +311,7 @@ class TorchProbe(Probe):
             # Evaluate the probe's performance on the validation data:
             with torch.no_grad():
                 evaluate_metrics, _ = self.evaluate(probe, val_idx,val_prompts, val_targets, hyperparams)
-            cv_metric = evaluate_metrics[self.config.get('cv_metric', 'mse')]
+            cv_metric = evaluate_metrics[self.cv_metric]
 
             print('-' * 80)
             print(f'CV metric: {cv_metric:.4f}')
@@ -290,7 +320,7 @@ class TorchProbe(Probe):
             cv_results.append([cv_metric, hyperparams, probe])
 
         # After training we select the best cv hyperparameters and evaluate the probe on the test_data
-        max_or_min_cv_metric = self.config.get('max_or_min_cv_metric', 'max')
+        max_or_min_cv_metric = self.max_or_min_cv_metric
         metrics, hyperparameters, probes = zip(*cv_results)
         if max_or_min_cv_metric == 'max':
             best_cv_probe_idx = np.argmax(metrics)
@@ -315,8 +345,8 @@ class TorchProbe(Probe):
         """
         
         # Setup data loader:
-        if self.config.get('test_mode', False):
-            batch_size_approx = self.config.get('batch_size',128)[0]
+        if self.test_mode:
+            batch_size_approx = self.batch_size[0]
             idx = idx[:batch_size_approx]
             prompts = prompts[:batch_size_approx]
             targets = targets[:batch_size_approx]
@@ -387,8 +417,8 @@ class TorchProbe(Probe):
         idx, prompts, _ = test_data
 
         # For test_mode, sample a subset of data for quick debugging
-        if self.config.get('test_mode', False):
-            test_sample_size = self.config.get('test_sample_size', 256)
+        if self.test_mode:
+            test_sample_size = self.test_sample_size
             idx = idx[:test_sample_size]
             prompts = prompts[:test_sample_size]
 
@@ -453,8 +483,8 @@ class TorchProbe(Probe):
         """
 
         # Setup train loader:
-        if self.config.get('test_mode', False):
-            batch_size_approx = self.config.get('batch_size', 128)[0]
+        if self.test_mode:
+            batch_size_approx = self.batch_size[0]
             idx = idx[:batch_size_approx]
             prompts = prompts[:batch_size_approx]
             targets = targets[:batch_size_approx]
@@ -536,13 +566,13 @@ class TorchProbe(Probe):
 
         assert len(layer_indices) == 1, "Only one layer can be extracted at a time."
 
-        if self.config.get('use_hooks', False):
-                    activations = self._extract_hooked_activations(
-                    model=self.model,
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    layer_idx=layer_indices,
-                )
+        if self.use_hooks:
+            activations = self._extract_hooked_activations(
+            model=self.model,
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            layer_idx=layer_indices,
+        )
         else:
             activations = self._extract_hidden_outputs(
                 model=self.model,
@@ -690,7 +720,28 @@ class TorchProbe(Probe):
         """
         Dump the config setup into a dictionary.
         """
-        return self.config
+
+        # Create metadata dictionary:
+        return {
+            'name': self.name,
+            'model_name': self.model_name,
+            'd_model': self.d_model,
+            'task_type': 'regression',
+            'best_layer_id': self.best_layer_id,
+            'best_metrics': self.best_metrics,
+            'test_mode': self.test_mode,
+            'use_hooks': self.use_hooks,
+            'learning_rate': self.learning_rate,
+            'batch_size': self.batch_size,
+            'num_epochs': self.num_epochs,
+            'weight_decay': self.weight_decay,
+            'max_length': self.max_length,
+            'cv_metric': self.cv_metric,
+            'cross_validated_hyperparameters': self.cross_validated_hyperparameters,
+        }
+
+
+
     def get_probe_metadata(self) -> dict:
         """
         Return probe metadata for saving (attn_probe specific format).
@@ -748,7 +799,7 @@ class TorchLayerProbe(TorchProbe):
             from the last token of the sequence.
         """
 
-        if self.config.get('use_hooks', False):
+        if self.use_hooks:
             raise NotImplementedError("Hooks are not supported for layer probing.")
 
         else:

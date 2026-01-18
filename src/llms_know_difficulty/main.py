@@ -35,9 +35,6 @@ def main(cfg: DictConfig) -> None:
     # 4. Initialize the probe:
     print(f"Initializing probe {cfg.probe.probe_class}\n")
     probe = hydra.utils.instantiate(cfg.probe, device=cfg.device)
-    if args.checkpoint_path is not None:
-        print(f"Loading probe from checkpoint {args.checkpoint_path}")
-        probe.init_model(checkpoint_path=args.checkpoint_path)
 
     # 6. Run probe training:
     print(f"\n🔥 Training probe on train and val data\n")
@@ -69,7 +66,11 @@ def main(cfg: DictConfig) -> None:
 
     print(f"Test performance: {test_metrics.get('spearman', test_metrics.get('auc', 'N/A'))} 🔥\n")
     # 9. Save the probe predictions to the results directory:
-    results_path = create_results_path(args.dataset, args.model, args.probe)
+    results_path = create_results_path(root_data_dir=cfg.dataset.root_data_dir,
+                                        dataset_name=cfg.dataset.dataset_name,
+                                        model_name=cfg.dataset.model_name,
+                                        probe_name=cfg.probe.name,
+                                        gen_str=None)
     print(f"Saving probe predictions to {results_path}")
     
     # Already formatted as tensors from predict()
