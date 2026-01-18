@@ -345,6 +345,28 @@ SIMPLE_MODEL_POOL_CONFIG = {
             "output_per_mill": 0.90,
         }
     },
+    "Qwen/Qwen3-Coder-30B-A3B-Instruct": {
+        "model_base": "http://localhost:8001/v3",
+        "api_key": "token-abc123",
+        "default_temperature": 0.7,
+        "default_max_tokens": 65536,
+        "mode_settings": {
+            "Code": {
+                "prompt_sfx": prompt_sfx,
+                "default_temperature": 0.7,
+                "default_max_tokens": 65536,
+                "top_p":0.8,
+                 "top_k":20,
+                 "repetition_penalty":1.05
+
+            }
+        },
+        # Fireworks serverless tier: >16B params = $0.90 / 1M tokens, cached input $0.45 / 1M
+        "model_costs": {
+            "input_per_mill": 0.15,
+            "output_per_mill": 0.60,
+        }
+    },
 
     "openai/gpt-oss-20b": {
         "model_base": "http://localhost:8001/v4",

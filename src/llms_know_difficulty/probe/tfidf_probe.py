@@ -208,8 +208,12 @@ class TfidfProbe(Probe):
             
             print(f"  Alpha: {alpha:8.3f} | Val {self.metric_name}: {val_metrics[self.metric_name]:.4f}")
         
-        # Select best alpha
-        self.best_alpha = max(alpha_results.keys(), key=lambda a: alpha_results[a])
+        # Select best alpha (filter out NaN values)
+        valid_alphas = {a: score for a, score in alpha_results.items() if not np.isnan(score)}
+        if not valid_alphas:
+            raise ValueError("All alpha values produced NaN scores. Check numerical stability of features/labels.")
+        
+        self.best_alpha = max(valid_alphas.keys(), key=lambda a: valid_alphas[a])
         self.best_val_score = alpha_results[self.best_alpha]
         
         print(f"\n{'='*50}")

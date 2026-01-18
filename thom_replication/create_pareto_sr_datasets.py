@@ -52,18 +52,28 @@ def get_task(name):
     
     elif name == "opencompass_AIME2025":
         from utils.verification_math import compute_score
+        from datasets import concatenate_datasets
 
-        ds = load_dataset("opencompass/AIME2025", "AIME2025-I")
+        # Load both AIME2025-I and AIME2025-II
+        ds_i = load_dataset("opencompass/AIME2025", "AIME2025-I")
+        ds_ii = load_dataset("opencompass/AIME2025", "AIME2025-II")
 
         def add_extracted_solution(example):
             example["extracted_solution"] = example["answer"]
             return example
 
-        for split in ds:
-            # rename question -> problem
-            ds[split] = ds[split].rename_column("question", "problem")
-            # add extracted_solution from answer
-            ds[split] = ds[split].map(add_extracted_solution)
+        # Process both datasets
+        for subset in [ds_i, ds_ii]:
+            for split in subset:
+                # rename question -> problem
+                subset[split] = subset[split].rename_column("question", "problem")
+                # add extracted_solution from answer
+                subset[split] = subset[split].map(add_extracted_solution)
+
+        # Concatenate both subsets for each split
+        ds = {}
+        for split in ds_i:
+            ds[split] = concatenate_datasets([ds_i[split], ds_ii[split]])
 
         return ds, compute_score
     
@@ -116,6 +126,7 @@ def main(
     prompt_suffix: str = "Let's think step by step and output the final answer within \\boxed{}.",
     level_reasoning=None,
     num_rollouts_per_question: int = 50,
+    gpu_memory_utilization: float = 0.70,
     max_questions_per_split: Optional[int] = None,
     tensor_parallel_size: int = 1,
     pricing_config: Optional[dict] = None,
@@ -192,19 +203,27 @@ def main(
             max_num_batched_tokens=8192,
         )
     else:
-        llm = LLM(
-            model=model_name,
-            tensor_parallel_size=tensor_parallel_size,
-            gpu_memory_utilization=0.85,
-        )
+        llm_kwargs = {
+            "model": model_name,
+            "tensor_parallel_size": tensor_parallel_size,
+            "gpu_memory_utilization": gpu_memory_utilization,
+            "max_model_len": max_response_len,
+        }
+        # # Only add think_end_token for GPT OSS models
+        if "gpt-oss" in model_name.lower(): ###vllm docs for ref https://docs.vllm.ai/projects/recipes/en/latest/OpenAI/GPT-OSS.html#accuracy-evaluation-panels:~:text=Accuracy%20Evaluation-,Panels,-%C2%B6
+            llm_kwargs["max_model_len"] = 131072
+            llm_kwargs["max_num_batched_tokens"] = 10240
+            llm_kwargs["max_num_seqs"] = 128
+
+        llm = LLM(**llm_kwargs)
 
     LANGUAGE_SUFFIXES = ["en", "sw", "zh", "es", "ar", "fr", "bn", "pt", "ru", "id", "de", "ja", "vi", "it", "te", "ko", "th", "ms"]
     # --------- tasks ----------
     TASKS = [
-        # "opencompass_AIME2025",
-        # "gneubig_aime-1983-2024",
+        "opencompass_AIME2025",
+        "gneubig_aime-1983-2024",
         "DigitalLearningGmbH_MATH-lighteval",
-        # "openai_gsm8k",
+        "openai_gsm8k",
     ] 
     # + [f"Qwen_PolyMath_{lang}" for lang in LANGUAGE_SUFFIXES]
 
@@ -389,7 +408,7 @@ def main(
 
         if "gpt" in model_full_name.lower():
             model_full_name += f"_{level_reasoning}"
-        
+
         output_dir = os.path.join(output_root, model_family, model_full_name, TASK.replace("/", "_"))
         os.makedirs(output_dir, exist_ok=True)
 
@@ -398,16 +417,16 @@ def main(
             results_df["model_name"] = model_name
             results_df["task"] = TASK
             results_df["split"] = split
-            model_alias = model_name.replace("/", "-")
+
 
             if max_questions_per_split is not None:
                 filepath = (
-                    f"{output_dir}/{split}-{len(results[split])}-{model_alias}"
+                    f"{output_dir}/{split}-{len(results[split])}"
                     f"_maxlen_{max_response_len}_k_{num_rollouts_per_question}_temp_{temperature}.parquet"
                 )
             else:
                 filepath = (
-                    f"{output_dir}/{split}-{model_alias}"
+                    f"{output_dir}/{split}"
                     f"_maxlen_{max_response_len}_k_{num_rollouts_per_question}_temp_{temperature}.parquet"
                 )
             results_df = results_df.reset_index().rename(columns={"index": "idx"})
@@ -491,8 +510,8 @@ if __name__ == "__main__":
     "openai/gpt-oss-20b":  768,
     "openai/gpt-oss-120b":  64,
     }
-    TEMPERATURES = [0.2, 0.5, 0.8, 0.9, 1.0, 1.5]
-    NUM_ROLLOUTS=10
+    TEMPERATURES = [1.0]
+    NUM_ROLLOUTS=1
     
     for i, MODEL_TO_ROLLOUT in enumerate(MODELS_TO_RUN):
 
@@ -506,6 +525,7 @@ if __name__ == "__main__":
             
             main(
                 model_name=MODEL_TO_ROLLOUT,
+                gpu_memory_utilization=0.9,
                 # max_questions_per_split=15,
                 level_reasoning="medium",
                 tensor_parallel_size=1,
@@ -513,7 +533,7 @@ if __name__ == "__main__":
                 temperature=SELECTED_TEMP,
                 pricing_config=SIMPLE_MODEL_POOL_CONFIG,
                 batch_size_by_model=batch_size_by_model,
-                max_response_len=3000
+                max_response_len=131072
             )
             
             print(f"\nFinished processing {MODEL_TO_ROLLOUT} at temp {SELECTED_TEMP}")

@@ -4,13 +4,14 @@ import torch.nn as nn
 
 from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score
-from utils import infer_task_type
+# from utils import infer_task_type
+from llms_know_difficulty.probe.probe_utils.linear_eoi_probe import linear_eoi_probe_train_utils
 
 def bin(y, n_bins=10, min_val=0.0, max_val=1.0):
     # Use torch bucketize to bin y into n_bins between min_val and max_val
     bins = torch.linspace(min_val, max_val, n_bins + 1).to(y.device)  # [n_bins+1]
-    # clamp y to [min_val, max_val]
-    y = y.clamp(min=min_val, max=max_val)
+    # apply sigmoid to y to map to [0, 1]
+    y = torch.sigmoid(y)
     # add small epsilon to handle edge case where y == min_val
     return torch.bucketize(y + 1e-8, bins) - 1  # [B], bin indices
 
@@ -42,7 +43,7 @@ def compute_metrics(ys, preds, task_type: str = "auto", full_metrics: bool = Tru
     # Infer task type if not provided
     y_np = ys.view(-1).detach().cpu().numpy()
     p_np = preds.view(-1).detach().cpu().numpy()
-    task_type = infer_task_type(y_np, task_type)
+    task_type = linear_eoi_probe_train_utils.infer_task_type(y_np, task_type)
 
     mse = nn.MSELoss()(preds, ys).item()
     mae = (preds - ys).abs().mean().item()
@@ -111,10 +112,10 @@ def compute_metrics(ys, preds, task_type: str = "auto", full_metrics: bool = Tru
         metrics[f"f1_bin_{b}"] = f1
 
     # learnability is defined as ys * (1-ys)
-    clipped_ys = ys.clamp(min=0.0, max=1.0)
-    clipped_preds = preds.clamp(min=0.0, max=1.0)
-    learnability_ys = clipped_ys * (1.0 - clipped_ys)
-    learnability_preds = clipped_preds * (1.0 - clipped_preds)
+    sigmoid_ys = torch.sigmoid(ys)
+    sigmoid_preds = torch.sigmoid(preds)
+    learnability_ys = sigmoid_ys * (1.0 - sigmoid_ys)
+    learnability_preds = sigmoid_preds * (1.0 - sigmoid_preds)
     # take the top 25% most learnable samples as estimated by the probe
     n_learnable = int(0.25 * ys.size(0))
     _, learnable_indices = torch.topk(learnability_preds, n_learnable)

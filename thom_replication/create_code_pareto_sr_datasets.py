@@ -139,13 +139,19 @@ def main(
             max_num_batched_tokens=8192,
         )
     else:
-        llm = LLM(
-            model=model_name,
-            tensor_parallel_size=tensor_parallel_size,
-            gpu_memory_utilization=gpu_memory_utilization,
-            max_model_len=4096,
-            max_num_batched_tokens=8192
-        )
+        llm_kwargs = {
+            "model": model_name,
+            "tensor_parallel_size": tensor_parallel_size,
+            "gpu_memory_utilization": gpu_memory_utilization,
+            "max_model_len": max_response_len,
+        }
+        # # Only add think_end_token for GPT OSS models
+        if "gpt-oss" in model_name.lower():
+            llm_kwargs["max_model_len"] = 131072
+            llm_kwargs["max_num_batched_tokens"] = 10240
+            llm_kwargs["max_num_seqs"] = 128
+
+        llm = LLM(**llm_kwargs)
 
     # --------- tasks ----------
     TASKS = [
@@ -320,6 +326,8 @@ def main(
             print(f"Overall success rate for split {split}: {overall_success_rate:.4f}")
 
         model_alias = model_name.split("/")[-1]
+        if "gpt" in model_alias.lower():
+            model_alias += f"_{level_reasoning}"
         # --- save per split ---
         os.makedirs(output_root, exist_ok=True)
         output_dir = os.path.join(output_root, model_name.split("/")[0], model_alias, TASK.replace("/", "_"))
@@ -395,8 +403,10 @@ if __name__ == "__main__":
     # "Qwen/Qwen2.5-Coder-3B-Instruct",
     # "Qwen/Qwen2.5-Coder-7B-Instruct",
     # "Qwen/Qwen2.5-Coder-14B-Instruct",
-    "Qwen/Qwen2.5-Coder-32B-Instruct",
-    # "openai/gpt-oss-20b"
+    # "Qwen/Qwen2.5-Coder-32B-Instruct",
+    "openai/gpt-oss-20b",
+    # "openai/gpt-oss-120b",
+    # "Qwen/Qwen3-Coder-30B-A3B-Instruct"
     ]
 
     batch_size_by_model = {
@@ -406,6 +416,7 @@ if __name__ == "__main__":
     "Qwen/Qwen2.5-Math-72B-Instruct":  128,
     "Qwen/Qwen2.5-1.5B-Instruct": 256,
     "Qwen/Qwen2.5-7B-Instruct":  256,
+    "Qwen/Qwen3-Coder-30B-A3B-Instruct":  64,
     "Qwen/Qwen2.5-72B-Instruct":  128,
     "openai/gpt-oss-20b":  256,
     "openai/gpt-oss-120b":  64,
@@ -419,16 +430,16 @@ if __name__ == "__main__":
         main(
             model_name=MODEL_TO_ROLLOUT,
             # max_questions_per_split=5,
-            # level_reasoning="high",
+            level_reasoning="high",
             tensor_parallel_size=1,
             num_rollouts_per_question=1,
-            temperature=0.7,
+            temperature=1.0,
             top_p=0.95,
             top_k=-1,
             gpu_memory_utilization=0.90, #increase according to VRAM available
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
             batch_size_by_model=batch_size_by_model,
-            max_response_len=4096,
+            max_response_len=131072,
             max_concurrent_API_requests=8
         )
         

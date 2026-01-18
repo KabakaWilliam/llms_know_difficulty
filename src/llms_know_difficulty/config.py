@@ -22,7 +22,7 @@ PROMPT_COLUMN_NAME = "formatted_prompt"
 LABEL_COLUMN_NAME = "success_rate" #"pass_at_k" #"success_rate"
 IDX_COLUMN_NAME = "idx"
 
-DEVICE = "cuda:0"
+DEVICE = "cuda"
 MODEL_HYPERPARAMETERS = {
     "Qwen/Qwen2.5-1.5B-Instruct":{
         'num_layers': 29 
@@ -113,7 +113,7 @@ class LinearEOIProbeConfig(BaseModel):
         max_length: int          Maximum prompt length when tokenizing inputs
     """
     model_name: str = "gpt2"
-    alpha_grid: list[float] = [0, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000]
+    alpha_grid: list[float] = [0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000]
     batch_size: int = 1
     max_length: int = 1024
 
@@ -127,7 +127,7 @@ class TfidfProbeConfig(BaseModel):
         batch_size: int          Batch size for activation extraction
         max_length: int          Maximum prompt length when tokenizing inputs
     """
-    alpha_grid: list[float] = [0, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000]
+    alpha_grid: list[float] = [0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000]
     fit_intercept: bool = True
 
 

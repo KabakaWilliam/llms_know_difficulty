@@ -28,7 +28,7 @@ def infer_task_type(y: np.ndarray, task_type: str = "auto") -> str:
     else:
         return "regression"
 
-def create_results_path(dataset_name: str, model_name: str, probe_name: str, gen_str: str = None) -> Path:
+def create_results_path(dataset_name: str, model_name: str, probe_name: str, gen_str: str = None, label_column: str = None) -> Path:
     """
     Create a path for saving probe results
     
@@ -37,20 +37,29 @@ def create_results_path(dataset_name: str, model_name: str, probe_name: str, gen
         model_name: Name of the model (e.g., "gpt2")
         probe_name: Name of the probe (e.g., "sklearn_probe")
         gen_str: Optional generation settings string (e.g., "maxlen_3000_k_8_temp_0.7")
+        label_column: Optional label column name (e.g., "success_rate")
     
     Returns:
         Path to results directory with structure:
-        data/results/{model_name}/{dataset_name}/{probe_name}/{gen_str}/{timestamp}
+        data/results/{model_name}/{dataset_name}/{probe_name}/{gen_str}/label_{label_column}/{timestamp}/
         or
-        data/results/{model_name}/{dataset_name}/{probe_name}/{timestamp} if gen_str is None
+        data/results/{model_name}/{dataset_name}/{probe_name}/label_{label_column}/{timestamp}/ if gen_str is None
     """
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
+    
+    # Build the base path with label before timestamp
     if gen_str:
-        results_path = os.path.join(ROOT_DATA_DIR, "results", model_name, dataset_name, probe_name, gen_str, timestamp)
+        base_path = os.path.join(ROOT_DATA_DIR, "results", model_name, dataset_name, probe_name, gen_str)
     else:
-        results_path = os.path.join(ROOT_DATA_DIR, "results", model_name, dataset_name, probe_name, timestamp)
+        base_path = os.path.join(ROOT_DATA_DIR, "results", model_name, dataset_name, probe_name)
+    
+    # Append label column name if provided
+    if label_column:
+        base_path = os.path.join(base_path, f"label_{label_column}")
+    
+    # Append timestamp last
+    results_path = os.path.join(base_path, timestamp)
 
     os.makedirs(results_path, exist_ok=True)
     return Path(results_path)
@@ -207,7 +216,8 @@ def parse_dataset_from_path(full_path: str) -> dict:
 class DataIngestionWorkflow:
 
     @staticmethod
-    def load_dataset(dataset_name: str, model_name: str, max_len: int, k: int, temperature: float):
+    def load_dataset(dataset_name: str, model_name: str, max_len: int, k: int, temperature: float,
+                     prompt_column: str = None, label_column: str = None):
         """
         1. Check if the dataset exists at the expected directory.
 
@@ -224,6 +234,8 @@ class DataIngestionWorkflow:
             max_len: Maximum length of the response
             k: Number of rollouts per question
             temperature: Temperature for the model
+            prompt_column: Name of prompt column (defaults to PROMPT_COLUMN_NAME from config)
+            label_column: Name of label column (defaults to LABEL_COLUMN_NAME from config)
 
         Returns:
             Tuple with 'train', 'val' and 'test' DataFrames
@@ -266,7 +278,7 @@ class DataIngestionWorkflow:
 
         # turn it into a tuple of prompts and labels:
         for key, value in outputs.items():
-            outputs[key] = (value[IDX_COLUMN_NAME].tolist(), value[PROMPT_COLUMN_NAME].tolist(), value[LABEL_COLUMN_NAME].tolist())
+            outputs[key] = (value[IDX_COLUMN_NAME].tolist(), value[prompt_column].tolist(), value[label_column].tolist())
 
         return outputs['train'], outputs['val'], outputs['test']
 

@@ -7,6 +7,7 @@ from llms_know_difficulty.utils import (
     save_probe_predictions
 )
 from llms_know_difficulty.metrics import compute_metrics
+from llms_know_difficulty.config import PROMPT_COLUMN_NAME, LABEL_COLUMN_NAME
 
 def main():
     parser = argparse.ArgumentParser(description="LLMs-Know-Difficulty command line interface")
@@ -17,6 +18,8 @@ def main():
     parser.add_argument("--max_len", type=int, required=False, help="Maximum length of the response")
     parser.add_argument("--k", type=int, required=False, help="Number of rollouts per question")
     parser.add_argument("--temperature", type=float, required=False, help="Temperature for the model")
+    parser.add_argument("--prompt_column", type=str, default=PROMPT_COLUMN_NAME, help="Name of prompt column")
+    parser.add_argument("--label_column", type=str, default=LABEL_COLUMN_NAME, help="Name of label column")
     args = parser.parse_args()
 
     print("Args:", args)
@@ -27,11 +30,13 @@ def main():
         model_name=args.model,
         max_len=args.max_len,
         k=args.k,
-        temperature=args.temperature)
+        temperature=args.temperature,
+        prompt_column=args.prompt_column,
+        label_column=args.label_column)
     
     # 3. Setup the results directory for the run 
     gen_str = f"maxlen_{args.max_len}_k_{args.k}_temp_{args.temperature}"
-    results_path = create_results_path(args.dataset, args.model, args.probe, gen_str=gen_str)
+    results_path = create_results_path(args.dataset, args.model, args.probe, gen_str=gen_str, label_column=args.label_column)
     print(f"Creating results directory at {results_path}")
 
     # 4. Initialize the probe:
