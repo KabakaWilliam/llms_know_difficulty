@@ -187,17 +187,25 @@ class TorchProbe(Probe):
 
         self.ProbeClass = ProbeClass
 
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+        # Extract base model name (remove thinking mode suffix like _low, _medium, _high)
+        # e.g., "openai/gpt-oss-20b_low" -> "openai/gpt-oss-20b"
+        base_model_name = model_name
+        for thinking_mode in ['_low', '_medium', '_high', '_reasoning']:
+            if base_model_name.endswith(thinking_mode):
+                base_model_name = base_model_name[:-len(thinking_mode)]
+                break
+
+        self.tokenizer = AutoTokenizer.from_pretrained(base_model_name, use_fast=True)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         
         self.model = AutoModelForCausalLM.from_pretrained(
-        model_name,).to(device)
+        base_model_name,).to(device)
         self.model.eval()
         for p in self.model.parameters():
             p.requires_grad_(False)
 
-        model_config = AutoConfig.from_pretrained(model_name)
+        model_config = AutoConfig.from_pretrained(base_model_name)
         self.n_layers = model_config.num_hidden_layers
 
         self.model_name = model_name  # Store model name

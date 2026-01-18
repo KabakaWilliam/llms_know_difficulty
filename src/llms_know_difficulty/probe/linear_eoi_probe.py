@@ -85,10 +85,19 @@ class LinearEoiProbe(Probe):
         Any pre-training loading steps, run before .fit or .predict.
         """
         self.model_name = model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+        
+        # Extract base model name (remove thinking mode suffix like _low, _medium, _high)
+        # e.g., "openai/gpt-oss-20b_low" -> "openai/gpt-oss-20b"
+        base_model_name = model_name
+        for thinking_mode in ['_low', '_medium', '_high', '_reasoning']:
+            if base_model_name.endswith(thinking_mode):
+                base_model_name = base_model_name[:-len(thinking_mode)]
+                break
+        
+        self.tokenizer = AutoTokenizer.from_pretrained(base_model_name, use_fast=True)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-        self.model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation="eager", torch_dtype="auto", device_map=device, low_cpu_mem_usage=True)
+        self.model = AutoModelForCausalLM.from_pretrained(base_model_name, attn_implementation="eager", torch_dtype="auto", device_map=device, low_cpu_mem_usage=True)
         self.model.eval()
         for p in self.model.parameters():
             p.requires_grad_(False)

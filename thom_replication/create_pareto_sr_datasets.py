@@ -1,6 +1,17 @@
 # Largely the same as predicting_learnability/rollout_success_rate.py but a bit cleaner
 # and uses our own verification functions
 from typing import Dict, Optional
+from dataclasses import dataclass
+
+@dataclass
+class GenerationConfig:
+    """Configuration for model generation parameters"""
+    max_tokens: int = 3000
+    temperature: float = 1.0
+    top_p: float = 1.0
+    top_k: int = -1
+    batch_size: int = 256
+    num_rollouts: int = 50
 
 def get_task(name):
     import os
@@ -121,18 +132,14 @@ def get_task(name):
 
 def main(
     model_name: str,
-    max_response_len: int = 3000,
-    temperature: float = 1.0,
+    generation_config: Optional[GenerationConfig] = None,
     prompt_suffix: str = "Let's think step by step and output the final answer within \\boxed{}.",
     level_reasoning=None,
-    num_rollouts_per_question: int = 50,
     gpu_memory_utilization: float = 0.70,
     max_questions_per_split: Optional[int] = None,
     tensor_parallel_size: int = 1,
     pricing_config: Optional[dict] = None,
     output_root: str = "../data/",
-    # batch_size: int = 16,  # generation batching; tune for your GPU
-    batch_size_by_model: Optional[dict] = None,
 ):
     """
     Consolidated rollout main():
@@ -152,23 +159,21 @@ def main(
     from vllm import LLM, SamplingParams
     from transformers import AutoTokenizer
 
+    # Initialize generation config with defaults if not provided
+    if generation_config is None:
+        generation_config = GenerationConfig()
+    
+    max_response_len = generation_config.max_tokens
+    temperature = generation_config.temperature
+    num_rollouts_per_question = generation_config.num_rollouts
+    batch_size = generation_config.batch_size
+    top_p = generation_config.top_p
+    top_k = generation_config.top_k
+
     # --------- pricing ----------
     TOKENS_PER_MILLION = 1_000_000
     if pricing_config is None:
         pricing_config = {}
-
-    if batch_size_by_model is None:
-        batch_size_by_model = {}
-    # Default fallbacks
-    default_bs = 256
-    TOP_P=1
-    if "72" in model_name:
-        default_bs = 32
-    if "qwen2.5-math" in model_name.lower() and num_rollouts_per_question > 1:
-        # optimal setting for math https://github.com/QwenLM/Qwen2.5-Math#:~:text=with%20trust_remote_code.-,Warning,-We%20use%20temperature
-        TOP_P = 0.8
-
-    batch_size = batch_size_by_model.get(model_name, default_bs)
 
 
     model_costs = pricing_config.get(model_name, {}).get("model_costs", {})
@@ -180,8 +185,8 @@ def main(
     sampling_params = SamplingParams(
         max_tokens=max_response_len,
         temperature=temperature,
-        top_p=TOP_P,
-        top_k=-1,
+        top_p=top_p,
+        top_k=top_k,
         n=1,  # we do rollouts by repeating prompts
     )
 
@@ -220,9 +225,9 @@ def main(
     LANGUAGE_SUFFIXES = ["en", "sw", "zh", "es", "ar", "fr", "bn", "pt", "ru", "id", "de", "ja", "vi", "it", "te", "ko", "th", "ms"]
     # --------- tasks ----------
     TASKS = [
-        "opencompass_AIME2025",
-        "gneubig_aime-1983-2024",
-        "DigitalLearningGmbH_MATH-lighteval",
+        # "opencompass_AIME2025",
+        # "gneubig_aime-1983-2024",
+        # "DigitalLearningGmbH_MATH-lighteval",
         "openai_gsm8k",
     ] 
     # + [f"Qwen_PolyMath_{lang}" for lang in LANGUAGE_SUFFIXES]
@@ -484,76 +489,147 @@ if __name__ == "__main__":
         get_output_tokens, get_output_text, add_majority_vote_answer, encode_str
     )
     
-    MODELS_TO_RUN = [
-    #  "Qwen/Qwen2-1.5B",
-    # "Qwen/Qwen2-1.5B-Instruct",
-    # "Qwen/Qwen2.5-7B",
-    # "Qwen/Qwen2.5-7B-Instruct"
-    # "Qwen/Qwen2.5-Math-1.5B-Instruct",
-    # "Qwen/Qwen2.5-1.5B",
-    # "Qwen/Qwen2.5-1.5B-Instruct",
-    # "Qwen/Qwen2.5-Math-1.5B-Instruct",
-    # "Qwen/Qwen2.5-Math-72B-Instruct",
-    "openai/gpt-oss-20b"
-    # "openai/gpt-oss-120b"
-    # "Qwen/Qwen2.5-1.5B-Instruct",
-    # "Qwen/Qwen2.5-7B-Instruct"
-    ]
-
-    batch_size_by_model = {
-    "Qwen/Qwen2.5-Math-1.5B-Instruct": 768,
-    "Qwen/Qwen2.5-Math-7B-Instruct":  256,
-    "Qwen/Qwen2.5-Math-72B-Instruct":  128,
-    "Qwen/Qwen2.5-1.5B-Instruct": 128,
-    "Qwen/Qwen2.5-7B-Instruct":  256,
-    "Qwen/Qwen2.5-72B-Instruct":  128,
-    "openai/gpt-oss-20b":  768,
-    "openai/gpt-oss-120b":  64,
+    # Define per-model generation configurations
+    MODEL_CONFIGS = {
+        "Qwen/Qwen2-1.5B": GenerationConfig(
+            max_tokens=3000,
+            temperature=0.7,
+            top_p=0.8,
+            top_k=-1,
+            batch_size=256,
+            num_rollouts=50,
+        ),
+        "Qwen/Qwen2-1.5B-Instruct": GenerationConfig(
+            max_tokens=3000,
+            temperature=0.7,
+            top_p=0.8,
+            top_k=-1,
+            batch_size=256,
+            num_rollouts=50,
+        ),
+        "Qwen/Qwen2.5-7B": GenerationConfig(
+            max_tokens=3000,
+            temperature=0.7,
+            top_p=0.8,
+            top_k=-1,
+            batch_size=256,
+            num_rollouts=50,
+        ),
+        "Qwen/Qwen2.5-7B-Instruct": GenerationConfig(
+            max_tokens=3000,
+            temperature=0.7,
+            top_p=0.8,
+            top_k=-1,
+            batch_size=256,
+            num_rollouts=50,
+        ),
+        "Qwen/Qwen2.5-Math-1.5B-Instruct": GenerationConfig(
+            max_tokens=3000,
+            temperature=0.7,
+            top_p=0.8,  # Optimal setting for math
+            top_k=-1,
+            batch_size=768,
+            num_rollouts=1,
+        ),
+        "Qwen/Qwen2.5-1.5B": GenerationConfig(
+            max_tokens=3000,
+            temperature=0.7,
+            top_p=0.8,
+            top_k=-1,
+            batch_size=128,
+            num_rollouts=50,
+        ),
+        "Qwen/Qwen2.5-1.5B-Instruct": GenerationConfig(
+            max_tokens=3000,
+            temperature=0.7,
+            top_p=0.8,
+            top_k=-1,
+            batch_size=128,
+            num_rollouts=50,
+        ),
+        "Qwen/Qwen2.5-Math-7B-Instruct": GenerationConfig(
+            max_tokens=131072,
+            temperature=0.7,
+            top_p=0.8,  # Optimal setting for math
+            top_k=-1,
+            batch_size=256,
+            num_rollouts=1,
+        ),
+        "Qwen/Qwen2.5-Math-72B-Instruct": GenerationConfig(
+            max_tokens=3000,
+            temperature=0.7,
+            top_p=0.8,  # Optimal setting for math
+            top_k=-1,
+            batch_size=128,
+            num_rollouts=1,
+        ),
+        "Qwen/Qwen2.5-72B-Instruct": GenerationConfig(
+            max_tokens=3000,
+            temperature=0.7,
+            top_p=1.0,
+            top_k=-1,
+            batch_size=128,
+            num_rollouts=50,
+        ),
+        "openai/gpt-oss-20b": GenerationConfig(
+            max_tokens=131072,
+            temperature=1.0,
+            top_p=1.0,
+            top_k=-1,
+            batch_size=768,
+            num_rollouts=1,
+        ),
+        "openai/gpt-oss-120b": GenerationConfig(
+            max_tokens=131072,
+            temperature=1.0,
+            top_p=1.0,
+            top_k=-1,
+            batch_size=64,
+            num_rollouts=1,
+        ),
     }
-    TEMPERATURES = [1.0]
-    NUM_ROLLOUTS=1
+
+    MODELS_TO_RUN = [
+        "openai/gpt-oss-20b"
+    ]
     
     for i, MODEL_TO_ROLLOUT in enumerate(MODELS_TO_RUN):
 
-        for SELECTED_TEMP in TEMPERATURES:
-            print(f"\n{'='*60}")
-            print(f"Processing model {i+1}/{len(MODELS_TO_RUN)}: {MODEL_TO_ROLLOUT} at temp {SELECTED_TEMP}")
-            print(f"{'='*60}\n")
+        print(f"\n{'='*60}")
+        print(f"Processing model {i+1}/{len(MODELS_TO_RUN)}: {MODEL_TO_ROLLOUT}")
+        print(f"{'='*60}\n")
 
-            if SELECTED_TEMP == 0.0:
-                NUM_ROLLOUTS = 1
-            
-            main(
-                model_name=MODEL_TO_ROLLOUT,
-                gpu_memory_utilization=0.9,
-                # max_questions_per_split=15,
-                level_reasoning="medium",
-                tensor_parallel_size=1,
-                num_rollouts_per_question=NUM_ROLLOUTS,
-                temperature=SELECTED_TEMP,
-                pricing_config=SIMPLE_MODEL_POOL_CONFIG,
-                batch_size_by_model=batch_size_by_model,
-                max_response_len=131072
-            )
-            
-            print(f"\nFinished processing {MODEL_TO_ROLLOUT} at temp {SELECTED_TEMP}")
-                # Send notification via ntfy.sh
-            try:
-                requests.post("https://ntfy.sh/llms_know_difficulty", data=f"Finished processing {MODEL_TO_ROLLOUT}")
-                print('✅ notification request sent')
-            except Exception as e:
-                print(f"ntfy.sh notification failed: {e}")
-            
-            # Clean up and wait for vLLM to die before loading next model
-            if i < len(MODELS_TO_RUN) - 1:  # Don't wait after the last model
-                print("Cleaning up and waiting for vLLM to release resources...")
-                gc.collect()
-                import torch
+        # Get model-specific generation config
+        gen_config = MODEL_CONFIGS.get(MODEL_TO_ROLLOUT, GenerationConfig())
+        
+        main(
+            model_name=MODEL_TO_ROLLOUT,
+            generation_config=gen_config,
+            gpu_memory_utilization=0.9,
+            # max_questions_per_split=15,
+            level_reasoning="low",
+            tensor_parallel_size=1,
+            pricing_config=SIMPLE_MODEL_POOL_CONFIG,
+        )
+        
+        print(f"\nFinished processing {MODEL_TO_ROLLOUT}")
+        # Send notification via ntfy.sh
+        try:
+            requests.post("https://ntfy.sh/llms_know_difficulty", data=f"Finished processing {MODEL_TO_ROLLOUT}")
+            print('✅ notification request sent')
+        except Exception as e:
+            print(f"ntfy.sh notification failed: {e}")
+        
+        # Clean up and wait for vLLM to die before loading next model
+        if i < len(MODELS_TO_RUN) - 1:  # Don't wait after the last model
+            print("Cleaning up and waiting for vLLM to release resources...")
+            gc.collect()
+            import torch
 
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                time.sleep(10)  # Wait 10 seconds for vLLM to fully shutdown
-                print(f"Ready to load next model: {MODELS_TO_RUN[i+1]}\n")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            time.sleep(10)  # Wait 10 seconds for vLLM to fully shutdown
+            print(f"Ready to load next model: {MODELS_TO_RUN[i+1]}\n")
 
 
 
