@@ -346,7 +346,7 @@ def main(
                 )
             else:
                 filepath = (
-                    f"{output_dir}/{split}-{model_alias}"
+                    f"{output_dir}/{split}"
                     f"_maxlen_{max_response_len}_k_{num_rollouts_per_question}_temp_{temperature}.parquet"
                 )
             results_df = results_df.reset_index().rename(columns={"index": "idx"})
@@ -430,11 +430,11 @@ if __name__ == "__main__":
         main(
             model_name=MODEL_TO_ROLLOUT,
             # max_questions_per_split=5,
-            level_reasoning="high",
+            level_reasoning="medium",
             tensor_parallel_size=1,
             num_rollouts_per_question=1,
             temperature=1.0,
-            top_p=0.95,
+            top_p=1.0,
             top_k=-1,
             gpu_memory_utilization=0.90, #increase according to VRAM available
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,

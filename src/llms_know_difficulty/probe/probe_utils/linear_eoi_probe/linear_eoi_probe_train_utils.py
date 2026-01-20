@@ -57,3 +57,9 @@ def compute_metric(predictions: np.ndarray, labels: np.ndarray, task_type: str) 
         metric_name = "auc"
     
     return float(score), metric_name
+
+def to_numpy(x):
+    try:
+        return x.numpy()
+    except:
+        return x.detach().to(torch.float16).cpu().numpy()

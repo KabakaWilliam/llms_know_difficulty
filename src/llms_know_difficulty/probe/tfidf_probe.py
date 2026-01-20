@@ -18,6 +18,7 @@ import joblib
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import Ridge, LogisticRegression
 import spacy
+import torch.optim
 
 from .base_probe import Probe
 from llms_know_difficulty.metrics import compute_metrics
@@ -55,6 +56,11 @@ class TfidfProbe(Probe):
         self.task_type = None
         self.metric_name = None
         self.model_type = None  # "ridge" for regression, "logistic" for classification
+        
+        # Calibration
+        self.calibration_temperature: Optional[float] = None
+        self.val_metrics_raw: Optional[dict] = None
+        self.val_metrics_cal: Optional[dict] = None
     
     def name(self) -> str:
         """The name of the probe."""
@@ -68,8 +74,32 @@ class TfidfProbe(Probe):
         raise NotImplementedError("Initializing a model from a checkpoint is not implemented for the eoi probe.")
     
     def fit(self):
-        raise NotImplementedError("Initializing a model from a checkpoint is not implemented for the eoi probe.")
-            
+        raise NotImplementedError("Initializing a model from a checkpoint is not implemented for the eoi probe.")    
+    def calibrate(self, x_cal: np.ndarray, y_cal: np.ndarray) -> None:
+        """
+        Fit calibration_temperature scaling for classification probes.
+        """
+        assert self.task_type == "classification"
+        assert self.best_model is not None
+
+        # Get logits (NOT probabilities)
+        logits = self.best_model.decision_function(x_cal)
+        labels = torch.tensor(y_cal, dtype=torch.float32)
+        logits = torch.tensor(logits, dtype=torch.float32)
+
+        T = torch.ones(1, requires_grad=True)
+
+        optimizer = torch.optim.LBFGS([T], lr=0.01, max_iter=50)
+
+        def closure():
+            optimizer.zero_grad()
+            probs = torch.sigmoid(logits / T)
+            loss = torch.nn.functional.binary_cross_entropy(probs, labels)
+            loss.backward()
+            return loss
+
+        optimizer.step(closure)
+        self.calibration_temperature = float(T.detach())            
 
     def setup(self) -> "TfidfProbe":
         """
@@ -236,6 +266,44 @@ class TfidfProbe(Probe):
         self.best_model.fit(X_full_train, y_full_train)
         print(f"✓ Model trained on {len(y_full_train)} samples")
         
+        # === Calibration step ===
+        if self.task_type == "classification" and self.calibration_temperature is None:
+            # Get validation predictions for calibration using val data transformed with current vectorizer
+            X_val_recalc = self.vectorizer.transform(val_processed)
+            
+            # Raw probabilities before calibration
+            raw_val_probs = self.best_model.predict_proba(X_val_recalc)[:, 1]
+            raw_val_metrics = compute_metrics(
+                y_val, raw_val_probs,
+                task_type="classification",
+                full_metrics=True
+            )
+            
+            # Fit temperature scaling
+            self.calibrate(X_val_recalc, y_val)
+            
+            # Calibrated probabilities
+            logits = self.best_model.decision_function(X_val_recalc)
+            logits_scaled = logits / self.calibration_temperature
+            cal_val_probs = 1 / (1 + np.exp(-logits_scaled))
+            
+            assert np.all((cal_val_probs >= 0) & (cal_val_probs <= 1))
+            
+            cal_val_metrics = compute_metrics(
+                y_val, cal_val_probs,
+                task_type="classification",
+                full_metrics=True
+            )
+            
+            # Store for logging / saving
+            self.val_metrics_raw = raw_val_metrics
+            self.val_metrics_cal = cal_val_metrics
+            
+            print("\nCalibration (validation set):")
+            print(f"  Fitted temperature: {self.calibration_temperature:.4f}")
+            print(f"  ECE before: {raw_val_metrics.get('ece', 'N/A')}")
+            print(f"  ECE after : {cal_val_metrics.get('ece', 'N/A')}")
+        
         # Evaluate on test set if provided
         if test_texts is not None and test_labels is not None:
             print(f"\nEvaluating on test set...")
@@ -298,7 +366,10 @@ class TfidfProbe(Probe):
         if self.task_type == "regression":
             predictions = self.best_model.predict(X)
         else:  # classification - use probability of positive class
-            predictions = self.best_model.predict_proba(X)[:, 1]
+            logits = self.best_model.decision_function(X)
+            if self.calibration_temperature is not None:
+                logits = logits / self.calibration_temperature
+            predictions = 1 / (1 + np.exp(-logits))
         
         # Return as formatted tensors
         return (
@@ -370,6 +441,8 @@ class TfidfProbe(Probe):
         probe.test_score = metadata.get("test_score")
         probe.task_type = metadata.get("task_type")
         probe.metric_name = "spearman" if probe.task_type == "regression" else "auc"
+        # Restore calibration temperature if available (only for classification probes)
+        probe.calibration_temperature = metadata.get("calibration_temperature", None)
         
         return probe
     
@@ -380,7 +453,7 @@ class TfidfProbe(Probe):
         Returns:
             Dictionary with all probe attributes
         """
-        return {
+        metadata = {
             'best_alpha': self.best_alpha,
             'best_val_score': float(self.best_val_score) if self.best_val_score is not None else None,
             'test_score': float(self.test_score) if self.test_score is not None else None,
@@ -389,5 +462,16 @@ class TfidfProbe(Probe):
             'metric_name': self.metric_name,
             'probe_type': self.name(),
         }
+        
+        # Add calibration metrics for classification probes
+        if self.task_type == "classification":
+            if self.val_metrics_raw is not None:
+                metadata['ece_before_calibration'] = self.val_metrics_raw.get('ece')
+            if self.val_metrics_cal is not None:
+                metadata['ece_after_calibration'] = self.val_metrics_cal.get('ece')
+            if self.calibration_temperature is not None:
+                metadata['calibration_temperature'] = self.calibration_temperature
+        
+        return metadata
     
 

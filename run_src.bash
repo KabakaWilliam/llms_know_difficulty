@@ -1,4 +1,4 @@
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 python3 src/llms_know_difficulty/main.py --probe tfidf_probe --dataset DigitalLearningGmbH_MATH-lighteval --model openai/gpt-oss-120b_high--max_len 3000 --k 50 --temperature 1.0 --label_column majority_vote_is_correct
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 python3 src/llms_know_difficulty/main.py --probe tfidf_probe --dataset DigitalLearningGmbH_MATH-lighteval --model openai/gpt-oss-120b_high --max_len 3000 --k 50 --temperature 1.0 --label_column majority_vote_is_correct
 
 # DATASETS:
 # DigitalLearningGmbH_MATH-lighteval

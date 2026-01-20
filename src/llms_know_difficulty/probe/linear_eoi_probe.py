@@ -58,6 +58,7 @@ class LinearEoiProbe(Probe):
         self.weights = None
         self.probing_layer = None
         self.probing_position = None
+        self.calibration_temperature: Optional[float] = None
         
         # Best probe metadata
         self.best_probe = None
@@ -66,9 +67,12 @@ class LinearEoiProbe(Probe):
         self.best_layer_idx = None
         self.best_alpha = None
         self.best_val_score:float|None = None
+        self.raw_val_probs: Optional[np.ndarray] = None
         self.test_score = None
         self.task_type: Optional[str] = None
         self.metric_name: Optional[str] = None
+        self.val_metrics_raw: Optional[dict] = None
+        self.val_metrics_cal: Optional[dict] = None
 
     def name(self) -> str:
         """The name of the probe."""
@@ -195,6 +199,33 @@ class LinearEoiProbe(Probe):
         
         return best_alpha, alpha_scores
     
+    def calibrate(self, x_cal: np.ndarray, y_cal: np.ndarray) -> None:
+        """
+        Fit calibration_temperature scaling for classification probes.
+        """
+        assert self.task_type == "classification"
+        assert self.best_probe is not None
+
+        # Get logits (NOT probabilities)
+        logits = self.best_probe.decision_function(x_cal)
+        labels = torch.tensor(y_cal, dtype=torch.float32)
+        logits = torch.tensor(logits, dtype=torch.float32)
+
+        T = torch.ones(1, requires_grad=True)
+
+        optimizer = torch.optim.LBFGS([T], lr=0.01, max_iter=50)
+
+        def closure():
+            optimizer.zero_grad()
+            probs = torch.sigmoid(logits / T)
+            loss = torch.nn.functional.binary_cross_entropy(probs, labels)
+            loss.backward()
+            return loss
+
+        optimizer.step(closure)
+        self.calibration_temperature = float(T.detach())
+
+    
     def _evaluate_probe(self, probe, x: np.ndarray, y: np.ndarray, full_metrics: bool = False) -> float:
         """
         Evaluate a probe on data and return metric score.
@@ -214,7 +245,13 @@ class LinearEoiProbe(Probe):
         if self.task_type == "regression":
             y_pred = probe.predict(x)
         else:  # classification
-            y_pred = probe.predict_proba(x)[:, 1]
+            logits = probe.decision_function(x)
+            if self.calibration_temperature is not None:
+                logits = logits / self.calibration_temperature
+
+            y_pred = 1 / (1 + np.exp(-logits))
+
+            # y_pred = probe.predict_proba(x)[:, 1]
         
         # Compute metrics using the centralized metrics module
         metrics = compute_metrics(y, y_pred, task_type=self.task_type, full_metrics=full_metrics)
@@ -252,20 +289,23 @@ class LinearEoiProbe(Probe):
             print(f"\nPosition {pos}:")
             
             for layer_idx in tqdm(self.layer_indices, desc=f"  Layer progress"):
-                # Extract activations for this (pos, layer) from training and validation splits
-                try:
-                    x_train = self.train_activations[:, layer_idx, pos_idx, :].numpy()
-                    x_val = self.val_activations[:, layer_idx, pos_idx, :].numpy()
-                except:
-                    x_train = self.train_activations[:, layer_idx, pos_idx, :].detach().to(torch.float16).cpu().numpy()  # [N, D]
-                    x_val = self.val_activations[:, layer_idx, pos_idx, :].detach().to(torch.float16).cpu().numpy()  # [N, D]
+                # # Extract activations for this (pos, layer) from training and validation splits
+                # try:
+                #     x_train = self.train_activations[:, layer_idx, pos_idx, :].numpy()
+                #     x_val = self.val_activations[:, layer_idx, pos_idx, :].numpy()
+                # except:
+                #     x_train = self.train_activations[:, layer_idx, pos_idx, :].detach().to(torch.float16).cpu().numpy()  # [N, D]
+                #     x_val = self.val_activations[:, layer_idx, pos_idx, :].detach().to(torch.float16).cpu().numpy()  # [N, D]
+                x_train = linear_eoi_probe_train_utils.to_numpy(self.train_activations[:, layer_idx, pos_idx, :])
+                x_val = linear_eoi_probe_train_utils.to_numpy(self.val_activations[:, layer_idx, pos_idx, :])
                 
                 # Extract test activations if available
                 if self.test_activations is not None:
-                    try:
-                        x_test = self.test_activations[:, layer_idx, pos_idx, :].numpy()
-                    except:
-                        x_test = self.test_activations[:, layer_idx, pos_idx, :].detach().to(torch.float16).cpu().numpy()  # [N, D]
+                    x_test = linear_eoi_probe_train_utils.to_numpy(self.test_activations[:, layer_idx, pos_idx, :])
+                    # try:
+                    #     x_test = self.test_activations[:, layer_idx, pos_idx, :].numpy()
+                    # except:
+                    #     x_test = self.test_activations[:, layer_idx, pos_idx, :].detach().to(torch.float16).cpu().numpy()  # [N, D]
                 else:
                     x_test = None
                 
@@ -309,10 +349,54 @@ class LinearEoiProbe(Probe):
         self.best_probe = candidates[best_key]['probe']
         self.best_alpha = candidates[best_key]['alpha']
         self.best_val_score = candidates[best_key]['val_score']
-        
         # Store the actual position value (e.g., -1, -2, etc.) for use in predict()
         self.best_position_value = self.positions[self.best_pos_idx]
-        
+
+
+        # === Calibration step ===
+        if self.task_type == "classification" and self.calibration_temperature is None:
+            x_val_best = linear_eoi_probe_train_utils.to_numpy(self.val_activations[:, self.best_layer_idx, self.best_pos_idx, :])
+            # try:
+            #     x_val_best = self.val_activations[:, self.best_layer_idx, self.best_pos_idx, :].numpy()
+            # except:
+            #     x_val_best = self.val_activations[:, self.best_layer_idx, self.best_pos_idx, :].detach().to(torch.float16).cpu().numpy()  # [N, D]
+
+            y_val = np.array(self.val_labels)
+            # --- BEFORE calibration ---
+            # self.raw_val_probs = self.best_probe.predict_proba(x_val_best)[:, 1]
+            # Raw probabilities
+            self.raw_val_probs = self.best_probe.predict_proba(x_val_best)[:, 1]
+            raw_val_metrics = compute_metrics(
+                y_val, self.raw_val_probs,
+                task_type="classification",
+                full_metrics=True
+            )
+
+            self.calibrate(x_val_best, y_val)
+
+            # Calibrated probabilities
+            logits = self.best_probe.decision_function(x_val_best)
+            logits /= self.calibration_temperature
+            cal_val_probs = 1 / (1 + np.exp(-logits))
+
+            assert np.all((cal_val_probs >= 0) & (cal_val_probs <= 1))
+
+            cal_val_metrics = compute_metrics(
+                y_val, cal_val_probs,
+                task_type="classification",
+                full_metrics=True
+            )
+
+            # Store for logging / saving
+            self.val_metrics_raw = raw_val_metrics
+            self.val_metrics_cal = cal_val_metrics
+
+            print("\nCalibration (validation set):")
+            print(f"  Fitted temperature: {self.calibration_temperature:.4f}")
+            print(f"  ECE before: {raw_val_metrics.get('ece', 'N/A')}")
+            print(f"  ECE after : {cal_val_metrics.get('ece', 'N/A')}")
+
+        # ---------- TEST EVALUATION (ONCE) ----------
         # Evaluate on test set if available
         if self.test_activations is not None and self.test_labels is not None:
             x_test_best = candidates[best_key]['x_test']
@@ -504,7 +588,11 @@ class LinearEoiProbe(Probe):
         if self.task_type == "regression":
             predictions = self.best_probe.predict(x_pred)
         else:  # classification
-            predictions = self.best_probe.predict_proba(x_pred)[:, 1]
+            logits = self.best_probe.decision_function(x_pred)
+            if self.calibration_temperature is not None:
+                logits = logits / self.calibration_temperature
+            predictions = 1 / (1 + np.exp(-logits))
+            # predictions = self.best_probe.predict_proba(x_pred)[:, 1]
         
         # Return as formatted tensors for consistency with attn_probe
         return (
@@ -546,6 +634,8 @@ class LinearEoiProbe(Probe):
                 "task_type": self.task_type,
                 "model_name": self.model_name,
                 "d_model": self.d_model,
+                "calibration_temperature": self.calibration_temperature,
+                "validation ECE": self.val_metrics_cal['ece'],
             }
         
         metadata_file = results_path / "probe_metadata.json"
@@ -588,6 +678,8 @@ class LinearEoiProbe(Probe):
         probe.task_type = metadata["task_type"]
         probe.model_name = metadata["model_name"]
         probe.d_model = metadata["d_model"]
+        # Restore calibration temperature if available (only for classification probes)
+        probe.calibration_temperature = metadata.get("calibration_temperature", None)
         
         # Setup the model for activation extraction
         if torch.cuda.is_available() and device == "cuda":
@@ -606,7 +698,7 @@ class LinearEoiProbe(Probe):
         Returns:
             Dictionary with all probe attributes ready for serialization
         """
-        return {
+        metadata = {
             'best_layer_idx': self.best_layer_idx,
             'best_pos_idx': self.best_pos_idx,
             'best_position_value': self.best_position_value,
@@ -617,3 +709,14 @@ class LinearEoiProbe(Probe):
             'd_model': self.d_model,
             'task_type': self.task_type,
         }
+        
+        # Add calibration metrics for classification probes
+        if self.task_type == "classification":
+            if self.val_metrics_raw is not None:
+                metadata['ece_before_calibration'] = self.val_metrics_raw.get('ece')
+            if self.val_metrics_cal is not None:
+                metadata['ece_after_calibration'] = self.val_metrics_cal.get('ece')
+            if self.calibration_temperature is not None:
+                metadata['calibration_temperature'] = self.calibration_temperature
+        
+        return metadata

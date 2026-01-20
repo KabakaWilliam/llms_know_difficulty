@@ -225,10 +225,10 @@ def main(
     LANGUAGE_SUFFIXES = ["en", "sw", "zh", "es", "ar", "fr", "bn", "pt", "ru", "id", "de", "ja", "vi", "it", "te", "ko", "th", "ms"]
     # --------- tasks ----------
     TASKS = [
-        # "opencompass_AIME2025",
-        # "gneubig_aime-1983-2024",
-        # "DigitalLearningGmbH_MATH-lighteval",
-        "openai_gsm8k",
+        # "openai_gsm8k",
+        "DigitalLearningGmbH_MATH-lighteval",
+        "opencompass_AIME2025",
+        "gneubig_aime-1983-2024",
     ] 
     # + [f"Qwen_PolyMath_{lang}" for lang in LANGUAGE_SUFFIXES]
 
@@ -548,7 +548,7 @@ if __name__ == "__main__":
             num_rollouts=50,
         ),
         "Qwen/Qwen2.5-Math-7B-Instruct": GenerationConfig(
-            max_tokens=131072,
+            max_tokens=3000,
             temperature=0.7,
             top_p=0.8,  # Optimal setting for math
             top_k=-1,
@@ -577,7 +577,7 @@ if __name__ == "__main__":
             top_p=1.0,
             top_k=-1,
             batch_size=768,
-            num_rollouts=1,
+            num_rollouts=5,
         ),
         "openai/gpt-oss-120b": GenerationConfig(
             max_tokens=131072,
@@ -607,7 +607,7 @@ if __name__ == "__main__":
             generation_config=gen_config,
             gpu_memory_utilization=0.9,
             # max_questions_per_split=15,
-            level_reasoning="low",
+            level_reasoning="medium",
             tensor_parallel_size=1,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
         )
