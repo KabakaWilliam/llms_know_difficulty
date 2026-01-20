@@ -8,3 +8,8 @@ model_name: "gpt2"
 alpha_grid: [0, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000]
 batch_size: 16
 max_length: 1024
+probe_name: "linear_eoi_probe"
+
+# Can be turned on for super quick e2e testing...
+test_mode: false
+test_sample_size: 128

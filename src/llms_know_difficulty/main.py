@@ -28,12 +28,12 @@ def main(cfg: DictConfig) -> None:
     results_path = create_results_path(root_data_dir=cfg.dataset.root_data_dir,
                                         dataset_name=cfg.dataset.dataset_name,
                                         model_name=cfg.dataset.model_name,
-                                        probe_name=cfg.probe.name,
+                                        probe_name=cfg.probe.probe_name,
                                         gen_str=None)
     print(f"Creating results directory at {results_path}")
 
     # 4. Initialize the probe:
-    print(f"Initializing probe {cfg.probe.probe_class}\n")
+    print(f"Initializing probe {cfg.probe._target_}\n")
     probe = hydra.utils.instantiate(cfg.probe, device=cfg.device)
 
     # 6. Run probe training:
@@ -69,7 +69,7 @@ def main(cfg: DictConfig) -> None:
     results_path = create_results_path(root_data_dir=cfg.dataset.root_data_dir,
                                         dataset_name=cfg.dataset.dataset_name,
                                         model_name=cfg.dataset.model_name,
-                                        probe_name=cfg.probe.name,
+                                        probe_name=cfg.probe.probe_name,
                                         gen_str=None)
     print(f"Saving probe predictions to {results_path}")
     

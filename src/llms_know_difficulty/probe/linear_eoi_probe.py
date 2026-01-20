@@ -26,18 +26,41 @@ ROOT_ACTIVATION_DATA_DIR = os.path.join(ROOT_ACTIVATION_DATA_DIR,"linear_eoi_pro
 
 
 class LinearEoiProbe(Probe):
-    def __init__(self, config):
-        super().__init__(config)
-        self.config = config
-        self._has_setup_run = False
-        self.model_name = None
-        self.tokenizer = None
-        self.model = None
-        self.device = None
-        self.d_model = None
-        self.batch_size = getattr(self.config, "batch_size", 16)
-        self.max_length = getattr(self.config, "max_length", 512)
-        self.alpha_grid = getattr(self.config, "alpha_grid", [1.0])
+    def __init__(self,
+    model_name: str,
+    device: str,
+    probe_name: str,
+    alpha_grid: list[float] = [1.0],
+    max_length: int = 512,
+    batch_size: int = 16,
+    test_mode: bool = False,
+    test_sample_size: int = 128,
+    ):
+
+        self.probe_name = probe_name
+        self.model_name = model_name
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+        self.model = AutoModelForCausalLM.from_pretrained(model_name,
+         attn_implementation="eager",
+         device_map=device)
+        self.model.eval()
+
+        # Not sure if we need this?
+        for p in self.model.parameters():
+            p.requires_grad_(False)
+        
+        self.d_model = self.model.config.hidden_size
+        self.device = device
+        self._has_setup_run = True
+
+        self.test_mode = test_mode
+        self.test_sample_size = test_sample_size
+
+        self.batch_size = batch_size
+        self.max_length = max_length
+        self.alpha_grid = alpha_grid
         
         # Data indices storage
         self.train_indices = None
@@ -72,7 +95,7 @@ class LinearEoiProbe(Probe):
 
     def name(self) -> str:
         """The name of the probe."""
-        return "linear_eoi_probe"
+        return self.probe_name
 
     def init_model(self, config: dict):
         """
@@ -80,24 +103,6 @@ class LinearEoiProbe(Probe):
         """
         raise NotImplementedError("Initializing a model from a checkpoint is not implemented for the eoi probe.")
 
-    def setup(self, model_name: str, device: str) -> "LinearEoiProbe":
-        """
-        Any pre-training loading steps, run before .fit or .predict.
-        """
-        self.model_name = model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-        self.model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation="eager", device_map=device)
-        self.model.eval()
-        for p in self.model.parameters():
-            p.requires_grad_(False)
-        
-        self.d_model = self.model.config.hidden_size
-        self.device = device
-        self._has_setup_run = True
-
-        return self
 
     def _extract_and_load_all_activations(self, train_texts: List[str], train_labels: List[float], val_texts: List[str], val_labels: List[float], test_texts: Optional[List[str]] = None, test_labels: Optional[List[float]] = None) -> None:
         """
@@ -323,7 +328,12 @@ class LinearEoiProbe(Probe):
             print(f"  Test {self.metric_name}: {self.test_score:.4f}")
         print(f"{'='*80}")
 
-    def train(self, train_data: Tuple[List[int], List[str], List[float]], val_data: Tuple[List[int], List[str], List[float]], test_data: Optional[Tuple[List[int], List[str], List[float]]] = None, alpha_grid: Optional[List[float]] = None) -> "LinearEoiProbe":
+    def train(self, 
+            train_data: Tuple[List[int], List[str], List[float]],
+            val_data: Tuple[List[int], List[str], List[float]],
+            test_data: Optional[Tuple[List[int], List[str], List[float]]] = None,
+            alpha_grid: Optional[List[float]] = None
+            ) -> "LinearEoiProbe":
         """
         Train probes on train data, select best using validation data, optionally evaluate on test data.
         
@@ -344,9 +354,19 @@ class LinearEoiProbe(Probe):
         if not self._has_setup_run:
             raise RuntimeError("Must call setup() before train()")
         
-        # Convert data tuples to lists
+        # Convert data tuples to lists:
         train_idxs, train_texts, train_labels = train_data
         val_idxs, val_texts, val_labels = val_data
+
+        # For quicker debug downsample any dataset to test_sample_size, default 32.
+        if self.test_mode:
+            train_idxs = train_idxs[:self.test_sample_size]
+            train_texts = train_texts[:self.test_sample_size]
+            train_labels = train_labels[:self.test_sample_size]
+            val_idxs = val_idxs[:self.test_sample_size]
+            val_texts = val_texts[:self.test_sample_size]
+            val_labels = val_labels[:self.test_sample_size]
+
         test_idxs = None
         test_texts = None
         test_labels = None

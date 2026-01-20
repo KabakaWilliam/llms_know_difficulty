@@ -186,7 +186,7 @@ class TorchProbe(Probe):
         max_or_min_cv_metric: str,
         cross_validated_hyperparameters: list[str],
         checkpoint_path: Optional[Path] = None,
-        _probe_name: str = "torch_probe",
+        probe_name: str = "torch_probe",
         test_mode: bool = False,
         test_sample_size: int = 128,
         use_hooks: bool = False,
@@ -202,7 +202,7 @@ class TorchProbe(Probe):
         """
 
         self.ProbeClass = get_class(probe_class)
-        self._probe_name = _probe_name
+        self.probe_name = probe_name
         self.test_mode = test_mode
         self.test_sample_size = test_sample_size
         self.use_hooks = use_hooks
@@ -251,7 +251,7 @@ class TorchProbe(Probe):
     @property
     def name(self) -> str:
         """The name of the probe."""
-        return self._probe_name
+        return self.probe_name
         
     def init_model(self, config: dict) -> None:
         """
@@ -278,7 +278,6 @@ class TorchProbe(Probe):
         for hyper_name in cv_hyper_list_names:
             hyper_values = getattr(self, hyper_name, None)
             if hyper_values is None or not isinstance(hyper_values, list):
-                import IPython; IPython.embed()
                 raise ValueError(
                     f"""Attention probe config error! Cross_validated_hyperparameter includes {hyper_name} but {hyper_name} does not provide a list of values.
                     {hyper_name} set to {hyper_values} in AttentionProbeConfig inconfig.py""")

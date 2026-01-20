@@ -15,10 +15,6 @@ model:
   name: "Qwen/Qwen2.5-1.5B-Instruct"  # Model name (e.g., "gpt2", "Qwen/Qwen2.5-1.5B-Instruct")
   checkpoint_path: null  # Optional path to checkpoint file
 
-# Probe name (used for probe selection)
-probe:
-  name: "attn_probe"  # Probe name - should match the probe config file name
-
 # General settings
 seed: 42
 device: "cuda:0"
