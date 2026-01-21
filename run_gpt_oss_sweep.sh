@@ -4,21 +4,23 @@
 
 # GPU configuration
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=0
 
 # Define models (low, medium, high reasoning levels)
 declare -a MODELS=(
-    "openai/gpt-oss-20b_low"
-    "openai/gpt-oss-20b_medium"
-    "openai/gpt-oss-20b_high"
+    "Qwen/Qwen2.5-Math-1.5B-Instruct"
+    "Qwen/Qwen2.5-Math-7B-Instruct"
+    # "Qwen/Qwen2.5-Math-72B-Instruct"
+    # "openai/gpt-oss-20b_low"
+    # "openai/gpt-oss-20b_medium"
+    # "openai/gpt-oss-20b_high"
 )
 
 # Define datasets
 declare -a DATASETS=(
-    # "DigitalLearningGmbH_MATH-lighteval"
+    "DigitalLearningGmbH_MATH-lighteval"
     "openai_gsm8k"
-    # "gneubig_aime-1983-2024"
-    # "opencompass_AIME2025"
+    "gneubig_aime-1983-2024"
     # "livecodebench_code_generation_lite"
 )
 
@@ -29,10 +31,15 @@ declare -a PROBES=(
 )
 
 # Generation parameters
-MAX_LEN=131072
+# MAX_LEN=131072
+# K=5
+# TEMPERATURE=1.0
+# LABEL_COLUMN="majority_vote_is_correct" #"majority_vote_is_correct" #"success_rate" #"pass_at_k"
+
+MAX_LEN=3000
 K=5
-TEMPERATURE=1.0
-LABEL_COLUMN="majority_vote_is_correct"
+TEMPERATURE=0.7
+LABEL_COLUMN="success_rate" #"majority_vote_is_correct" #"success_rate" #"pass_at_k"
 
 # Change to source directory
 cd "$(dirname "$0")" || exit

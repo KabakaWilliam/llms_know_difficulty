@@ -4,17 +4,17 @@
 
 # GPU configuration
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=0
 
 # Define models (low, medium, high reasoning levels)
 declare -a MODELS=(
-    "Qwen/Qwen2.5-Coder-0.5B-Instruct"
-    "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+    # "Qwen/Qwen2.5-Coder-0.5B-Instruct"
+    # "Qwen/Qwen2.5-Coder-1.5B-Instruct"
     "Qwen/Qwen2.5-Coder-3B-Instruct"
     "Qwen/Qwen2.5-Coder-7B-Instruct"
-    "Qwen/Qwen2.5-Coder-14B-Instruct"
+    # "Qwen/Qwen2.5-Coder-14B-Instruct"
     "Qwen/Qwen2.5-Coder-32B-Instruct"
-    "Qwen/Qwen3-Coder-30B-A3B-Instruct"
+    # "Qwen/Qwen3-Coder-30B-A3B-Instruct"
 )
 
 # Define datasets
@@ -28,15 +28,15 @@ declare -a DATASETS=(
 
 # Define probes to use
 declare -a PROBES=(
-    "tfidf_probe"
-    # "linear_eoi_probe"
+    # "tfidf_probe"
+    "linear_eoi_probe"
 )
 
 # Generation parameters
 MAX_LEN=4096
 K=1
 TEMPERATURE=0.2
-LABEL_COLUMN="success_rate"
+LABEL_COLUMN="pass_at_k"
 
 # Change to source directory
 cd "$(dirname "$0")" || exit

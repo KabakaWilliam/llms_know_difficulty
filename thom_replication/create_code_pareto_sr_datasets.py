@@ -274,6 +274,8 @@ def main(
             score, score_metadata = compute_score(sandbox_fusion_url=sandbox_fusion_url,
             concurrent_semaphore = threading.Semaphore(max_concurrent_API_requests), memory_limit_mb=sandbox_memory_limit_mb, completion=generated_text, test_cases=results[split][idx]["ground_truth"])
 
+            score = 1 if score == 1.0 else 0  # Convert to binary: only 1 if ALL test cases pass (will make success_rate a pass@1 estimator)
+
             # score = compute_score(generated_text, results[split][idx]["ground_truth"], max_concurrent_API_requests=max_concurrent_API_requests,
             # sandbox_memory_limit_mb=sandbox_memory_limit_mb)
 
@@ -297,7 +299,6 @@ def main(
                     "output_cost_usd": float(output_cost) if not np.isnan(output_cost) else np.nan,
                     # better name: this is output-only for this rollout
                     "rollout_cost_usd": float(output_cost) if not np.isnan(output_cost) else np.nan,
-                    "execution_metadata": json.dumps(score_metadata)
                 }
             )
 
@@ -361,11 +362,21 @@ def main(
             # Convert generated_solutions to JSON strings for proper parquet serialization
             results_df["generated_solutions"] = results_df["generated_solutions"].apply(lambda sols: json.dumps(sols))
 
+            # Drop  ground_truth columns before saving for space concerns
+            # results_df = results_df.drop(columns=["generated_solutions", "ground_truth"], errors="ignore")
+            results_df = results_df.drop(columns=["ground_truth"], errors="ignore")
+
+            # Pass@k: 1 if any rollout passed all test cases (success_rate > 0) ##would be binary
+            results_df["pass_at_k"] = (results_df["success_rate"] > 0.0).astype(int)
+            pass_at_k = results_df["pass_at_k"].mean()
+
+
             results_df.to_parquet(filepath)
             print(f"Saved {TASK} / {split} split to: {filepath}")
             
-            # Calculate Pass@K
-            pass_at_k = results_df["success_rate"].mean()
+            # Calculate avg_sr
+            avg_sr = results_df["success_rate"].mean()
+
             
             # Send notification via ntfy.sh
             try:
@@ -373,7 +384,8 @@ def main(
                     f"✅ {TASK}\n"
                     f"Split: {split} | Model: {model_name}\n"
                     f"Config: k={num_rollouts_per_question}, τ={temperature}, maxlen={max_response_len}\n"
-                    f"Pass@{num_rollouts_per_question}: {pass_at_k:.4f}"
+                    f"Avg SR k={num_rollouts_per_question}: {avg_sr:.4f}"
+                    f"Pass@1: {pass_at_k:.4f}"
                 )
                 requests.post("https://ntfy.sh/llms_know_difficulty", data=ntfy_message)
                 print('✅ Metrics sent to ntfy.sh')
@@ -414,9 +426,11 @@ if __name__ == "__main__":
     "Qwen/Qwen2.5-Math-1.5B-Instruct": 256,
     "Qwen/Qwen2.5-Math-7B-Instruct":  256,
     "Qwen/Qwen2.5-Math-72B-Instruct":  128,
+    "Qwen/Qwen2.5-Coder-14B-Instruct":  128,
     "Qwen/Qwen2.5-1.5B-Instruct": 256,
     "Qwen/Qwen2.5-7B-Instruct":  256,
     "Qwen/Qwen3-Coder-30B-A3B-Instruct":  64,
+    "Qwen/Qwen2.5-Coder-32B-Instruct":  64,
     "Qwen/Qwen2.5-72B-Instruct":  128,
     "openai/gpt-oss-20b":  256,
     "openai/gpt-oss-120b":  64,
@@ -432,11 +446,11 @@ if __name__ == "__main__":
             # max_questions_per_split=5,
             level_reasoning="medium",
             tensor_parallel_size=1,
-            num_rollouts_per_question=1,
+            num_rollouts_per_question=5,
             temperature=1.0,
             top_p=1.0,
             top_k=-1,
-            gpu_memory_utilization=0.90, #increase according to VRAM available
+            gpu_memory_utilization=0.70, #increase according to VRAM available
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
             batch_size_by_model=batch_size_by_model,
             max_response_len=131072,

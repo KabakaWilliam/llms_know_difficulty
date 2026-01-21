@@ -24,7 +24,7 @@ from typing import Any, Optional
 import requests
 
 DEFAULT_TIMEOUT = 10  # Default compile and run timeout
-MAX_RETRIES = 3
+MAX_RETRIES = 5
 INITIAL_RETRY_DELAY = 1
 API_TIMEOUT = 10
 sandbox_fusion_url = os.getenv("SANDBOX_FUSION_URL", "http://localhost:8080/run_code")

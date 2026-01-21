@@ -197,7 +197,7 @@ def main(
     # --------- vLLM model ----------
     # (72B special casing)
     # if "72b" in model_name.lower() or "120b" in model_name.lower():
-    if  model_name.lower() in["72b", "120b"]:
+    if  model_name.lower() in["120b"]:
         print("really large model loaded 🤯❗️")
         llm = LLM(
             model=model_name,
@@ -226,9 +226,9 @@ def main(
     # --------- tasks ----------
     TASKS = [
         # "openai_gsm8k",
+        # "opencompass_AIME2025",
+        # "gneubig_aime-1983-2024",
         "DigitalLearningGmbH_MATH-lighteval",
-        "opencompass_AIME2025",
-        "gneubig_aime-1983-2024",
     ] 
     # + [f"Qwen_PolyMath_{lang}" for lang in LANGUAGE_SUFFIXES]
 
@@ -529,7 +529,7 @@ if __name__ == "__main__":
             top_p=0.8,  # Optimal setting for math
             top_k=-1,
             batch_size=768,
-            num_rollouts=1,
+            num_rollouts=5,
         ),
         "Qwen/Qwen2.5-1.5B": GenerationConfig(
             max_tokens=3000,
@@ -552,16 +552,16 @@ if __name__ == "__main__":
             temperature=0.7,
             top_p=0.8,  # Optimal setting for math
             top_k=-1,
-            batch_size=256,
-            num_rollouts=1,
+            batch_size=512,
+            num_rollouts=5,
         ),
         "Qwen/Qwen2.5-Math-72B-Instruct": GenerationConfig(
             max_tokens=3000,
             temperature=0.7,
             top_p=0.8,  # Optimal setting for math
             top_k=-1,
-            batch_size=128,
-            num_rollouts=1,
+            batch_size=64,
+            num_rollouts=5,
         ),
         "Qwen/Qwen2.5-72B-Instruct": GenerationConfig(
             max_tokens=3000,
@@ -590,6 +590,9 @@ if __name__ == "__main__":
     }
 
     MODELS_TO_RUN = [
+        # "Qwen/Qwen2.5-Math-1.5B-Instruct",
+        # "Qwen/Qwen2.5-Math-7B-Instruct",
+        # "Qwen/Qwen2.5-Math-72B-Instruct",
         "openai/gpt-oss-20b"
     ]
     
@@ -605,9 +608,9 @@ if __name__ == "__main__":
         main(
             model_name=MODEL_TO_ROLLOUT,
             generation_config=gen_config,
-            gpu_memory_utilization=0.9,
+            gpu_memory_utilization=0.8,
             # max_questions_per_split=15,
-            level_reasoning="medium",
+            level_reasoning="high",
             tensor_parallel_size=1,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
         )
