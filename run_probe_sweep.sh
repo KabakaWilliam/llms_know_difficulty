@@ -9,7 +9,7 @@ export CUDA_VISIBLE_DEVICES=0
 # Define models (low, medium, high reasoning levels)
 declare -a MODELS=(
     "Qwen/Qwen2.5-Math-1.5B-Instruct"
-    "Qwen/Qwen2.5-Math-7B-Instruct"
+    # "Qwen/Qwen2.5-Math-7B-Instruct"
     # "Qwen/Qwen2.5-Math-72B-Instruct"
     # "openai/gpt-oss-20b_low"
     # "openai/gpt-oss-20b_medium"
@@ -18,9 +18,9 @@ declare -a MODELS=(
 
 # Define datasets
 declare -a DATASETS=(
-    "DigitalLearningGmbH_MATH-lighteval"
-    "openai_gsm8k"
     "gneubig_aime-1983-2024"
+    # "openai_gsm8k"
+    # "DigitalLearningGmbH_MATH-lighteval"
     # "livecodebench_code_generation_lite"
 )
 

@@ -134,10 +134,10 @@ def compute_metrics(ys, preds, task_type: str = "auto", full_metrics: bool = Tru
         metrics[f"f1_bin_{b}"] = f1
 
     # Learnability diagnostics (unchanged)
-    sigmoid_ys = torch.sigmoid(ys)
-    sigmoid_preds = torch.sigmoid(preds)
-    learnability_ys = sigmoid_ys * (1.0 - sigmoid_ys)
-    learnability_preds = sigmoid_preds * (1.0 - sigmoid_preds)
+    # sigmoid_ys = torch.sigmoid(ys)
+    # sigmoid_preds = torch.sigmoid(preds)
+    learnability_ys = ys * (1.0 - ys)
+    learnability_preds = preds * (1.0 - preds)
 
     n_learnable = int(0.25 * ys.size(0))
     _, learnable_indices = torch.topk(learnability_preds, n_learnable)
