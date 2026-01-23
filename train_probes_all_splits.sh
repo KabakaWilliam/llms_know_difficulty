@@ -12,10 +12,12 @@ PROBE="linear_eoi_probe"                 # Probe type: linear_eoi_probe, tfidf_p
 MAXLEN=3000                              # Maximum sequence length
 K_VALUE=10                               # K value
 TEMPERATURE=0.7                          # Temperature
-GPU_DEVICE=3                             # GPU device to use
-
+GPU_DEVICE=0                             # GPU device to use
+BATCH_SIZE=64                             # Batch size for training
+LABEL_COLUMN="success_rate" #"success_rate" #majority_vote_is_correct              # Label column to use
 # Language suffixes to train on
 LANGUAGE_SUFFIXES=("en" "sw" "zh" "es" "ar" "fr" "bn" "pt" "ru" "id" "de" "ja" "vi" "it" "te" "ko" "th" "ms")
+LANGUAGE_SUFFIXES=("en" "sw" "zh" "es" "ar" "te")
 
 # Print configuration
 echo "============================================================================"
@@ -51,6 +53,7 @@ for i in "${!LANGUAGE_SUFFIXES[@]}"; do
         --probe $PROBE \
         --dataset $DATASET \
         --model $MODEL \
+        --label_column "$LABEL_COLUMN" \
         --max_len $MAXLEN \
         --k $K_VALUE \
         --temperature $TEMPERATURE"

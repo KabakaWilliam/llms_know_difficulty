@@ -737,7 +737,7 @@ class LinearEoiProbe(Probe):
         probe.best_probe = best_probe
         probe.best_layer_idx = metadata["best_layer_idx"]
         probe.best_position_value = metadata["best_position_value"]
-        probe.best_pos_idx = metadata["best_position_idx"]
+        probe.best_pos_idx = metadata.get("best_position_idx") or metadata.get("best_pos_idx")
         probe.best_alpha = metadata["best_alpha"]
         probe.best_val_score = metadata["best_val_score"]
         probe.task_type = metadata["task_type"]

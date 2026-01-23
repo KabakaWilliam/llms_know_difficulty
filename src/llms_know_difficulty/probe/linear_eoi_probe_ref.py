@@ -203,14 +203,11 @@ class LinearEoiProbe(Probe):
         """
         Fit calibration_temperature scaling for classification probes.
         """
-        # assert self.task_type == "classification"
+        assert self.task_type == "classification"
         assert self.best_probe is not None
 
-        if self.task_type == "classification":
-            # Get logits (NOT probabilities)
-            logits = self.best_probe.decision_function(x_cal)
-        elif self.task_type == "regression":
-            logits = self.best_probe.predict(x_cal) # regression outputs are already logits
+        # Get logits (NOT probabilities)
+        logits = self.best_probe.decision_function(x_cal)
         labels = torch.tensor(y_cal, dtype=torch.float32)
         logits = torch.tensor(logits, dtype=torch.float32)
 
@@ -398,62 +395,6 @@ class LinearEoiProbe(Probe):
             print(f"  Fitted temperature: {self.calibration_temperature:.4f}")
             print(f"  ECE before: {raw_val_metrics.get('ece', 'N/A')}")
             print(f"  ECE after : {cal_val_metrics.get('ece', 'N/A')}")
-
-        # === Calibration step REGRESSOR ===
-        elif self.task_type == "regression" and self.calibration_temperature is None: 
-            x_val_best = linear_eoi_probe_train_utils.to_numpy(self.val_activations[:, self.best_layer_idx, self.best_pos_idx, :])
-            y_val = np.array(self.val_labels)
-
-            self.raw_val_probs = self.best_probe.predict(x_val_best)
-            
-            # Compute ECE for soft labels (Bernoulli probability estimates)
-            # ECE = expected |confidence - accuracy| where "accuracy" for soft labels is the true probability
-            def compute_ece_soft_labels(y_true, y_pred, n_bins=10):
-                """Compute ECE for soft probability labels."""
-                indices = np.argsort(y_pred)
-                y_true_sorted = y_true[indices]
-                y_pred_sorted = y_pred[indices]
-                bin_size = len(y_pred) // n_bins
-                ece = 0.0
-                for i in range(n_bins):
-                    start = i * bin_size
-                    end = start + bin_size if i < n_bins - 1 else len(y_pred)
-                    if end > start:
-                        bin_acc = np.mean(y_true_sorted[start:end])
-                        bin_conf = np.mean(y_pred_sorted[start:end])
-                        ece += (end - start) / len(y_pred) * np.abs(bin_acc - bin_conf)
-                return ece
-            
-            raw_ece = compute_ece_soft_labels(y_val, self.raw_val_probs)
-            raw_val_metrics = {
-                "ece": raw_ece,
-                "spearman": float(np.corrcoef(y_val, self.raw_val_probs)[0, 1]) if len(np.unique(y_val)) > 1 else 0.0,
-                "mae": float(np.mean(np.abs(y_val - self.raw_val_probs))),
-                "mse": float(np.mean((y_val - self.raw_val_probs) ** 2))
-            }
-
-            self.calibrate(x_val_best, y_val)
-            raw_preds = self.best_probe.predict(x_val_best)
-            logits = raw_preds/self.calibration_temperature
-            cal_val_probs = 1 / (1 + np.exp(-logits))
-            assert np.all((cal_val_probs >= 0) & (cal_val_probs <= 1))
-            
-            cal_ece = compute_ece_soft_labels(y_val, cal_val_probs)
-            cal_val_metrics = {
-                "ece": cal_ece,
-                "spearman": float(np.corrcoef(y_val, cal_val_probs)[0, 1]) if len(np.unique(y_val)) > 1 else 0.0,
-                "mae": float(np.mean(np.abs(y_val - cal_val_probs))),
-                "mse": float(np.mean((y_val - cal_val_probs) ** 2))
-            }
-            
-            # Store for logging / saving
-            self.val_metrics_raw = raw_val_metrics
-            self.val_metrics_cal = cal_val_metrics
-
-            print("\nCalibration (validation set):")
-            print(f"  Fitted temperature: {self.calibration_temperature:.4f}")
-            print(f"  ECE before: {raw_val_metrics.get('ece', 'N/A'):.4f}")
-            print(f"  ECE after : {cal_val_metrics.get('ece', 'N/A'):.4f}")
 
         # ---------- TEST EVALUATION (ONCE) ----------
         # Evaluate on test set if available
@@ -645,13 +586,7 @@ class LinearEoiProbe(Probe):
         
         # Make predictions
         if self.task_type == "regression":
-            if self.calibration_temperature is None:
-                predictions = self.best_probe.predict(x_pred)
-            else:
-                raw_logits = self.best_probe.predict(x_pred) 
-                logits =  raw_logits / self.calibration_temperature
-                predictions = np.clip(logits, 0, 1)
-
+            predictions = self.best_probe.predict(x_pred)
         else:  # classification
             logits = self.best_probe.decision_function(x_pred)
             if self.calibration_temperature is not None:

@@ -114,7 +114,7 @@ class LinearEOIProbeConfig(BaseModel):
     """
     model_name: str = "gpt2"
     alpha_grid: list[float] = [0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000]
-    batch_size: int = 1
+    batch_size: int = 16
     max_length: int = 1024
 
 class TfidfProbeConfig(BaseModel):
