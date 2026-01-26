@@ -15,6 +15,8 @@ import numpy as np
 from tqdm import tqdm
 from scipy.stats import spearmanr
 from hydra.utils import get_class
+from llms_know_difficulty.wandb_logger import BaseLogger
+from omegaconf import OmegaConf
 
 class AttnLite(nn.Module):
     
@@ -190,6 +192,9 @@ class TorchProbe(Probe):
         test_mode: bool = False,
         test_sample_size: int = 128,
         use_hooks: bool = False,
+        val_every_step: int = 100,
+        val_every_step_sample_size: Optional[int] = None,
+        loss_fn: nn.Module = nn.MSELoss(),
         **kwargs: Any,
     ):
         """
@@ -206,7 +211,10 @@ class TorchProbe(Probe):
         self.test_mode = test_mode
         self.test_sample_size = test_sample_size
         self.use_hooks = use_hooks
-        
+        self.val_every_step = val_every_step
+        self.val_every_step_sample_size = val_every_step_sample_size
+        self.loss_fn = loss_fn
+
         # Cast learning hyperparameters to lists:
         self.learning_rate = list(learning_rate)
         self.batch_size = list(batch_size)
@@ -252,6 +260,19 @@ class TorchProbe(Probe):
     def name(self) -> str:
         """The name of the probe."""
         return self.probe_name
+
+    def create_wandb_name(self, hyperparameters: dict, cv_hyper_list_names: list[str]) -> str:
+        """
+        Create a wandb name from the hyperparameters and the cv list of hypers.
+        """
+
+        wandb_name = self.name
+
+        for hyper_name in cv_hyper_list_names:
+            wandb_name += f"_{hyper_name}{hyperparameters[hyper_name]}"
+
+        return wandb_name
+
         
     def init_model(self, config: dict) -> None:
         """
@@ -260,7 +281,8 @@ class TorchProbe(Probe):
         raise NotImplementedError("Initializing a model from a checkpoint is not implemented for the attention probe.")
 
     def train(self, train_data: tuple[list[str], list[float]],
-              val_data: tuple[list[str], list[float]]) -> "TorchProbe":
+              val_data: tuple[list[str], list[float]],
+              logger: Optional[BaseLogger] = None) -> "TorchProbe":
         """
         Train a probe on the training data, evaluate on the validation data, and repeat, returning the best probe.
         """
@@ -304,18 +326,32 @@ class TorchProbe(Probe):
             print('-' * 80)
             print(f'Hyperparams: {hyperparams}')
             print('-' * 80)
+
+            logger.init_run(
+                name=self.create_wandb_name(hyperparams, cv_hyper_list_names),
+                config=OmegaConf.create(hyperparams),
+            )
+
             # Fit the probe to the training data, with these specific hyperparameters:
-            probe = self.fit(train_idx, train_prompts, train_targets, **hyperparams)
+            probe = self.fit(train_data=train_data,
+                            val_data=val_data,
+                            logger=logger,
+                            **hyperparams)
 
             # Evaluate the probe's performance on the validation data:
             with torch.no_grad():
-                evaluate_metrics, _ = self.evaluate(probe, val_idx,val_prompts, val_targets, hyperparams)
+                evaluate_metrics, _ = self.evaluate(probe, val_idx, val_prompts, val_targets, hyperparams)
             cv_metric = evaluate_metrics[self.cv_metric]
 
             print('-' * 80)
             print(f'CV metric: {cv_metric:.4f}')
             print('-' * 80)
+
+            logger.log_metrics({
+                'cv_metric': cv_metric,
+            })
             
+            logger.finish_run()
             cv_results.append([cv_metric, hyperparams, probe])
 
         # After training we select the best cv hyperparameters and evaluate the probe on the test_data
@@ -460,16 +496,17 @@ class TorchProbe(Probe):
         predictions_tensor = torch.cat(outputs, dim=0).float()
         return indices_tensor, predictions_tensor
 
-    def fit(self, idx: list[int],
-                prompts: list[str],
-                targets: list[float],
-                layer: int,
-                batch_size:int,
-                learning_rate:float,
-                num_epochs:int,
-                weight_decay:float,
-                max_length:int,
-                **kwargs) -> nn.Module:
+    def fit(self,
+            train_data: tuple[list[int], list[str], list[float]],
+            val_data: tuple[list[int], list[str], list[float]],
+            logger: Optional[BaseLogger],
+            layer: int,
+            batch_size:int,
+            learning_rate:float,
+            num_epochs:int,
+            weight_decay:float,
+            max_length:int,
+            **kwargs) -> nn.Module:
         """
         Run a single training loop for the attention probe. Very simple no validation or logging ortracking etc...
 
@@ -481,24 +518,41 @@ class TorchProbe(Probe):
         TODO: Add some validation loss during training?
         """
 
+        train_idx, train_prompts, train_targets = train_data
+        val_idx, val_prompts, val_targets = val_data
+
         # Setup train loader:
         if self.test_mode:
             batch_size_approx = self.batch_size[0]
-            idx = idx[:batch_size_approx]
-            prompts = prompts[:batch_size_approx]
-            targets = targets[:batch_size_approx]
-            train_dataset = TextNumberDataset(idx, prompts, targets)
+            train_idx = train_idx[:batch_size_approx]
+            train_prompts = train_prompts[:batch_size_approx]   
+            train_targets = train_targets[:batch_size_approx]
+            val_idx = val_idx[:batch_size_approx]
+            val_prompts = val_prompts[:batch_size_approx]
+            val_targets = val_targets[:batch_size_approx]
+            train_dataset = TextNumberDataset(train_idx, train_prompts, train_targets)
+            val_dataset = TextNumberDataset(val_idx, val_prompts, val_targets)
         else:
-            train_dataset = TextNumberDataset(idx, prompts, targets)
+            train_dataset = TextNumberDataset(train_idx, train_prompts, train_targets)
+
+            if self.val_every_step_sample_size is not None:
+                val_dataset = TextNumberDataset(val_idx[:self.val_every_step_sample_size],
+                                            val_prompts[:self.val_every_step_sample_size],
+                                            val_targets[:self.val_every_step_sample_size])
+            else:
+                val_dataset = TextNumberDataset(val_idx, val_prompts, val_targets)
 
         collate_fn = make_collate_fn(self.tokenizer, CollateConfig(max_length=max_length))
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
 
         # Setup the probe:
         probe = self.ProbeClass(self.d_model, **kwargs).to(self.device)
         optimizer = torch.optim.AdamW(probe.parameters(), lr=learning_rate)
-        loss_fn = nn.MSELoss()
+        loss_fn = self.loss_fn
 
+        global_train_step = 0
+        val_loss = 0.0
         # Train the probe:        
         for epoch in range(1, num_epochs + 1):
             
@@ -507,7 +561,7 @@ class TorchProbe(Probe):
             step = 0
             n = 0
 
-            pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{num_epochs}", dynamic_ncols=True)
+            pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{num_epochs}, val loss: {val_loss:.6f}", dynamic_ncols=True)
             for idx, enc, ys in pbar:
                 ys = ys.to(self.device)
 
@@ -540,7 +594,50 @@ class TorchProbe(Probe):
                     'batch_mse': f'{loss.item():.6f}'
                 })
                 step += 1
+                global_train_step += 1
                 del activations
+
+                logger.log_metrics({
+                    'train_loss': loss.item(),
+                    'epoch': epoch,
+                    'step': global_train_step,
+                })
+
+                if global_train_step % self.val_every_step == 0:
+
+                    val_losses = []
+                    spearman_corrs = []
+                    for val_idx, val_enc, val_ys in val_loader:
+                        val_ys = val_ys.to(self.device)
+
+                        # Extract the activations from the model:
+                        val_input_ids = val_enc["input_ids"].to(self.device)
+                        val_attention_mask = val_enc["attention_mask"].to(self.device)
+                        
+                        val_activations = self._extract_layer_features(
+                            model=self.model,
+                            input_ids=val_input_ids,
+                            attention_mask=val_attention_mask,
+                            layer_indices=[layer],
+                        )
+                    
+                        preds = probe(val_activations, mask=val_attention_mask)
+                        val_loss_item = loss_fn(preds, val_ys).detach().item()
+                        val_losses.append(val_loss_item)
+                        spearman_corrs.append(spearmanr(preds.detach().cpu().numpy(), val_ys.detach().cpu().numpy())[0])
+
+                    # Log the mean val loss across batches
+                    val_loss = np.mean(val_losses)
+                    pbar.set_postfix({
+                        'val_loss': f'{val_loss:.6f}',
+                    })
+                    logger.log_metrics({
+                        'val_loss': val_loss,
+                        'val_spearman_corr': np.mean(spearman_corrs),
+                        'epoch': epoch,
+                        'step': global_train_step,
+                    })
+                    
 
         # Empty the cache to free up memory for the evaluation step.
         torch.cuda.empty_cache()

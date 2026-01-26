@@ -10,3 +10,4 @@ defaults:
 # No additional parameters needed for this probe type
 
 probe_class: "llms_know_difficulty.probe.torch_probe.AttnLite"
+probe_name: "attn_probe"

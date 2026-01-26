@@ -1,24 +1,27 @@
 # Default configuration for all torch-based probes
 # This file contains common hyperparameters shared by all torch probes
 
-#@package _global_
+defaults:
+  - loss_fn: mse_loss
 
 _target_: llms_know_difficulty.probe.torch_probe.TorchProbe
 
 # Common hyperparameters for torch probes
 learning_rate: [1e-3]
 batch_size: [128]
-num_epochs: [2]
+num_epochs: [4]
 weight_decay: [10.0]
 
 # -1 can be used to select every other layer
 layer: [23]
-
 max_length: [512]
 
 test_mode: false
 # size to use in predict when test_mode is True
 test_sample_size: 128
+
+val_every_step: 50
+val_every_step_sample_size: null
 
 cv_metric: "spearmanr"
 max_or_min_cv_metric: "max"

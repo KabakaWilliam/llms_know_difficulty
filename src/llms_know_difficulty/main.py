@@ -1,15 +1,10 @@
-import argparse
-import torch
-from llms_know_difficulty.probe.probe_factory import ProbeFactory
-from llms_know_difficulty.utils import (
-    create_results_path,
-    DataIngestionWorkflow,
-    save_probe_predictions
-)
-from llms_know_difficulty.metrics import compute_metrics
 import hydra
 from omegaconf import DictConfig, OmegaConf
-
+from llms_know_difficulty.metrics import compute_metrics
+from llms_know_difficulty.utils import (
+    create_results_path,
+    save_probe_predictions
+)
 
 @hydra.main(version_base=None, config_path="../../config", config_name="config")
 def main(cfg: DictConfig) -> None:
@@ -32,13 +27,20 @@ def main(cfg: DictConfig) -> None:
                                         gen_str=None)
     print(f"Creating results directory at {results_path}")
 
+
+    # 2. Initialize the logger:
+    if cfg.get("logger", None) is not None:
+        logger = hydra.utils.instantiate(cfg.logger)
+    else:
+        logger = None
+
     # 4. Initialize the probe:
     print(f"Initializing probe {cfg.probe._target_}\n")
     probe = hydra.utils.instantiate(cfg.probe, device=cfg.device)
 
     # 6. Run probe training:
     print(f"\n🔥 Training probe on train and val data\n")
-    probe = probe.train(train_data=train_data, val_data=val_data)
+    probe = probe.train(train_data=train_data, val_data=val_data, logger=logger)
     
     if probe is None:
         raise RuntimeError("Failed to train probe")
@@ -63,6 +65,8 @@ def main(cfg: DictConfig) -> None:
         metadata['test_score'] = test_metrics['spearman']
     elif 'auc' in test_metrics:
         metadata['test_score'] = test_metrics['auc']
+    else:
+        print("No logger initialized or logger is not initialized, skipping logging of metadata")
 
     print(f"Test performance: {test_metrics.get('spearman', test_metrics.get('auc', 'N/A'))} 🔥\n")
     # 9. Save the probe predictions to the results directory:

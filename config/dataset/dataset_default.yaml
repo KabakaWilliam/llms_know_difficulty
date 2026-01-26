@@ -1,7 +1,7 @@
 # Dataset default configuration
 # This file contains default settings for dataset loading and processing
 
-_target_: llms_know_difficulty.utils.DataIngestionWorkflow.load_dataset
+_target_: llms_know_difficulty.data_utils.DataIngestionWorkflow.load_dataset
 dataset_name: null  # Dataset name (e.g., "DigitalLearningGmbH_MATH-lighteval", "gneubig_aime-1983-2024")
 max_len: 3000  # Maximum length of the response
 k: 50  # Number of rollouts per question

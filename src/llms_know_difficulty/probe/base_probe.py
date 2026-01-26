@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Optional
+from llms_know_difficulty.wandb_logger import BaseLogger
 
 class Probe(ABC):
     
@@ -19,7 +20,10 @@ class Probe(ABC):
 
 
     @abstractmethod
-    def train(self, train_data: tuple[list[str], list[float]], val_data: tuple[list[str], list[float]]) -> None:
+    def train(self, train_data: tuple[list[str], list[float]],
+        val_data: tuple[list[str], list[float]],
+        logger: Optional[BaseLogger] = None
+        ) -> None:
         """
         Train the probe on the training data, evaluate on the validation data, and repeat, returning the best probe.
         """

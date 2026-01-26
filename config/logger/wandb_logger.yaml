@@ -1,0 +1,7 @@
+# A logger for logging to wandb...
+_target_: llms_know_difficulty.wandb_logger.WandbLogger
+
+# These are kept null as they should be set by the user on the command line
+entity: null
+project: llms_know_difficulty
+group: attn_probe_tuning
