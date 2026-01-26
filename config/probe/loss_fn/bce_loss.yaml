@@ -1,0 +1,3 @@
+#@package loss_fn
+
+_target_: torch.nn.BCELoss
