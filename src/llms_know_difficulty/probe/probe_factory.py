@@ -9,6 +9,7 @@ from llms_know_difficulty.probe.torch_probe import (
     LinearThenRollingMax,
 ) 
 from llms_know_difficulty.probe.linear_eoi_probe import LinearEoiProbe
+from llms_know_difficulty.probe.length_probe import LengthProbe
 
 from llms_know_difficulty.probe.tfidf_probe import TfidfProbe
 from llms_know_difficulty.config import LinearEOIProbeConfig, AttentionProbeConfig, TfidfProbeConfig, DEVICE
@@ -87,6 +88,10 @@ class ProbeFactory:
             probe = TorchProbe(LinearThenRollingMaxProbeConfig())
             print("Lets set up the probe ⚙️ ...")
             return probe.setup(**probe_setup_args)
+        
+        elif probe_name == "length_probe":
+            probe = LengthProbe()
+            return probe.setup()
 
         else:
             raise NotImplementedError(f"Probe {probe_name} not implemented")

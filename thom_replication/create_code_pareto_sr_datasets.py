@@ -410,13 +410,14 @@ if __name__ == "__main__":
     )
     
     MODELS_TO_RUN = [
+    # "Qwen/Qwen2.5-Coder-14B-Instruct",
+    # "Qwen/Qwen2.5-Coder-3B-Instruct",
+    # "Qwen/Qwen2.5-Coder-32B-Instruct",
+    # "Qwen/Qwen2.5-Coder-7B-Instruct",
     # "Qwen/Qwen2.5-Coder-0.5B-Instruct",
     # "Qwen/Qwen2.5-Coder-1.5B-Instruct",
-    # "Qwen/Qwen2.5-Coder-3B-Instruct",
-    # "Qwen/Qwen2.5-Coder-7B-Instruct",
-    # "Qwen/Qwen2.5-Coder-14B-Instruct",
-    # "Qwen/Qwen2.5-Coder-32B-Instruct",
     "openai/gpt-oss-20b",
+    # "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
     # "openai/gpt-oss-120b",
     # "Qwen/Qwen3-Coder-30B-A3B-Instruct"
     ]
@@ -433,7 +434,7 @@ if __name__ == "__main__":
     "Qwen/Qwen2.5-Coder-32B-Instruct":  64,
     "Qwen/Qwen2.5-72B-Instruct":  128,
     "openai/gpt-oss-20b":  256,
-    "openai/gpt-oss-120b":  64,
+    "openai/gpt-oss-120b":  16,
     }
     
     for i, MODEL_TO_ROLLOUT in enumerate(MODELS_TO_RUN):
@@ -444,16 +445,16 @@ if __name__ == "__main__":
         main(
             model_name=MODEL_TO_ROLLOUT,
             # max_questions_per_split=5,
-            level_reasoning="medium",
+            level_reasoning="low",
             tensor_parallel_size=1,
             num_rollouts_per_question=5,
-            temperature=1.0,
-            top_p=1.0,
-            top_k=-1,
+            temperature=0.2,
+            top_p=0.95,
+            top_k=20,
             gpu_memory_utilization=0.70, #increase according to VRAM available
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
             batch_size_by_model=batch_size_by_model,
-            max_response_len=131072,
+            max_response_len=4096,
             max_concurrent_API_requests=8
         )
         

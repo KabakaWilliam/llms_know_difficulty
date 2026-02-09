@@ -58,7 +58,8 @@ class LinearEoiProbe(Probe):
         self.weights = None
         self.probing_layer = None
         self.probing_position = None
-        self.calibration_temperature: Optional[float] = None
+        self.calibration_temperature: Optional[float] = None  # For backward compatibility
+        self.platt_scaler = None  # LogisticRegression for Platt scaling
         
         # Best probe metadata
         self.best_probe = None
@@ -201,32 +202,29 @@ class LinearEoiProbe(Probe):
     
     def calibrate(self, x_cal: np.ndarray, y_cal: np.ndarray) -> None:
         """
-        Fit calibration_temperature scaling for classification probes.
+        Fit Platt scaling for classification probes using LogisticRegression.
         """
         # assert self.task_type == "classification"
         assert self.best_probe is not None
 
+        if self.task_type == "regression":
+            # No calibration for regression
+            return
+        
         if self.task_type == "classification":
-            # Get logits (NOT probabilities)
+            # Get logits (NOT probabilities) from base probe
             logits = self.best_probe.decision_function(x_cal)
-        elif self.task_type == "regression":
-            logits = self.best_probe.predict(x_cal) # regression outputs are already logits
-        labels = torch.tensor(y_cal, dtype=torch.float32)
-        logits = torch.tensor(logits, dtype=torch.float32)
-
-        T = torch.ones(1, requires_grad=True)
-
-        optimizer = torch.optim.LBFGS([T], lr=0.01, max_iter=50)
-
-        def closure():
-            optimizer.zero_grad()
-            probs = torch.sigmoid(logits / T)
-            loss = torch.nn.functional.binary_cross_entropy(probs, labels)
-            loss.backward()
-            return loss
-
-        optimizer.step(closure)
-        self.calibration_temperature = float(T.detach())
+            logits_2d = logits.reshape(-1, 1)
+            labels = y_cal
+            
+            # Fit logistic regression on logits (Platt scaling)
+            # This learns P(y=1|z) = sigmoid(A*z + B) where z is the logit
+            from sklearn.linear_model import LogisticRegression
+            self.platt_scaler = LogisticRegression()
+            self.platt_scaler.fit(logits_2d, labels)
+            
+            # Clear temperature for clarity (using Platt instead)
+            self.calibration_temperature = None
 
     
     def _evaluate_probe(self, probe, x: np.ndarray, y: np.ndarray, full_metrics: bool = False) -> float:
@@ -249,10 +247,17 @@ class LinearEoiProbe(Probe):
             y_pred = probe.predict(x)
         else:  # classification
             logits = probe.decision_function(x)
-            if self.calibration_temperature is not None:
+            
+            # Apply calibration
+            if self.platt_scaler is not None:
+                logits_2d = logits.reshape(-1, 1)
+                y_pred = self.platt_scaler.predict_proba(logits_2d)[:, 1]
+            elif self.calibration_temperature is not None:
+                # Backward compatibility with old temperature scaling
                 logits = logits / self.calibration_temperature
-
-            y_pred = 1 / (1 + np.exp(-logits))
+                y_pred = 1 / (1 + np.exp(-logits))
+            else:
+                y_pred = 1 / (1 + np.exp(-logits))
 
             # y_pred = probe.predict_proba(x)[:, 1]
         
@@ -379,8 +384,15 @@ class LinearEoiProbe(Probe):
 
             # Calibrated probabilities
             logits = self.best_probe.decision_function(x_val_best)
-            logits /= self.calibration_temperature
-            cal_val_probs = 1 / (1 + np.exp(-logits))
+            if self.platt_scaler is not None:
+                logits_2d = logits.reshape(-1, 1)
+                cal_val_probs = self.platt_scaler.predict_proba(logits_2d)[:, 1]
+            elif self.calibration_temperature is not None:
+                # Backward compatibility
+                logits /= self.calibration_temperature
+                cal_val_probs = 1 / (1 + np.exp(-logits))
+            else:
+                cal_val_probs = 1 / (1 + np.exp(-logits))
 
             assert np.all((cal_val_probs >= 0) & (cal_val_probs <= 1))
 
@@ -395,65 +407,71 @@ class LinearEoiProbe(Probe):
             self.val_metrics_cal = cal_val_metrics
 
             print("\nCalibration (validation set):")
-            print(f"  Fitted temperature: {self.calibration_temperature:.4f}")
+            if self.platt_scaler is not None:
+                print(f"  Method: Platt scaling (LogisticRegression)")
+                print(f"  Platt A (scale): {self.platt_scaler.coef_[0][0]:.4f}")
+                print(f"  Platt B (shift): {self.platt_scaler.intercept_[0]:.4f}")
+            elif self.calibration_temperature is not None:
+                print(f"  Method: Temperature scaling")
+                print(f"  Fitted temperature: {self.calibration_temperature:.4f}")
             print(f"  ECE before: {raw_val_metrics.get('ece', 'N/A')}")
             print(f"  ECE after : {cal_val_metrics.get('ece', 'N/A')}")
 
-        # === Calibration step REGRESSOR ===
-        elif self.task_type == "regression" and self.calibration_temperature is None: 
-            x_val_best = linear_eoi_probe_train_utils.to_numpy(self.val_activations[:, self.best_layer_idx, self.best_pos_idx, :])
-            y_val = np.array(self.val_labels)
+        # # === Calibration step REGRESSOR ===
+        # elif self.task_type == "regression" and self.calibration_temperature is None: 
+        #     x_val_best = linear_eoi_probe_train_utils.to_numpy(self.val_activations[:, self.best_layer_idx, self.best_pos_idx, :])
+        #     y_val = np.array(self.val_labels)
 
-            self.raw_val_probs = self.best_probe.predict(x_val_best)
+        #     self.raw_val_probs = self.best_probe.predict(x_val_best)
             
-            # Compute ECE for soft labels (Bernoulli probability estimates)
-            # ECE = expected |confidence - accuracy| where "accuracy" for soft labels is the true probability
-            def compute_ece_soft_labels(y_true, y_pred, n_bins=10):
-                """Compute ECE for soft probability labels."""
-                indices = np.argsort(y_pred)
-                y_true_sorted = y_true[indices]
-                y_pred_sorted = y_pred[indices]
-                bin_size = len(y_pred) // n_bins
-                ece = 0.0
-                for i in range(n_bins):
-                    start = i * bin_size
-                    end = start + bin_size if i < n_bins - 1 else len(y_pred)
-                    if end > start:
-                        bin_acc = np.mean(y_true_sorted[start:end])
-                        bin_conf = np.mean(y_pred_sorted[start:end])
-                        ece += (end - start) / len(y_pred) * np.abs(bin_acc - bin_conf)
-                return ece
+        #     # Compute ECE for soft labels (Bernoulli probability estimates)
+        #     # ECE = expected |confidence - accuracy| where "accuracy" for soft labels is the true probability
+        #     def compute_ece_soft_labels(y_true, y_pred, n_bins=10):
+        #         """Compute ECE for soft probability labels."""
+        #         indices = np.argsort(y_pred)
+        #         y_true_sorted = y_true[indices]
+        #         y_pred_sorted = y_pred[indices]
+        #         bin_size = len(y_pred) // n_bins
+        #         ece = 0.0
+        #         for i in range(n_bins):
+        #             start = i * bin_size
+        #             end = start + bin_size if i < n_bins - 1 else len(y_pred)
+        #             if end > start:
+        #                 bin_acc = np.mean(y_true_sorted[start:end])
+        #                 bin_conf = np.mean(y_pred_sorted[start:end])
+        #                 ece += (end - start) / len(y_pred) * np.abs(bin_acc - bin_conf)
+        #         return ece
             
-            raw_ece = compute_ece_soft_labels(y_val, self.raw_val_probs)
-            raw_val_metrics = {
-                "ece": raw_ece,
-                "spearman": float(np.corrcoef(y_val, self.raw_val_probs)[0, 1]) if len(np.unique(y_val)) > 1 else 0.0,
-                "mae": float(np.mean(np.abs(y_val - self.raw_val_probs))),
-                "mse": float(np.mean((y_val - self.raw_val_probs) ** 2))
-            }
+        #     raw_ece = compute_ece_soft_labels(y_val, self.raw_val_probs)
+        #     raw_val_metrics = {
+        #         "ece": raw_ece,
+        #         "spearman": float(np.corrcoef(y_val, self.raw_val_probs)[0, 1]) if len(np.unique(y_val)) > 1 else 0.0,
+        #         "mae": float(np.mean(np.abs(y_val - self.raw_val_probs))),
+        #         "mse": float(np.mean((y_val - self.raw_val_probs) ** 2))
+        #     }
 
-            self.calibrate(x_val_best, y_val)
-            raw_preds = self.best_probe.predict(x_val_best)
-            logits = raw_preds/self.calibration_temperature
-            cal_val_probs = 1 / (1 + np.exp(-logits))
-            assert np.all((cal_val_probs >= 0) & (cal_val_probs <= 1))
+        #     self.calibrate(x_val_best, y_val)
+        #     raw_preds = self.best_probe.predict(x_val_best)
+        #     logits = raw_preds/self.calibration_temperature
+        #     cal_val_probs = 1 / (1 + np.exp(-logits))
+        #     assert np.all((cal_val_probs >= 0) & (cal_val_probs <= 1))
             
-            cal_ece = compute_ece_soft_labels(y_val, cal_val_probs)
-            cal_val_metrics = {
-                "ece": cal_ece,
-                "spearman": float(np.corrcoef(y_val, cal_val_probs)[0, 1]) if len(np.unique(y_val)) > 1 else 0.0,
-                "mae": float(np.mean(np.abs(y_val - cal_val_probs))),
-                "mse": float(np.mean((y_val - cal_val_probs) ** 2))
-            }
+        #     cal_ece = compute_ece_soft_labels(y_val, cal_val_probs)
+        #     cal_val_metrics = {
+        #         "ece": cal_ece,
+        #         "spearman": float(np.corrcoef(y_val, cal_val_probs)[0, 1]) if len(np.unique(y_val)) > 1 else 0.0,
+        #         "mae": float(np.mean(np.abs(y_val - cal_val_probs))),
+        #         "mse": float(np.mean((y_val - cal_val_probs) ** 2))
+        #     }
             
-            # Store for logging / saving
-            self.val_metrics_raw = raw_val_metrics
-            self.val_metrics_cal = cal_val_metrics
+        #     # Store for logging / saving
+        #     self.val_metrics_raw = raw_val_metrics
+        #     self.val_metrics_cal = cal_val_metrics
 
-            print("\nCalibration (validation set):")
-            print(f"  Fitted temperature: {self.calibration_temperature:.4f}")
-            print(f"  ECE before: {raw_val_metrics.get('ece', 'N/A'):.4f}")
-            print(f"  ECE after : {cal_val_metrics.get('ece', 'N/A'):.4f}")
+        #     print("\nCalibration (validation set):")
+        #     print(f"  Fitted temperature: {self.calibration_temperature:.4f}")
+        #     print(f"  ECE before: {raw_val_metrics.get('ece', 'N/A'):.4f}")
+        #     print(f"  ECE after : {cal_val_metrics.get('ece', 'N/A'):.4f}")
 
         # ---------- TEST EVALUATION (ONCE) ----------
         # Evaluate on test set if available
@@ -534,7 +552,10 @@ class LinearEoiProbe(Probe):
         
         # Train and select probes
         self._train_and_select_probes(alpha_grid)
-
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         return self
 
     def fit(self, prompt_activations: np.ndarray, targets: np.ndarray, alpha: float, task_type: str) -> Ridge | LogisticRegression:
@@ -654,9 +675,17 @@ class LinearEoiProbe(Probe):
 
         else:  # classification
             logits = self.best_probe.decision_function(x_pred)
-            if self.calibration_temperature is not None:
+            
+            # Apply calibration
+            if self.platt_scaler is not None:
+                logits_2d = logits.reshape(-1, 1)
+                predictions = self.platt_scaler.predict_proba(logits_2d)[:, 1]
+            elif self.calibration_temperature is not None:
+                # Backward compatibility with old temperature scaling
                 logits = logits / self.calibration_temperature
-            predictions = 1 / (1 + np.exp(-logits))
+                predictions = 1 / (1 + np.exp(-logits))
+            else:
+                predictions = 1 / (1 + np.exp(-logits))
             # predictions = self.best_probe.predict_proba(x_pred)[:, 1]
         
         # Return as formatted tensors for consistency with attn_probe
@@ -688,6 +717,11 @@ class LinearEoiProbe(Probe):
         model_file = results_path / "best_probe.joblib"
         joblib.dump(self.best_probe, model_file)
         
+        # Save Platt scaler if it exists
+        if self.platt_scaler is not None:
+            platt_file = results_path / "platt_scaler.joblib"
+            joblib.dump(self.platt_scaler, platt_file)
+        
         # If no metadata provided, create minimal metadata for loading
         if metadata is None:
             metadata = {
@@ -699,9 +733,20 @@ class LinearEoiProbe(Probe):
                 "task_type": self.task_type,
                 "model_name": self.model_name,
                 "d_model": self.d_model,
-                "calibration_temperature": self.calibration_temperature,
-                "validation ECE": self.val_metrics_cal['ece'],
+                "validation ECE": self.val_metrics_cal['ece'] if self.val_metrics_cal else None,
             }
+            
+            # Add calibration info
+            if self.platt_scaler is not None:
+                metadata["has_platt_scaler"] = True
+                metadata["platt_coef"] = float(self.platt_scaler.coef_[0][0])
+                metadata["platt_intercept"] = float(self.platt_scaler.intercept_[0])
+                metadata["calibration_method"] = "platt_scaling"
+            else:
+                metadata["has_platt_scaler"] = False
+                metadata["calibration_temperature"] = self.calibration_temperature
+                if self.calibration_temperature is not None:
+                    metadata["calibration_method"] = "temperature_scaling"
         
         metadata_file = results_path / "probe_metadata.json"
         with open(metadata_file, "w") as f:
@@ -743,8 +788,17 @@ class LinearEoiProbe(Probe):
         probe.task_type = metadata["task_type"]
         probe.model_name = metadata["model_name"]
         probe.d_model = metadata["d_model"]
-        # Restore calibration temperature if available (only for classification probes)
-        probe.calibration_temperature = metadata.get("calibration_temperature", None)
+        
+        # Restore calibration (Platt scaler or temperature)
+        if metadata.get("has_platt_scaler", False):
+            platt_file = results_path / "platt_scaler.joblib"
+            if platt_file.exists():
+                probe.platt_scaler = joblib.load(platt_file)
+            probe.calibration_temperature = None
+        else:
+            # Backward compatibility with old temperature scaling
+            probe.calibration_temperature = metadata.get("calibration_temperature", None)
+            probe.platt_scaler = None
         
         # Setup the model for activation extraction
         if torch.cuda.is_available() and device == "cuda":
@@ -781,7 +835,16 @@ class LinearEoiProbe(Probe):
                 metadata['ece_before_calibration'] = self.val_metrics_raw.get('ece')
             if self.val_metrics_cal is not None:
                 metadata['ece_after_calibration'] = self.val_metrics_cal.get('ece')
-            if self.calibration_temperature is not None:
+            
+            # Add calibration method info
+            if self.platt_scaler is not None:
+                metadata['calibration_method'] = 'platt_scaling'
+                metadata['has_platt_scaler'] = True
+                metadata['platt_coef'] = float(self.platt_scaler.coef_[0][0])
+                metadata['platt_intercept'] = float(self.platt_scaler.intercept_[0])
+            elif self.calibration_temperature is not None:
+                metadata['calibration_method'] = 'temperature_scaling'
                 metadata['calibration_temperature'] = self.calibration_temperature
+                metadata['has_platt_scaler'] = False
         
         return metadata

@@ -431,7 +431,7 @@ class TfidfProbe(Probe):
         
         # Create probe instance
         probe = cls(config={})
-        probe.setup(model_name="", device="cpu")  # Setup spaCy
+        probe.setup()  # Setup spaCy
         
         # Restore state
         probe.vectorizer = vectorizer
