@@ -587,13 +587,22 @@ if __name__ == "__main__":
             batch_size=64,
             num_rollouts=1,
         ),
+        "gpt2": GenerationConfig(
+            max_tokens=131072,
+            temperature=1.0,
+            top_p=1.0,
+            top_k=-1,
+            batch_size=64,
+            num_rollouts=1,
+        ),
     }
 
     MODELS_TO_RUN = [
         # "Qwen/Qwen2.5-Math-1.5B-Instruct",
         # "Qwen/Qwen2.5-Math-7B-Instruct",
         # "Qwen/Qwen2.5-Math-72B-Instruct",
-        "openai/gpt-oss-20b"
+        # "openai/gpt-oss-20b"
+        "gpt2"
     ]
     
     for i, MODEL_TO_ROLLOUT in enumerate(MODELS_TO_RUN):

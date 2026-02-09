@@ -6,6 +6,7 @@
 #   bash setup.sh            # create env + install package
 #   bash setup.sh --update   # update existing env from pika.yml
 # ──────────────────────────────────────────────────────────────────────────────
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -52,3 +53,8 @@ conda run -n "$ENV_NAME" --no-capture-output \
     python -c "import pika; print('  ✓ pika imported')"
 
 ok "Done. Activate the env with:  conda activate ${ENV_NAME}"
+
+# to update the conda env (removes already installed pika and arrow depndencies.)
+# conda env export -n pika --no-builds \
+#   | sed '/^  - arrow-cpp=/d; /^  - libabseil=/d; /^  - libgrpc=/d; /^  - libprotobuf=/d; /^  - libre2-11=/d; /^      - pika==/d' \
+#   > pika.yml
