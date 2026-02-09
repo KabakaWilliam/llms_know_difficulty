@@ -12,8 +12,8 @@ from pathlib import Path
 import time
 from scipy.stats import spearmanr
 
-from llms_know_difficulty.probe.attn_probe import AttnProbe
-from llms_know_difficulty.config import AttentionProbeConfig
+from pika.probe.attn_probe import AttnProbe
+from pika.config import AttentionProbeConfig
 
 
 def load_math_data() -> Tuple[List[str], List[float], List[str], List[float], List[str], List[float]]:

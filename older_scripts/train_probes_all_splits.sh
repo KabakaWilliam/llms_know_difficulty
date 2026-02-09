@@ -49,7 +49,7 @@ for i in "${!LANGUAGE_SUFFIXES[@]}"; do
     echo "[$COUNT/$TOTAL] Training: $DATASET"
     
     # Build and execute command
-    CMD="CUDA_VISIBLE_DEVICES=$GPU_DEVICE python3 src/llms_know_difficulty/main.py \
+    CMD="CUDA_VISIBLE_DEVICES=$GPU_DEVICE python3 src/pika/main.py \
         --probe $PROBE \
         --dataset $DATASET \
         --model $MODEL \

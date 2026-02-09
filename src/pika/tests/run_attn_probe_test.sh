@@ -8,5 +8,5 @@ SRC_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../.." && pwd )"
 # Run the test module
 cd "$SRC_DIR"
 export CUDA_VISIBLE_DEVICES=0
-python -m llms_know_difficulty.tests.test_attn_probe_real_data "$@"
-# python -m llms_know_difficulty.tests.test_sklearn_probe_e2e "$@"
+python -m pika.tests.test_attn_probe_real_data "$@"
+# python -m pika.tests.test_sklearn_probe_e2e "$@"

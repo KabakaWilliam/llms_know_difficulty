@@ -6,7 +6,7 @@ from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.metrics import roc_auc_score
 from scipy.stats import spearmanr
 from sklearn.utils.multiclass import type_of_target
-from llms_know_difficulty.utils import infer_task_type
+from pika.utils import infer_task_type
 
 
 def set_seed(seed: int = 42):

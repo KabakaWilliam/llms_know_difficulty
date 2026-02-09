@@ -57,7 +57,7 @@ echo "Output directory: $OUTPUT_DIR"
 echo "=================================="
 echo ""
 
-python src/llms_know_difficulty/predict_with_probe.py \
+python src/pika/predict_with_probe.py \
   --probe_path "$PROBE_PATH" \
   --dataset "$DATASET" \
   --model "$MODEL" \

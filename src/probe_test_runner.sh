@@ -4,4 +4,4 @@
 #     test_sklearn_probe_cache_verification.py
 #     test_sklearn_probe_real_data
 #     test_prompting_baseline
-python3 -m llms_know_difficulty.tests.test_sklearn_probe_real_data
+python3 -m pika.tests.test_sklearn_probe_real_data

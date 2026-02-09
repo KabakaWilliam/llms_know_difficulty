@@ -1,16 +1,16 @@
 import argparse
 import torch
-from llms_know_difficulty.probe.probe_factory import ProbeFactory
-from llms_know_difficulty.utils import (
+from pika.probe.probe_factory import ProbeFactory
+from pika.utils import (
     create_results_path,
     DataIngestionWorkflow,
     save_probe_predictions
 )
-from llms_know_difficulty.metrics import compute_metrics
-from llms_know_difficulty.config import PROMPT_COLUMN_NAME, LABEL_COLUMN_NAME
+from pika.metrics import compute_metrics
+from pika.config import PROMPT_COLUMN_NAME, LABEL_COLUMN_NAME
 
 def main():
-    parser = argparse.ArgumentParser(description="LLMs-Know-Difficulty command line interface")
+    parser = argparse.ArgumentParser(description="PIKA command line interface")
     parser.add_argument("--probe", type=str, required=False, help="Name of probe to use")
     parser.add_argument("--dataset", type=str, required=False, help="Path to data file")
     parser.add_argument("--model", type=str, required=False, help="Name of model to use")

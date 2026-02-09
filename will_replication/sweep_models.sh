@@ -50,7 +50,7 @@ ALPHA=1000  # Used only if ALPHA_GRID is empty
 
 # Wandb logging
 USE_WANDB=false
-WANDB_PROJECT="llms-know-difficulty-probes"
+WANDB_PROJECT="pika-probes"
 
 # Loop through each model
 for MODEL in "${MODELS[@]}"; do

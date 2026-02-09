@@ -4,9 +4,9 @@ import torch
 import json
 
 from pathlib import Path
-from llms_know_difficulty.probe.base_probe import Probe
+from pika.probe.base_probe import Probe
 from datetime import datetime
-from llms_know_difficulty.config import (
+from pika.config import (
     ROOT_DATA_DIR,
     SEED,
     VAL_TRAIN_SPLIT_RATIO,

@@ -92,7 +92,7 @@ for model in "${MODELS[@]}"; do
             echo "Probe: $probe"
             echo "========================================"
             
-            python3 src/llms_know_difficulty/main.py \
+            python3 src/pika/main.py \
                 --probe "$probe" \
                 --dataset "$dataset" \
                 --model "$model" \

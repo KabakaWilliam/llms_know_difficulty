@@ -73,7 +73,7 @@ for model_config in "${MODEL_CONFIGS[@]}"; do
             echo "Config: maxlen=$max_len, k=$k, temp=$temperature"
             echo "========================================"
             
-            python3 src/llms_know_difficulty/main.py \
+            python3 src/pika/main.py \
                 --probe "$probe" \
                 --dataset "$dataset" \
                 --model "$model" \

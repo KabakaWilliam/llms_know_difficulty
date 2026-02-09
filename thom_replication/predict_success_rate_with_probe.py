@@ -339,7 +339,7 @@ def main():
     args = ap.parse_args()
 
     wandb.init(
-        project="llms_know_difficulty",
+        project="pika",
         config={
             "model": args.model,
             "hf_dataset": args.hf_dataset,

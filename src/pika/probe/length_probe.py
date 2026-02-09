@@ -22,9 +22,9 @@ import spacy
 import torch.optim
 
 from .base_probe import Probe
-from llms_know_difficulty.metrics import compute_metrics
-from llms_know_difficulty.probe.probe_utils.linear_eoi_probe import linear_eoi_probe_train_utils
-from llms_know_difficulty.config import ROOT_ACTIVATION_DATA_DIR, TfidfProbeConfig
+from pika.metrics import compute_metrics
+from pika.probe.probe_utils.linear_eoi_probe import linear_eoi_probe_train_utils
+from pika.config import ROOT_ACTIVATION_DATA_DIR, TfidfProbeConfig
 
 ROOT_ACTIVATION_DATA_DIR = os.path.join(ROOT_ACTIVATION_DATA_DIR,"length_probe")
 
@@ -72,13 +72,26 @@ class LengthProbe(Probe):
         
         Priority:
           1. If data is tuple with 4th element (total_input_tokens), use it
-          2. If prompts are dicts with 'total_input_tokens' key, use that
-          3. Fallback: whitespace token count
+          2. If data is a 3-tuple and the 3rd element looks like token counts
+             (all values > 1), use it (supports target-free inference tuples)
+          3. If prompts are dicts with 'total_input_tokens' key, use that
+          4. Fallback: whitespace token count
         """
         # Handle tuple input with optional token counts
         if isinstance(data, tuple):
             prompts = data[1] if len(data) > 1 else data[0]
+            
+            # Check data[3] first (standard 4-tuple with targets)
             token_counts = data[3] if len(data) > 3 else None
+            
+            # If no data[3], check data[2] — it might be token counts
+            # when targets are omitted: (indices, prompts, token_counts)
+            if token_counts is None and len(data) == 3:
+                candidate = data[2]
+                if (isinstance(candidate, (list, tuple)) and len(candidate) > 0
+                        and isinstance(candidate[0], (int, float))
+                        and all(v > 1 for v in candidate)):
+                    token_counts = candidate
             
             if token_counts is not None:
                 return np.array(token_counts, dtype=float)
@@ -271,8 +284,10 @@ class LengthProbe(Probe):
         """Make predictions on new data.
         
         Args:
-            data: Either tuple of (indices, prompts, targets, [optional: total_input_tokens])
-                  or list of prompts
+            data: Either:
+                - Tuple of (indices, prompts, [optional: targets], [optional: total_input_tokens])
+                - List of prompts
+              Targets are NOT required for prediction.
         
         Returns:
             Tuple of (indices_tensor, predictions_tensor)
@@ -280,8 +295,8 @@ class LengthProbe(Probe):
         if self.best_model is None:
             raise RuntimeError("Must call train() before predict()")
         
-        # Handle tuple input
-        if isinstance(data, tuple) and len(data) >= 3:
+        # Handle tuple input — targets (data[2]) are optional and never used
+        if isinstance(data, tuple) and len(data) >= 2:
             indices = list(data[0])
         else:
             prompts = data if isinstance(data, list) else list(data)

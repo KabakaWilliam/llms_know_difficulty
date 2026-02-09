@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import math
 import einops
-from llms_know_difficulty.probe.base_probe import Probe
+from pika.probe.base_probe import Probe
 from torch.utils.data import DataLoader, Dataset
 from dataclasses import dataclass
 from itertools import product
@@ -362,12 +362,13 @@ class TorchProbe(Probe):
         spearman_corr, _ = spearmanr(outputs_np, targets_np)
         return {'spearmanr': spearman_corr}, outputs
 
-    def predict(self, test_data: tuple[list[int], list[str], list[float]]) -> tuple[torch.Tensor, torch.Tensor]:
+    def predict(self, test_data: tuple) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Predict the success rate using the probe.
         
         Args:
-            test_data: Tuple of (indices, prompts, targets)
+            test_data: Tuple of (indices, prompts, ...). Targets and other
+                trailing elements are optional and ignored at inference time.
             
         Returns:
             Tuple of (indices_tensor[int32], predictions_tensor[float32])
@@ -378,7 +379,8 @@ class TorchProbe(Probe):
         assert self.best_layer_id is not None, \
             "Evaluation layer must be specified."
 
-        idx, prompts, _ = test_data
+        idx = test_data[0]
+        prompts = test_data[1]
 
         # For test_mode, sample a subset of data for quick debugging
         if self.config.get('test_mode', False):

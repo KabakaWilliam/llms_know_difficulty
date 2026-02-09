@@ -89,7 +89,7 @@ for i in "${!LANGUAGE_SUFFIXES[@]}"; do
     echo "  Output: $OUTPUT_DIR"
     
     # Build and execute command
-    CMD="python src/llms_know_difficulty/predict_with_probe.py \
+    CMD="python src/pika/predict_with_probe.py \
         --probe_path \"$PROBE_PATH\" \
         --dataset \"$DATASET\" \
         --model \"$MODEL\" \

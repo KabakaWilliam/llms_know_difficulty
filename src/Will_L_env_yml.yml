@@ -1,4 +1,4 @@
-name: diff-direction
+name: pika
 channels:
   - pytorch-nightly
   - conda-forge
@@ -358,4 +358,4 @@ dependencies:
       - xformers==0.0.31
       - xgrammar==0.1.21
       - zstandard==0.23.0
-prefix: /opt/anaconda/envs/diff-direction
+prefix: /opt/anaconda/envs/pika

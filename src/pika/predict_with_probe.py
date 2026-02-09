@@ -11,12 +11,12 @@ Usage:
 import argparse
 import torch
 from pathlib import Path
-from llms_know_difficulty.utils import DataIngestionWorkflow
-from llms_know_difficulty.metrics import compute_metrics
-from llms_know_difficulty.config import PROMPT_COLUMN_NAME, LABEL_COLUMN_NAME
-from llms_know_difficulty.probe.probe_factory import ProbeFactory
-from llms_know_difficulty.probe.linear_eoi_probe import LinearEoiProbe
-from llms_know_difficulty.probe.tfidf_probe import TfidfProbe
+from pika.utils import DataIngestionWorkflow
+from pika.metrics import compute_metrics
+from pika.config import PROMPT_COLUMN_NAME, LABEL_COLUMN_NAME
+from pika.probe.probe_factory import ProbeFactory
+from pika.probe.linear_eoi_probe import LinearEoiProbe
+from pika.probe.tfidf_probe import TfidfProbe
 import json
 import os
 

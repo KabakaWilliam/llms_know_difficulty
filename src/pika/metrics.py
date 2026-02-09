@@ -4,7 +4,7 @@ import torch.nn as nn
 
 from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score
-from llms_know_difficulty.probe.probe_utils.linear_eoi_probe import linear_eoi_probe_train_utils
+from pika.probe.probe_utils.linear_eoi_probe import linear_eoi_probe_train_utils
 
 
 def bin(y, n_bins=10, min_val=0.0, max_val=1.0):

@@ -9,8 +9,8 @@ SEED = 42
 _CONFIG_DIR = Path(__file__).parent
 
 # Define data directories relative to the config file location
-# config.py is at: src/llms_know_difficulty/config.py
-# So _CONFIG_DIR is: src/llms_know_difficulty/
+# config.py is at: src/pika/config.py
+# So _CONFIG_DIR is: src/pika/
 # Data is at project root: /VData/linna4335/llms_know_difficult/data
 # So we go up 2 levels from config.py location
 ROOT_DATA_DIR = _CONFIG_DIR.parent.parent / "data"

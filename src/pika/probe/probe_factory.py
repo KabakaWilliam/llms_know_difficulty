@@ -1,18 +1,18 @@
 
-from llms_know_difficulty.config import *
-from llms_know_difficulty.probe.base_probe import Probe
-from llms_know_difficulty.probe.torch_probe import (
+from pika.config import *
+from pika.probe.base_probe import Probe
+from pika.probe.torch_probe import (
     TorchProbe,
     AttnLite,
     LinearThenMax,
     LinearThenSoftmax,
     LinearThenRollingMax,
 ) 
-from llms_know_difficulty.probe.linear_eoi_probe import LinearEoiProbe
-from llms_know_difficulty.probe.length_probe import LengthProbe
+from pika.probe.linear_eoi_probe import LinearEoiProbe
+from pika.probe.length_probe import LengthProbe
 
-from llms_know_difficulty.probe.tfidf_probe import TfidfProbe
-from llms_know_difficulty.config import LinearEOIProbeConfig, AttentionProbeConfig, TfidfProbeConfig, DEVICE
+from pika.probe.tfidf_probe import TfidfProbe
+from pika.config import LinearEOIProbeConfig, AttentionProbeConfig, TfidfProbeConfig, DEVICE
 
 class ProbeFactory:
 

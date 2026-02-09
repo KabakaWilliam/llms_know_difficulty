@@ -8,8 +8,8 @@ import pandas as pd
 import numpy as np
 import re
 from pathlib import Path
-from llms_know_difficulty.probe.prompting_baseline import PromptingBaseline
-from llms_know_difficulty.config import ROOT_DATA_DIR
+from pika.probe.prompting_baseline import PromptingBaseline
+from pika.config import ROOT_DATA_DIR
 
 
 def load_math_data():

@@ -21,9 +21,9 @@ import spacy
 import torch.optim
 
 from .base_probe import Probe
-from llms_know_difficulty.metrics import compute_metrics
-from llms_know_difficulty.probe.probe_utils.linear_eoi_probe import linear_eoi_probe_train_utils
-from llms_know_difficulty.config import ROOT_ACTIVATION_DATA_DIR, TfidfProbeConfig
+from pika.metrics import compute_metrics
+from pika.probe.probe_utils.linear_eoi_probe import linear_eoi_probe_train_utils
+from pika.config import ROOT_ACTIVATION_DATA_DIR, TfidfProbeConfig
 
 ROOT_ACTIVATION_DATA_DIR = os.path.join(ROOT_ACTIVATION_DATA_DIR,"tfidf_probe")
 
@@ -336,7 +336,8 @@ class TfidfProbe(Probe):
         
         Args:
             data: Either:
-                - Tuple of (indices, prompts, targets)
+                - Tuple of (indices, prompts, ...) — targets and other trailing
+                  elements are optional and ignored.
                 - List of prompt strings
         
         Returns:
@@ -347,8 +348,8 @@ class TfidfProbe(Probe):
         if self.best_model is None:
             raise RuntimeError("Must call train() before predict()")
         
-        # Handle tuple input (indices, prompts, targets)
-        if isinstance(data, tuple) and len(data) == 3:
+        # Handle tuple input — only indices and prompts are used; targets are optional
+        if isinstance(data, tuple) and len(data) >= 2:
             indices = list(data[0])
             prompts = list(data[1])
         else:
