@@ -4,7 +4,10 @@ verl
 # Exception: allow hard_rl/data directory and its contents
 legacy/results
 
-old_codebase/hard_rl
+old_codebase/
+original_probe_scripts/
+will_replication/
+run.sh
 
 # Model files and checkpoints
 **/*.pt
@@ -167,21 +170,16 @@ will_replication/activations
 figs
 runs
 sandbox-fusion_server-20250609.sif
-old_codebase/predicting_learnability/PIKA_ROUTER_EXPERIMENTS_NEW_REASONING
-old_codebase/predicting_learnability/PIKA_ROUTER_EXPERIMENTS_TINY_MATH
-old_codebase/predicting_learnability/PIKA_ROUTER_EXPERIMENTS_TINY_MATH_REVAMPED
-old_codebase/predicting_learnability/data
-old_codebase/predicting_learnability/SMART_ROUTER_EXPERIMENTS
-old_codebase/predicting_learnability/PIKA_ROUTER_EXPERIMENTS
-old_codebase/predicting_learnability/PIKA_ROUTER_EXPERIMENTS_15
-old_codebase/predicting_learnability/TEST_SELF_CONCISTENCY_EXPERIMENTS
-old_codebase/predicting_learnability/ROUTER_SELF_CONCISTENCY_EXPERIMENTS
-old_codebase/predicting_learnability/checkpoints
-old_codebase/predicting_learnability/MAJORITY_VOTE_DATA_COPY
-old_codebase/difficulty_direction/dataset/processed
-old_codebase/difficulty_direction/dataset/raw
+old_codebase
+original_probe_scripts
+run.sh
 *sweep_results.csv
-CLAUDE_CONTEXT
+create_sr_datasets/language_probe_analysis.ipynb
+create_sr_datasets/predict_success_rate_with_probe.py
+create_sr_datasets/predict_success_rate_with_regression_head.py
+create_sr_datasets/create_pareto_train_sr_datasets.py
+create_sr_datasets/cache_activations.py
+
 # runs/*
 # !runs/*/config.yaml
 # git add -f runs/DeepSeek-R1-Distill-Qwen-1.5B/config.yaml runs/DeepSeek-R1-Distill-Qwen-7B/config.yaml runs/Qwen2.5-Math-1.5B-Instruct/config.yaml runs/Qwen2.5-Math-1.5B/config.yaml runs/Qwen2.5-Math-7B/config.yaml
