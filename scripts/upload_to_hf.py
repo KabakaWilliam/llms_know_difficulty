@@ -7,18 +7,21 @@ Prerequisites:
     2. Login with: huggingface-cli login
 
 Usage:
-    python scripts/upload_to_hf.py --repo-id KabakaWilliam/pika-probes
-    python scripts/upload_to_hf.py --repo-id KabakaWilliam/pika-probes --private
+    python scripts/upload_to_hf.py --repo-id CoffeeGitta/pika-probes
+    python scripts/upload_to_hf.py --repo-id CoffeeGitta/pika-probes --private
 """
 
 import argparse
 from pathlib import Path
 
+# Default repository
+DEFAULT_REPO_ID = "CoffeeGitta/pika-probes"
+
 
 def main():
     parser = argparse.ArgumentParser(description="Upload probes to HuggingFace Hub")
-    parser.add_argument("--repo-id", type=str, required=True,
-                        help="HuggingFace repo ID (e.g., KabakaWilliam/pika-probes)")
+    parser.add_argument("--repo-id", type=str, default=DEFAULT_REPO_ID,
+                        help=f"HuggingFace repo ID (default: {DEFAULT_REPO_ID})")
     parser.add_argument("--probes-dir", type=Path, default=Path("probes_for_hf"),
                         help="Directory containing prepared probes")
     parser.add_argument("--private", action="store_true",
