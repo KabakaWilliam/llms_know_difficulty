@@ -1,0 +1,45 @@
+cff-version: 1.2.0
+title: "PIKA: Probe-Informed K-Aware Routing for LLMs"
+message: "If you use this software, please cite our papers."
+type: software
+authors:
+  - family-names: Lugoloobi
+    given-names: William
+  - family-names: Foster
+    given-names: Thomas
+  - family-names: Bankes
+    given-names: William
+  - family-names: Russell
+    given-names: Chris
+repository-code: "https://github.com/KabakaWilliam/llms_know_difficulty"
+license: MIT
+preferred-citation:
+  type: article
+  title: "LLMs Encode Their Failures: Predicting Success from Pre-Generation Activations"
+  authors:
+    - family-names: Lugoloobi
+      given-names: William
+    - family-names: Foster
+      given-names: Thomas
+    - family-names: Bankes
+      given-names: William
+    - family-names: Russell
+      given-names: Chris
+  year: 2026
+  month: 2
+  url: "http://arxiv.org/abs/2602.09924"
+  doi: "10.48550/arXiv.2602.09924"
+  journal: "arXiv preprint"
+references:
+  - type: article
+    title: "LLMs Encode How Difficult Problems Are"
+    authors:
+      - family-names: Lugoloobi
+        given-names: William
+      - family-names: Russell
+        given-names: Chris
+    year: 2025
+    month: 10
+    url: "http://arxiv.org/abs/2510.18147"
+    doi: "10.48550/arXiv.2510.18147"
+    journal: "arXiv preprint"

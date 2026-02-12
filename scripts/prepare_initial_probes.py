@@ -257,13 +257,20 @@ python -m pika.main \\
 If you use these probes in your research, please cite:
 
 ```bibtex
-@misc{pika2026,
-  title={PIKA: Probe-Informed K-Aware Routing for LLMs},
-  author={Kabaka, William et al.},
-  year={2026},
-  url={https://github.com/KabakaWilliam/llms_know_difficulty}
+@misc{lugoloobi_llms_2026,
+    title = {{LLMs} {Encode} {Their} {Failures}: {Predicting} {Success} from {Pre}-{Generation} {Activations}},
+    shorttitle = {{LLMs} {Encode} {Their} {Failures}},
+    url = {http://arxiv.org/abs/2602.09924},
+    doi = {10.48550/arXiv.2602.09924},
+    publisher = {arXiv},
+    author = {Lugoloobi, William and Foster, Thomas and Bankes, William and Russell, Chris},
+    month = feb,
+    year = {2026},
+    note = {arXiv:2602.09924 [cs]},
 }
 ```
+
+See also our earlier work: [LLMs Encode How Difficult Problems Are](https://arxiv.org/abs/2510.18147) (2025)
 
 ## License
 
