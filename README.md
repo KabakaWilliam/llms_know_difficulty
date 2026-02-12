@@ -8,13 +8,6 @@
 
 PIKA trains lightweight probes on LLM internal representations to predict per-problem difficulty *before generation begins*. These predictions enable intelligent routing across a pool of models, balancing accuracy against inference cost — achieving up to 70% cost reduction on MATH while maintaining or exceeding the accuracy of the best-performing model.
 
-## What This Does
-
-Running LLMs with extended reasoning on every problem is expensive. PIKA solves this by:
-
-1. **Predicting success before generation** — Linear probes on pre-generation activations predict whether a model will succeed on a specific problem
-2. **Learning model-specific difficulty** — Models encode their own notion of difficulty (distinct from human difficulty) in their internal representations
-3. **Routing intelligently** — Use probe predictions to route queries to appropriate models, reserving expensive models for hard problems
 
 ## Quick Start
 
