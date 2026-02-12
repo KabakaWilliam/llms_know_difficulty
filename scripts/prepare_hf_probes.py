@@ -257,7 +257,7 @@ def generate_model_card(probes: list[dict], output_dir: Path) -> None:
     for p in probes:
         by_model[p["model_name"]].append(p)
     
-    readme = f"""---
+    readme = """---
 library_name: pika
 tags:
   - probe
@@ -271,7 +271,7 @@ license: mit
 # PIKA Probes - Pre-trained Difficulty Prediction Probes
 
 This repository contains pre-trained linear probes for predicting task difficulty from LLM activations.
-These probes are part of the [PIKA (Probe-Informed K-Aware Routing)](https://github.com/CoffeeGitta/llms_know_difficulty) project.
+These probes are used in the PIKA (Probe-Informed K-Aware) Router from our paper on [LLMs Encoding Failure](https://github.com/CoffeeGitta/llms_know_difficulty).
 
 ## Overview
 
@@ -287,39 +287,39 @@ The predictions can be used for:
 ## Installation
 
 ```bash
-pip install pika
-# or
-pip install huggingface_hub
+# Clone and enter the repo
+git clone https://github.com/KabakaWilliam/llms_know_difficulty.git
+cd llms_know_difficulty
+
+# Create the conda env and install pika in editable mode
+bash setup.sh
+
+# Activate
+conda activate pika
 ```
 
 ## Quick Start
 
-### Load a probe directly
-
-```python
-from huggingface_hub import snapshot_download
-from pika.probe import LinearEoiProbe
-
-# Download probe
-probe_path = snapshot_download(
-    repo_id="CoffeeGitta/pika-probes",
-    allow_patterns=["Qwen2.5-Math-7B-Instruct--MATH--linear-eoi-probe--success-rate--k5-t0.7/*"]
-)
-
-# Load and use
-probe = LinearEoiProbe.load_from_checkpoint(probe_path)
-predictions = probe.predict(texts=["Solve: 2x + 3 = 7"])
-```
 
 ### Using PIKA's built-in downloader
 
 ```python
 from pika.hub import download_probe
+from transformers import AutoTokenizer
 
 probe = download_probe(
     repo_id="CoffeeGitta/pika-probes",
-    probe_name="Qwen2.5-Math-7B-Instruct--MATH--linear-eoi-probe--success-rate--k5-t0.7"
+    model_name="Qwen/Qwen2.5-Math-7B-Instruct",
+    dataset="MATH",
+    label_type="majority_vote_is_correct",
+    device="cuda:2"
 )
+tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-Math-7B-Instruct")
+
+# Note: Using double curly braces to escape in f-string
+msg = tokenizer.apply_chat_template([{{"role": "user", "content": "What is 2 + 2?" }}], tokenize=False, add_generation_prompt=True)
+
+probe.predict(tokenizer.apply_chat_template(msg)) # (idx: 0, p:0.938)
 ```
 
 ## Available Probes
@@ -370,7 +370,7 @@ If you use these probes in your research, please cite:
 	shorttitle = {{LLMs} {Encode} {Their} {Failures}},
 	url = {http://arxiv.org/abs/2602.09924},
 	doi = {10.48550/arXiv.2602.09924},
-	abstract = {Running LLMs with extended reasoning on every problem is expensive, but determining which inputs actually require additional compute remains challenging. We investigate whether their own likelihood of success is recoverable from their internal representations before generation, and if this signal can guide more efficient inference. We train linear probes on pre-generation activations to predict policy-specific success on math and coding tasks, substantially outperforming surface features such as question length and TF-IDF. Using E2H-AMC, which provides both human and model performance on identical problems, we show that models encode a model-specific notion of difficulty that is distinct from human difficulty, and that this distinction increases with extended reasoning. Leveraging these probes, we demonstrate that routing queries across a pool of models can exceed the best-performing model whilst reducing inference cost by up to 70{\textbackslash}\% on MATH, showing that internal representations enable practical efficiency gains even when they diverge from human intuitions about difficulty. Our code is available at: https://github.com/KabakaWilliam/llms\_know\_difficulty},
+	abstract = {Running LLMs with extended reasoning on every problem is expensive, but determining which inputs actually require additional compute remains challenging. We investigate whether their own likelihood of success is recoverable from their internal representations before generation, and if this signal can guide more efficient inference. We train linear probes on pre-generation activations to predict policy-specific success on math and coding tasks, substantially outperforming surface features such as question length and TF-IDF. Using E2H-AMC, which provides both human and model performance on identical problems, we show that models encode a model-specific notion of difficulty that is distinct from human difficulty, and that this distinction increases with extended reasoning. Leveraging these probes, we demonstrate that routing queries across a pool of models can exceed the best-performing model whilst reducing inference cost by up to 70% on MATH, showing that internal representations enable practical efficiency gains even when they diverge from human intuitions about difficulty. Our code is available at: https://github.com/KabakaWilliam/llms_know_difficulty},
 	urldate = {2026-02-11},
 	publisher = {arXiv},
 	author = {Lugoloobi, William and Foster, Thomas and Bankes, William and Russell, Chris},
