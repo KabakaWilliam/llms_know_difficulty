@@ -182,4 +182,4 @@ create_sr_datasets/cache_activations.py
 
 # runs/*
 # !runs/*/config.yaml
-# git add -f runs/DeepSeek-R1-Distill-Qwen-1.5B/config.yaml runs/DeepSeek-R1-Distill-Qwen-7B/config.yaml runs/Qwen2.5-Math-1.5B-Instruct/config.yaml runs/Qwen2.5-Math-1.5B/config.yaml runs/Qwen2.5-Math-7B/config.yaml
+# git add -f runs/DeepSeek-R1-Distill-Qwen-1.5B/config.yaml runs/DeepSeek-R1-Distill-Qwen-7B/config.yaml runs/Qwen2.5-Math-1.5B-Instruct/config.yaml runs/Qwen2.5-Math-1.5B/config.yaml runs/Qwen2.5-Math-7B/config.yamlprobes_for_hf/
