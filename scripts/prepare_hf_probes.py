@@ -271,7 +271,7 @@ license: mit
 # PIKA Probes - Pre-trained Difficulty Prediction Probes
 
 This repository contains pre-trained linear probes for predicting task difficulty from LLM activations.
-These probes are part of the [PIKA (Probe-Informed K-Aware Routing)](https://github.com/KabakaWilliam/llms_know_difficulty) project.
+These probes are part of the [PIKA (Probe-Informed K-Aware Routing)](https://github.com/CoffeeGitta/llms_know_difficulty) project.
 
 ## Overview
 
@@ -302,7 +302,7 @@ from pika.probe import LinearEoiProbe
 
 # Download probe
 probe_path = snapshot_download(
-    repo_id="KabakaWilliam/pika-probes",
+    repo_id="CoffeeGitta/pika-probes",
     allow_patterns=["Qwen2.5-Math-7B-Instruct--MATH--linear-eoi-probe--success-rate--k5-t0.7/*"]
 )
 
@@ -317,7 +317,7 @@ predictions = probe.predict(texts=["Solve: 2x + 3 = 7"])
 from pika.hub import download_probe
 
 probe = download_probe(
-    repo_id="KabakaWilliam/pika-probes",
+    repo_id="CoffeeGitta/pika-probes",
     probe_name="Qwen2.5-Math-7B-Instruct--MATH--linear-eoi-probe--success-rate--k5-t0.7"
 )
 ```
@@ -365,12 +365,20 @@ python -m pika.main \\
 If you use these probes in your research, please cite:
 
 ```bibtex
-@misc{{pika2026,
-  title={{PIKA: Probe-Informed K-Aware Routing for LLMs}},
-  author={{Kabaka, William et al.}},
-  year={{2026}},
-  url={{https://github.com/KabakaWilliam/llms_know_difficulty}}
-}}
+@misc{lugoloobi_llms_2026,
+	title = {{LLMs} {Encode} {Their} {Failures}: {Predicting} {Success} from {Pre}-{Generation} {Activations}},
+	shorttitle = {{LLMs} {Encode} {Their} {Failures}},
+	url = {http://arxiv.org/abs/2602.09924},
+	doi = {10.48550/arXiv.2602.09924},
+	abstract = {Running LLMs with extended reasoning on every problem is expensive, but determining which inputs actually require additional compute remains challenging. We investigate whether their own likelihood of success is recoverable from their internal representations before generation, and if this signal can guide more efficient inference. We train linear probes on pre-generation activations to predict policy-specific success on math and coding tasks, substantially outperforming surface features such as question length and TF-IDF. Using E2H-AMC, which provides both human and model performance on identical problems, we show that models encode a model-specific notion of difficulty that is distinct from human difficulty, and that this distinction increases with extended reasoning. Leveraging these probes, we demonstrate that routing queries across a pool of models can exceed the best-performing model whilst reducing inference cost by up to 70{\textbackslash}\% on MATH, showing that internal representations enable practical efficiency gains even when they diverge from human intuitions about difficulty. Our code is available at: https://github.com/KabakaWilliam/llms\_know\_difficulty},
+	urldate = {2026-02-11},
+	publisher = {arXiv},
+	author = {Lugoloobi, William and Foster, Thomas and Bankes, William and Russell, Chris},
+	month = feb,
+	year = {2026},
+	note = {arXiv:2602.09924 [cs]},
+	keywords = {Computer Science - Artificial Intelligence, Computer Science - Computation and Language, Computer Science - Machine Learning},
+}
 ```
 
 ## License

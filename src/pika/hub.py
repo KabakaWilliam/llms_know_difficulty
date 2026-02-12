@@ -7,11 +7,11 @@ Usage:
     from pika.hub import download_probe, list_available_probes
     
     # List available probes
-    probes = list_available_probes("KabakaWilliam/pika-probes")
+    probes = list_available_probes("CoffeeGitta/pika-probes")
     
     # Download and load a probe
     probe = download_probe(
-        repo_id="KabakaWilliam/pika-probes",
+        repo_id="CoffeeGitta/pika-probes",
         probe_name="Qwen2.5-Math-7B-Instruct--MATH--linear-eoi-probe--success-rate--k5-t0.7"
     )
     
@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 # Default repo for PIKA probes
-DEFAULT_REPO_ID = "KabakaWilliam/pika-probes"
+DEFAULT_REPO_ID = "CoffeeGitta/pika-probes"
 
 
 def download_probe(
@@ -42,7 +42,7 @@ def download_probe(
     Download a probe from HuggingFace Hub and return a loaded probe instance.
     
     Args:
-        repo_id: HuggingFace repo ID (default: KabakaWilliam/pika-probes)
+        repo_id: HuggingFace repo ID (default: CoffeeGitta/pika-probes)
         probe_name: Exact probe folder name (if known). If provided, other filters are ignored.
         model_name: Filter by model name (e.g., "Qwen2.5-Math-7B-Instruct")
         dataset: Filter by dataset name (e.g., "MATH")
