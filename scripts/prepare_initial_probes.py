@@ -209,8 +209,8 @@ probe = download_probe(
 
 ## Available Probes
 
-| Probe | Model | Dataset | Label | k | Temp | Test AUC |
-|-------|-------|---------|-------|---|------|----------|
+| Probe | Model | Layer | EOI Pos | Test AUC |
+|-------|-------|-------|---------|----------|
 """
     
     # Add probe rows
@@ -220,11 +220,10 @@ probe = download_probe(
         auc = p.get("test_auc", "—")
         if isinstance(auc, float):
             auc = f"{auc:.3f}"
-        k = p["meta"].get("k", "—")
-        temp = p["meta"].get("temperature", "—")
-        label = "MV correct" if "majority_vote" in p["meta"]["label_type"] else p["meta"]["label_type"]
+        layer = p.get("layer", "—")
+        eoi_pos = p.get("eoi_position", "—")
         
-        readme += f"| `{clean_name}` | {model_short} | MATH | {label} | {k} | {temp} | {auc} |\n"
+        readme += f"| `{clean_name}` | {model_short} | {layer} | {eoi_pos} | {auc} |\n"
     
     readme += """
 ## Probe Structure
@@ -356,15 +355,27 @@ def main():
             with open(meta_file) as f:
                 orig_meta = json.load(f)
                 test_auc = orig_meta.get("auc") or orig_meta.get("test_score")
+                layer = orig_meta.get("best_layer_idx")
+                eoi_position = orig_meta.get("best_position_value")
+        else:
+            layer = None
+            eoi_position = None
         
         print(f"    Model: {meta['model_name']}")
+        print(f"    Layer: {layer}, EOI pos: {eoi_position}")
         print(f"    Test AUC: {test_auc:.4f}" if test_auc else "    Test AUC: —")
         
         if not args.dry_run:
             copied = copy_probe(source_dir, args.output_dir, clean_name, meta)
             print(f"    ✓ Copied: {', '.join(copied)}")
         
-        prepared_probes.append({"meta": meta, "test_auc": test_auc, "clean_name": clean_name})
+        prepared_probes.append({
+            "meta": meta, 
+            "test_auc": test_auc, 
+            "clean_name": clean_name,
+            "layer": layer,
+            "eoi_position": eoi_position,
+        })
     
     if not args.dry_run and prepared_probes:
         print(f"\n{'=' * 60}")
