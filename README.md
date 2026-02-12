@@ -1,89 +1,42 @@
-# LLMs Encode Their Failures: Predicting Success from Pre-Generation Activations
+# PIKA: Probe-Informed K-Aware Routing
 
 [![arXiv](https://img.shields.io/badge/arXiv-2602.09924-b31b1b.svg)](https://arxiv.org/abs/2602.09924)
 [![HuggingFace Probes](https://img.shields.io/badge/🤗%20HuggingFace-Probes-yellow)](https://huggingface.co/CoffeeGitta/pika-probes)
 [![HuggingFace Datasets](https://img.shields.io/badge/🤗%20HuggingFace-Datasets-blue)](https://huggingface.co/datasets/CoffeeGitta/pika-math-generations)
 
-## Setup
+**Predict LLM success before generation and route queries efficiently across model pools.**
+
+PIKA trains lightweight probes on LLM internal representations to predict per-problem difficulty *before generation begins*. These predictions enable intelligent routing across a pool of models, balancing accuracy against inference cost — achieving up to 70% cost reduction on MATH while maintaining or exceeding the accuracy of the best-performing model.
+
+## What This Does
+
+Running LLMs with extended reasoning on every problem is expensive. PIKA solves this by:
+
+1. **Predicting success before generation** — Linear probes on pre-generation activations predict whether a model will succeed on a specific problem
+2. **Learning model-specific difficulty** — Models encode their own notion of difficulty (distinct from human difficulty) in their internal representations
+3. **Routing intelligently** — Use probe predictions to route queries to appropriate models, reserving expensive models for hard problems
+
+## Quick Start
+
+### Installation
 
 Requires **conda** and a CUDA-capable GPU.
 
 ```bash
-# Clone and enter the repo
+# Clone repository
 git clone https://github.com/KabakaWilliam/llms_know_difficulty.git
 cd llms_know_difficulty
 
-# Create the conda env and install pika in editable mode
+# Create conda environment and install PIKA
 bash setup.sh
 
-# Activate
+# Activate environment
 conda activate pika
 ```
 
-### Generate success-rate datasets
+### Basic Usage
 
-Requires `vllm` (`pip install vllm`):
-
-```bash
-cd create_sr_datasets
-python create_pareto_sr_datasets.py
-```
-
-## PIKA — Probe-Informed K-Aware Routing
-
-PIKA trains lightweight probes on LLM internal representations to predict per-problem difficulty, then uses those predictions to route queries across a pool of models — balancing accuracy against inference cost.
-
-## Repository Structure
-
-```
-├── src/pika/                  # Core library (pip-installable)
-│   ├── main.py                # CLI: train a probe on a dataset
-│   ├── predict_with_probe.py  # CLI: run inference with a trained probe
-│   ├── probe/                 # Probe implementations
-│   │   ├── probe_factory.py   #   Factory for all probe types
-│   │   ├── linear_eoi_probe.py
-│   │   ├── tfidf_probe.py
-│   │   ├── torch_probe.py     #   Attn, LinearThenMax, etc.
-│   │   └── length_probe.py    #   Token-length baseline
-│   ├── config.py              # Paths and probe configs
-│   ├── metrics.py             # Spearman / AUC evaluation
-│   └── utils.py               # Data ingestion helpers
-│
-├── notebooks/                 # Analysis & routing notebooks
-│   ├── router_utils.py        #   Shared routing + plotting utilities
-│   ├── utility_router.ipynb   #   λ-sweep utility router (Pareto analysis)
-│   ├── cascade.ipynb          #   Threshold-based cascade router
-│   └── test_probe_library.ipynb
-│
-├── create_sr_datasets/        # Success-rate dataset generation (vLLM)
-│   ├── create_pareto_sr_datasets.py
-│   ├── create_code_pareto_sr_datasets.py
-│   └── utils/                 #   Verification & evaluation helpers
-│
-├── setup.sh                   # One-shot env creation + editable install
-├── pika.yml                   # Conda environment spec
-├── pyproject.toml             # Package metadata & dependencies
-├── label_with_probe.sh        # Label a dataset split with a trained probe
-└── run_flexible_probe_sweep.sh # Sweep probes across models/datasets
-```
-
-
-## Supported Probes
-
-| Probe | Description |
-|---|---|
-| `linear_eoi_probe` | Linear probe on end-of-input hidden states |
-| `tfidf_probe` | TF-IDF features → linear model |
-| `attn_probe` | Attention-based probe (via `TorchProbe`) |
-| `length_probe` | Token-length baseline |
-| `linear_then_max_probe` | Linear → max-pool architecture |
-| `linear_then_softmax_probe` | Linear → softmax-pool architecture |
-| `linear_then_rolling_max_probe` | Linear → rolling-max-pool architecture |
-
-## Usage
-
-### Train a probe
-
+**Train a probe:**
 ```bash
 python src/pika/main.py \
     --probe linear_eoi_probe \
@@ -92,84 +45,156 @@ python src/pika/main.py \
     --max_len 3000 --k 50 --temperature 0.7
 ```
 
-### Label data with a trained probe
+**Run inference with a trained probe:**
+```bash
+python src/pika/predict_with_probe.py \
+    --probe_path path/to/trained_probe.pkl \
+    --dataset DigitalLearningGmbH_MATH-lighteval \
+    --split test
+```
 
+**Label a dataset split:**
 ```bash
 bash label_with_probe.sh
 ```
 
-### Run a probe sweep across models and datasets
-
+**Run probe sweep:**
 ```bash
 bash run_flexible_probe_sweep.sh
 ```
 
-### Routing analysis
+## Key Features
 
-Open the notebooks in `notebooks/`:
+### Supported Probes
 
-- **`utility_router.ipynb`** — Probe-based utility router with λ-sweep, Pareto frontier visualisation, and LaTeX table generation.
-- **`cascade.ipynb`** — Threshold-based cascade router that escalates to more capable models when probe confidence is low.
+| Probe Type | Description |
+|------------|-------------|
+| `linear_eoi_probe` | Linear probe on end-of-input hidden states (recommended baseline) |
+| `tfidf_probe` | TF-IDF features → linear model |
+| `attn_probe` | Attention-based probe architecture |
+| `length_probe` | Token-length baseline |
+| `linear_then_max_probe` | Linear layer → max-pooling |
+| `linear_then_softmax_probe` | Linear layer → softmax-pooling |
+| `linear_then_rolling_max_probe` | Linear layer → rolling max-pooling |
 
-Both notebooks import shared functions from `notebooks/router_utils.py`.
+### Supported Benchmarks
 
-## Benchmarks
+- **[MATH](https://huggingface.co/datasets/DigitalLearningGmbH/MATH-lighteval)** — Competition mathematics problems
+- **[GSM8K](https://huggingface.co/datasets/openai/gsm8k)** — Grade school math word problems
+- **[AIME](https://huggingface.co/datasets/gneubig/aime-1983-2024)** — AMC/AIME competition problems
 
-The routing experiments support three benchmarks:
+### Routing Strategies
 
-- [MATH](https://huggingface.co/datasets/DigitalLearningGmbH/MATH-lighteval) — competition mathematics
-- [GSM8K](https://huggingface.co/datasets/openai/gsm8k) — grade school math
-- [AIME](https://huggingface.co/datasets/gneubig/aime-1983-2024) — AMC/AIME problems
+Two routing approaches are provided in the `notebooks/` directory:
 
-## 📚 Resources
+- **Utility Router** (`utility_router.ipynb`) — λ-sweep utility optimization with Pareto frontier visualization and LaTeX table generation
+- **Cascade Router** (`cascade.ipynb`) — Threshold-based escalation to more capable models when probe confidence is low
 
-### Paper
+Both notebooks use shared utilities from `notebooks/router_utils.py`.
 
-- **arXiv (February 2026)**: [LLMs Encode Their Failures: Predicting Success from Pre-Generation Activations](https://arxiv.org/abs/2602.09924)
-- **arXiv (October 2025)**: [LLMs Encode How Difficult Problems Are](https://arxiv.org/abs/2510.18147)
+## Repository Structure
 
-### Pre-trained Probes
+```
+├── src/pika/                  # Core library (pip-installable)
+│   ├── main.py                # Train a probe on a dataset
+│   ├── predict_with_probe.py  # Run inference with trained probe
+│   ├── probe/                 # Probe implementations
+│   │   ├── probe_factory.py   # Factory for all probe types
+│   │   ├── linear_eoi_probe.py
+│   │   ├── tfidf_probe.py
+│   │   ├── torch_probe.py     # Attention, LinearThenMax, etc.
+│   │   └── length_probe.py    # Token-length baseline
+│   ├── config.py              # Paths and probe configurations
+│   ├── metrics.py             # Spearman correlation & AUC evaluation
+│   └── utils.py               # Data ingestion utilities
+│
+├── notebooks/                 # Analysis & routing experiments
+│   ├── router_utils.py        # Shared routing & plotting utilities
+│   ├── utility_router.ipynb   # λ-sweep utility router (Pareto analysis)
+│   ├── cascade.ipynb          # Threshold-based cascade router
+│   └── test_probe_library.ipynb
+│
+├── create_sr_datasets/        # Success-rate dataset generation
+│   ├── create_pareto_sr_datasets.py
+│   ├── create_code_pareto_sr_datasets.py
+│   └── utils/                 # Verification & evaluation helpers
+│
+├── setup.sh                   # Environment setup script
+├── pika.yml                   # Conda environment specification
+├── pyproject.toml             # Package metadata & dependencies
+├── label_with_probe.sh        # Dataset labeling script
+└── run_flexible_probe_sweep.sh # Probe sweep script
+```
 
-All trained probes are available on HuggingFace Hub:
+## Advanced Usage
 
-- **[CoffeeGitta/pika-probes](https://huggingface.co/CoffeeGitta/pika-probes)** — Pre-trained probes for MATH, GSM8K, and other datasets
-  - Includes probes for GPT-OSS-20B (high/low/medium difficulty), Qwen2.5-Math-7B, and more
-  - Each probe config includes layer and position metadata for easy inference
+### Generate Custom Success-Rate Datasets
 
-We continuously upload new probes as experiments complete. See the repo for the latest additions.
+Requires `vllm` (install with `pip install vllm`):
+
+```bash
+cd create_sr_datasets
+python create_pareto_sr_datasets.py
+```
+
+This generates datasets with model success rates across different problems, which are used for probe training.
+
+### Routing Analysis
+
+The routing notebooks demonstrate how to:
+- Train probes on multiple models
+- Analyze probe performance (Spearman correlation, AUC)
+- Generate Pareto frontiers for accuracy vs. cost trade-offs
+- Export results as LaTeX tables
+
+See `notebooks/utility_router.ipynb` and `notebooks/cascade.ipynb` for complete examples.
+
+## Pre-trained Resources
+
+### Probes
+Pre-trained probes are available at [CoffeeGitta/pika-probes](https://huggingface.co/CoffeeGitta/pika-probes):
+- Probes for GPT-OSS-20B (high/low/medium difficulty variants)
+- Probes for Qwen2.5-Math-7B and other models
+- Includes layer and position metadata for easy inference
+
+*Note: We continuously upload new probes as experiments complete.*
 
 ### Generation Datasets
+Model generations on benchmark tasks at [CoffeeGitta/pika-math-generations](https://huggingface.co/datasets/CoffeeGitta/pika-math-generations):
+- MATH dataset generations with multiple model configurations
+- Correctness annotations and generation hyperparameters
+- Train/validation/test splits
 
-Model generations on benchmark tasks are available on HuggingFace Hub:
+*Note: Additional datasets are being uploaded regularly.*
 
-- **[CoffeeGitta/pika-math-generations](https://huggingface.co/datasets/CoffeeGitta/pika-math-generations)** — MATH dataset generations
-  - Configs for GPT-OSS-20B (high/low/medium difficulty)
-  - Includes correctness annotations and generation hyperparameters
-  - Train/validation/test splits
+## Papers
 
-Additional dataset uploads are in progress. Check back for updates as we expand coverage.
+This work is based on two papers:
+
+**[LLMs Encode Their Failures: Predicting Success from Pre-Generation Activations](https://arxiv.org/abs/2602.09924)** (February 2026)
+- Demonstrates that LLMs encode success likelihood in pre-generation activations
+- Shows model-specific difficulty diverges from human difficulty
+- Achieves 70% cost reduction on MATH via probe-based routing
+
+**[LLMs Encode How Difficult Problems Are](https://arxiv.org/abs/2510.18147)** (October 2025)
+- Initial investigation of difficulty encoding in LLM representations
+- Establishes baseline probe architectures and evaluation metrics
 
 ## Citation
 
-If you use this code, please cite:
+If you use this code or findings in your research, please cite:
 
 ```bibtex
-
 @misc{lugoloobi_llms_2026,
-	title = {{LLMs} {Encode} {Their} {Failures}: {Predicting} {Success} from {Pre}-{Generation} {Activations}},
-	shorttitle = {{LLMs} {Encode} {Their} {Failures}},
-	url = {http://arxiv.org/abs/2602.09924},
-	doi = {10.48550/arXiv.2602.09924},
-	abstract = {Running LLMs with extended reasoning on every problem is expensive, but determining which inputs actually require additional compute remains challenging. We investigate whether their own likelihood of success is recoverable from their internal representations before generation, and if this signal can guide more efficient inference. We train linear probes on pre-generation activations to predict policy-specific success on math and coding tasks, substantially outperforming surface features such as question length and TF-IDF. Using E2H-AMC, which provides both human and model performance on identical problems, we show that models encode a model-specific notion of difficulty that is distinct from human difficulty, and that this distinction increases with extended reasoning. Leveraging these probes, we demonstrate that routing queries across a pool of models can exceed the best-performing model whilst reducing inference cost by up to 70{\textbackslash}\% on MATH, showing that internal representations enable practical efficiency gains even when they diverge from human intuitions about difficulty. Our code is available at: https://github.com/KabakaWilliam/llms\_know\_difficulty},
-	urldate = {2026-02-11},
-	publisher = {arXiv},
-	author = {Lugoloobi, William and Foster, Thomas and Bankes, William and Russell, Chris},
-	month = feb,
-	year = {2026},
-	note = {arXiv:2602.09924 [cs]},
-	keywords = {Computer Science - Artificial Intelligence, Computer Science - Computation and Language, Computer Science - Machine Learning},
+    title = {{LLMs} {Encode} {Their} {Failures}: {Predicting} {Success} from {Pre}-{Generation} {Activations}},
+    url = {http://arxiv.org/abs/2602.09924},
+    doi = {10.48550/arXiv.2602.09924},
+    publisher = {arXiv},
+    author = {Lugoloobi, William and Foster, Thomas and Bankes, William and Russell, Chris},
+    month = feb,
+    year = {2026},
+    note = {arXiv:2602.09924 [cs]},
 }
-
 
 @misc{lugoloobi_llms_2025,
     title = {{LLMs} {Encode} {How} {Difficult} {Problems} {Are}},
@@ -184,4 +209,5 @@ If you use this code, please cite:
 ```
 
 ## License
+
 MIT
