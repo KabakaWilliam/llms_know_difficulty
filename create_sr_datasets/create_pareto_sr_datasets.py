@@ -227,7 +227,7 @@ def main(
     TASKS = [
         # "openai_gsm8k",
         # "opencompass_AIME2025",
-        # "gneubig_aime-1983-2024",
+        "gneubig_aime-1983-2024",
         "DigitalLearningGmbH_MATH-lighteval",
     ] 
     # + [f"Qwen_PolyMath_{lang}" for lang in LANGUAGE_SUFFIXES]
@@ -602,7 +602,8 @@ if __name__ == "__main__":
         # "Qwen/Qwen2.5-Math-7B-Instruct",
         # "Qwen/Qwen2.5-Math-72B-Instruct",
         # "openai/gpt-oss-20b"
-        "gpt2"
+        # "gpt2"
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
     ]
     
     for i, MODEL_TO_ROLLOUT in enumerate(MODELS_TO_RUN):

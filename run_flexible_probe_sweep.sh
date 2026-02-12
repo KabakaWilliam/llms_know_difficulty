@@ -5,18 +5,18 @@
 
 # GPU configuration
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-export CUDA_VISIBLE_DEVICES=2
+export CUDA_VISIBLE_DEVICES=1
 
 # Define model configurations as an array of "model|maxlen|k|temp"
 # Format: "model_name|max_len|k|temperature"
 declare -a MODEL_CONFIGS=(
-    # "Qwen/Qwen2.5-Math-1.5B-Instruct|3000|5|0.7"
+    "Qwen/Qwen2.5-Math-1.5B-Instruct|3000|5|0.7"
     # "Qwen/Qwen2.5-Math-7B-Instruct|3000|5|0.7"
     # "Qwen/Qwen2.5-1.5B-Instruct|3000|5|0.7"
     # "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B|32768|5|0.6"
     # "openai/gpt-oss-20b_low|131072|5|1.0"
     # "openai/gpt-oss-20b_medium|131072|5|1.0"
-    "openai/gpt-oss-20b_high|131072|5|1.0"
+    # "openai/gpt-oss-20b_high|131072|5|1.0"
     # Add more models here with their specific configs
     # "Qwen/Qwen2.5-Coder-7B-Instruct|4096|5|0.2"
 )
@@ -24,8 +24,8 @@ declare -a MODEL_CONFIGS=(
 # Define datasets to process
 declare -a DATASETS=(
     # "gneubig_aime-1983-2024"
-    # "openai_gsm8k"
-    "DigitalLearningGmbH_MATH-lighteval"
+    # "DigitalLearningGmbH_MATH-lighteval"
+    "openai_gsm8k"
     # "E2H-AMC"
     # "livecodebench_code_generation_lite"
 )

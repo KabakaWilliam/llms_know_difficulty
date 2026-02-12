@@ -187,6 +187,8 @@ def batch_routing_example():
         ],
         probe_dir=_get_data_dir(),
         dataset="DigitalLearningGmbH_MATH-lighteval",
+        # IMPORTANT: Use sequential_loading for large models to avoid OOM
+        config=RouterConfig(sequential_loading=True, device="cuda"),
     )
     
     prompts = [
