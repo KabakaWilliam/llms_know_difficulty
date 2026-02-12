@@ -120,9 +120,11 @@ def copy_probe(source_dir: Path, dest_dir: Path, clean_name: str, meta: dict) ->
         "k": meta.get("k"),
         "temperature": meta.get("temperature"),
         "max_len": meta.get("max_len"),
-        # Copy key metrics from original metadata
+        # Activation extraction settings
         "best_layer_idx": original_meta.get("best_layer_idx"),
         "best_position_value": original_meta.get("best_position_value"),
+        "eoi_token_offset": original_meta.get("best_position_value"),
+        "activation_position_description": f"Token at position {original_meta.get('best_position_value')} from end of templated input (e.g., -1 = last token, -3 = 3rd from end)",
         "best_alpha": original_meta.get("best_alpha"),
         "d_model": original_meta.get("d_model"),
         "task_type": original_meta.get("task_type"),
@@ -232,6 +234,18 @@ Each probe folder contains:
 - `platt_scaler.joblib`: Platt calibration scaler (for probability calibration)
 - `probe_metadata.json`: Full training metadata
 - `config.json`: Clean configuration summary
+
+### Activation Extraction
+
+The probes are trained on hidden state activations extracted at a specific layer and token position:
+
+- **`best_layer_idx`**: Which transformer layer to extract activations from
+- **`eoi_token_offset`**: Token position relative to end of templated input
+  - `-1` = last token of input
+  - `-3` = 3rd token from end
+  - This is the position **before** any generation tokens
+
+Example: For `eoi_token_offset=-3`, extract the hidden state at `hidden_states[best_layer_idx][:, -3, :]` after tokenizing the input prompt.
 
 ## Model Details
 
