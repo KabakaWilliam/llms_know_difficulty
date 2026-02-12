@@ -1,5 +1,9 @@
 # LLMs Encode Their Failures: Predicting Success from Pre-Generation Activations
 
+[![arXiv](https://img.shields.io/badge/arXiv-2602.09924-b31b1b.svg)](https://arxiv.org/abs/2602.09924)
+[![HuggingFace Probes](https://img.shields.io/badge/🤗%20HuggingFace-Probes-yellow)](https://huggingface.co/CoffeeGitta/pika-probes)
+[![HuggingFace Datasets](https://img.shields.io/badge/🤗%20HuggingFace-Datasets-blue)](https://huggingface.co/datasets/CoffeeGitta/pika-math-generations)
+
 ## Setup
 
 Requires **conda** and a CUDA-capable GPU.
