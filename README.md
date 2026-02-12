@@ -117,6 +117,34 @@ The routing experiments support three benchmarks:
 - [GSM8K](https://huggingface.co/datasets/openai/gsm8k) — grade school math
 - [AIME](https://huggingface.co/datasets/gneubig/aime-1983-2024) — AMC/AIME problems
 
+## 📚 Resources
+
+### Paper
+
+- **arXiv (February 2026)**: [LLMs Encode Their Failures: Predicting Success from Pre-Generation Activations](https://arxiv.org/abs/2602.09924)
+- **arXiv (October 2025)**: [LLMs Encode How Difficult Problems Are](https://arxiv.org/abs/2510.18147)
+
+### Pre-trained Probes
+
+All trained probes are available on HuggingFace Hub:
+
+- **[CoffeeGitta/pika-probes](https://huggingface.co/CoffeeGitta/pika-probes)** — Pre-trained probes for MATH, GSM8K, and other datasets
+  - Includes probes for GPT-OSS-20B (high/low/medium difficulty), Qwen2.5-Math-7B, and more
+  - Each probe config includes layer and position metadata for easy inference
+
+We continuously upload new probes as experiments complete. See the repo for the latest additions.
+
+### Generation Datasets
+
+Model generations on benchmark tasks are available on HuggingFace Hub:
+
+- **[CoffeeGitta/pika-math-generations](https://huggingface.co/datasets/CoffeeGitta/pika-math-generations)** — MATH dataset generations
+  - Configs for GPT-OSS-20B (high/low/medium difficulty)
+  - Includes correctness annotations and generation hyperparameters
+  - Train/validation/test splits
+
+Additional dataset uploads are in progress. Check back for updates as we expand coverage.
+
 ## Citation
 
 If you use this code, please cite:
