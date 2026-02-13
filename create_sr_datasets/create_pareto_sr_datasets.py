@@ -484,7 +484,7 @@ if __name__ == "__main__":
     repo_root = Path.cwd().parent
     sys.path.insert(0, str(repo_root))
 
-    from will_replication.my_utils.utils import (
+    from utils.my_utils import (
         SIMPLE_MODEL_POOL_CONFIG, ModelConfig, unload_model, get_output_cost,
         get_output_tokens, get_output_text, add_majority_vote_answer, encode_str
     )
@@ -601,8 +601,8 @@ if __name__ == "__main__":
         # "Qwen/Qwen2.5-Math-1.5B-Instruct",
         # "Qwen/Qwen2.5-Math-7B-Instruct",
         # "Qwen/Qwen2.5-Math-72B-Instruct",
-        # "openai/gpt-oss-20b"
-        "gpt2"
+        "openai/gpt-oss-20b"
+        # "gpt2"
     ]
     
     for i, MODEL_TO_ROLLOUT in enumerate(MODELS_TO_RUN):
@@ -619,7 +619,7 @@ if __name__ == "__main__":
             generation_config=gen_config,
             gpu_memory_utilization=0.8,
             # max_questions_per_split=15,
-            level_reasoning="high",
+            level_reasoning="medium",
             tensor_parallel_size=1,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
         )
