@@ -15,8 +15,8 @@ declare -a MODEL_CONFIGS=(
     # "Qwen/Qwen2.5-1.5B-Instruct|3000|5|0.7"
     # "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B|32768|5|0.6"
     # "openai/gpt-oss-20b_low|131072|5|1.0"
-    # "openai/gpt-oss-20b_medium|131072|5|1.0"
-    "openai/gpt-oss-20b_high|131072|5|1.0"
+    "openai/gpt-oss-20b_medium|131072|5|1.0"
+    # "openai/gpt-oss-20b_high|131072|5|1.0"
     # Add more models here with their specific configs
     # "Qwen/Qwen2.5-Coder-7B-Instruct|4096|5|0.2"
 )

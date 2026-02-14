@@ -246,8 +246,6 @@ def push_math_dataset(
 
         for split in ["train", "val", "test"]:
 
-            if model == "gpt-oss-20b_medium" and split in ["train", "val"]:
-                continue
 
             file_path = os.path.join(
                 base_dir,

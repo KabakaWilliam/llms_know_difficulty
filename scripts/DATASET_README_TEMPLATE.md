@@ -109,7 +109,7 @@ The dataset includes the following model/configuration pairs:
 - `openai--gpt-oss-20b_low`: GPT-OSS-20B model with low difficulty problems
 - `openai--gpt-oss-20b_high`: GPT-OSS-20B model with high difficulty problems
 
-`"openai--gpt-oss-20b_medium"` currently only has a test set uploaded. Train and val will be added soon.
+
 
 
 ## Generation Details
