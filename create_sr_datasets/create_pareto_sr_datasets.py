@@ -225,9 +225,9 @@ def main(
     LANGUAGE_SUFFIXES = ["en", "sw", "zh", "es", "ar", "fr", "bn", "pt", "ru", "id", "de", "ja", "vi", "it", "te", "ko", "th", "ms"]
     # --------- tasks ----------
     TASKS = [
-        # "openai_gsm8k",
-        # "opencompass_AIME2025",
-        # "gneubig_aime-1983-2024",
+        "openai_gsm8k",
+        "opencompass_AIME2025",
+        "gneubig_aime-1983-2024",
         "DigitalLearningGmbH_MATH-lighteval",
     ] 
     # + [f"Qwen_PolyMath_{lang}" for lang in LANGUAGE_SUFFIXES]
@@ -555,6 +555,14 @@ if __name__ == "__main__":
             batch_size=512,
             num_rollouts=5,
         ),
+        "Qwen/Qwen3-8B": GenerationConfig(
+            max_tokens=32768,
+            temperature=0.6,
+            top_p=0.95,  # Optimal setting for math
+            top_k=20,
+            batch_size=512,
+            num_rollouts=5,
+        ),
         "Qwen/Qwen2.5-Math-72B-Instruct": GenerationConfig(
             max_tokens=3000,
             temperature=0.7,
@@ -570,6 +578,14 @@ if __name__ == "__main__":
             top_k=-1,
             batch_size=128,
             num_rollouts=50,
+        ),
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B": GenerationConfig(
+            max_tokens=32768,
+            temperature=0.6,
+            top_p=0.95,
+            top_k=-1,
+            batch_size=512,
+            num_rollouts=5,
         ),
         "openai/gpt-oss-20b": GenerationConfig(
             max_tokens=131072,
@@ -600,8 +616,10 @@ if __name__ == "__main__":
     MODELS_TO_RUN = [
         # "Qwen/Qwen2.5-Math-1.5B-Instruct",
         # "Qwen/Qwen2.5-Math-7B-Instruct",
+        # "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+        "Qwen/Qwen3-8B"
         # "Qwen/Qwen2.5-Math-72B-Instruct",
-        "openai/gpt-oss-20b"
+        # "openai/gpt-oss-20b"
         # "gpt2"
     ]
     
@@ -617,9 +635,9 @@ if __name__ == "__main__":
         main(
             model_name=MODEL_TO_ROLLOUT,
             generation_config=gen_config,
-            gpu_memory_utilization=0.8,
+            gpu_memory_utilization=0.6,
             # max_questions_per_split=15,
-            level_reasoning="medium",
+            level_reasoning="high",
             tensor_parallel_size=1,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
         )
