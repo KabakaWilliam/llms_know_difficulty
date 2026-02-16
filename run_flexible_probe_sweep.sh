@@ -5,7 +5,7 @@
 
 # GPU configuration
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=3
 
 # Define model configurations as an array of "model|maxlen|k|temp"
 # Format: "model_name|max_len|k|temperature"
@@ -35,6 +35,7 @@ declare -a PROBES=(
     "linear_eoi_probe"
     # "tfidf_probe"
     # "length_probe"
+    # "mlp_probe"
 )
 
 # Label column to use for all models

@@ -127,6 +127,42 @@ def get_task(name):
 
         return ds_final, compute_score
 
+    elif name == "Idavidrein_gpqa":
+        from utils.text_number_dataset import to_mcq_with_shuffle, compute_score
+        from datasets import DatasetDict
+        main_ds = load_dataset("Idavidrein/gpqa", "gpqa_main")
+        diamond_ds = load_dataset("Idavidrein/gpqa", "gpqa_diamond")
+
+        # create test split with diamond
+        diamond_ids = set(diamond_ds["train"]["Record ID"])
+
+        train_filtered = main_ds["train"].filter(
+            lambda example: example["Record ID"] not in diamond_ids
+        )
+
+        gpqa_split = DatasetDict({
+            "train": train_filtered,
+            "test": diamond_ds["train"]
+        })
+
+        # Apply conversion
+        gpqa_train_mcq = gpqa_split["train"].map(
+            lambda ex: to_mcq_with_shuffle(ex, global_seed=42),
+            desc="Shuffling answers + building MCQ problems",
+        )
+        gpqa_test_mcq = gpqa_split["test"].map(
+            lambda ex: to_mcq_with_shuffle(ex, global_seed=42),
+            desc="Shuffling answers + building MCQ problems",
+        )
+
+        ds = DatasetDict({
+            "train": gpqa_train_mcq,
+            "test": gpqa_test_mcq
+        })
+
+        
+
+        return ds, compute_score
     raise ValueError(f"Unknown task {name}")
 
 
@@ -225,10 +261,11 @@ def main(
     LANGUAGE_SUFFIXES = ["en", "sw", "zh", "es", "ar", "fr", "bn", "pt", "ru", "id", "de", "ja", "vi", "it", "te", "ko", "th", "ms"]
     # --------- tasks ----------
     TASKS = [
-        "openai_gsm8k",
-        "opencompass_AIME2025",
-        "gneubig_aime-1983-2024",
-        "DigitalLearningGmbH_MATH-lighteval",
+        # "openai_gsm8k",
+        # "opencompass_AIME2025",
+        # "gneubig_aime-1983-2024",
+        # "DigitalLearningGmbH_MATH-lighteval",
+        "Idavidrein_gpqa"
     ] 
     # + [f"Qwen_PolyMath_{lang}" for lang in LANGUAGE_SUFFIXES]
 
@@ -635,10 +672,10 @@ if __name__ == "__main__":
         main(
             model_name=MODEL_TO_ROLLOUT,
             generation_config=gen_config,
-            gpu_memory_utilization=0.6,
+            gpu_memory_utilization=0.3,
             # max_questions_per_split=15,
             level_reasoning="high",
-            tensor_parallel_size=1,
+            tensor_parallel_size=2,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
         )
         

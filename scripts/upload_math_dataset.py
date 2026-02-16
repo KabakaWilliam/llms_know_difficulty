@@ -4,7 +4,7 @@ import pandas as pd
 import os
 
 # Dataset README content
-DATASET_README = """---
+DATASET_README = r"""---
 dataset_info:
   configs:
     - config_name: openai--gpt-oss-20b_low
@@ -204,18 +204,57 @@ def normalize_schemas(split_dfs):
     return split_dfs
 
 
+def find_data_file(model_path, split, k=5):
+    """
+    Auto-detect available parquet file for a given split with specific k.
+    Looks for files matching: {split}_maxlen_*_k_{k}_temp_*.parquet
+    """
+    if not os.path.exists(model_path):
+        return None
+    
+    import glob
+    pattern = os.path.join(model_path, f"{split}_maxlen_*_k_{k}_temp_*.parquet")
+    files = glob.glob(pattern)
+    
+    if files:
+        # Return the first match (or most recent if multiple)
+        return sorted(files)[-1]
+    return None
+
+
+def extract_params_from_path(file_path):
+    """
+    Extract k, temperature, max_len from filename like:
+    train_maxlen_3000_k_5_temp_0.7.parquet
+    """
+    import re
+    filename = os.path.basename(file_path)
+    
+    # Remove .parquet extension first
+    filename = filename.replace('.parquet', '')
+    
+    # Extract parameters from filename
+    maxlen_match = re.search(r'maxlen_(\d+)', filename)
+    k_match = re.search(r'k_(\d+)', filename)
+    temp_match = re.search(r'temp_([\d.]+)', filename)
+    
+    max_len = int(maxlen_match.group(1)) if maxlen_match else 3000
+    k = int(k_match.group(1)) if k_match else 5
+    temperature = float(temp_match.group(1)) if temp_match else 0.7
+    
+    return k, temperature, max_len
+
+
 def push_math_dataset(
     base_dir,
     repo_id,
     dataset_name,
     models,
-    k,
-    temperature,
-    max_len,
     push_readme=True,
 ):
     """
-    models = list of (org, model)
+    models = list of (org, model, k, temperature, max_len) or (org, model)
+    If hyperparams not provided, will auto-detect from available files.
     """
     from huggingface_hub import HfApi
 
@@ -225,9 +264,9 @@ def push_math_dataset(
     if push_readme:
         api = HfApi()
         # Use safe string replacement instead of .format() to handle YAML braces
-        readme_content = DATASET_README.replace('{k}', str(k)).replace(
-            '{temperature}', str(temperature)
-        ).replace('{max_len}', str(max_len))
+        readme_content = DATASET_README.replace('{k}', '5').replace(
+            '{temperature}', '~0.7-1.0'
+        ).replace('{max_len}', '~3000-131072')
         
         api.upload_file(
             path_or_fileobj=readme_content.encode('utf-8'),
@@ -237,7 +276,15 @@ def push_math_dataset(
         )
         print(f"✅ Uploaded README to {repo_id}")
 
-    for org, model in models:
+    for model_info in models:
+        # Support both (org, model) and (org, model, k, temp, max_len) tuples
+        if len(model_info) == 2:
+            org, model = model_info
+            k, temperature, max_len = 5, None, None  # Default k=5, auto-detect temp and max_len
+        elif len(model_info) == 5:
+            org, model, k, temperature, max_len = model_info
+        else:
+            raise ValueError(f"Model info must be (org, model) or (org, model, k, temp, max_len), got {model_info}")
 
         print(f"\nProcessing {org}/{model}")
 
@@ -246,14 +293,26 @@ def push_math_dataset(
 
         for split in ["train", "val", "test"]:
 
+            if model == "gpt-oss-20b_medium" and split in ["train", "val"]:
+                continue
 
-            file_path = os.path.join(
-                base_dir,
-                org,
-                model,
-                dataset_name,
-                f"{split}_maxlen_{max_len}_k_{k}_temp_{temperature}.parquet"
-            )
+            # Build model path
+            model_path = os.path.join(base_dir, org, model, dataset_name)
+            
+            # If hyperparams not specified, auto-detect from available files (with k=5 enforced)
+            if temperature is None or max_len is None:
+                file_path = find_data_file(model_path, split, k=5)
+                if not file_path:
+                    print(f"{split} not found for {config_name} (k=5)")
+                    continue
+                # Extract actual parameters from filename
+                actual_k, actual_temp, actual_maxlen = extract_params_from_path(file_path)
+            else:
+                file_path = os.path.join(
+                    model_path,
+                    f"{split}_maxlen_{max_len}_k_{k}_temp_{temperature}.parquet"
+                )
+                actual_k, actual_temp, actual_maxlen = k, temperature, max_len
 
             if not os.path.exists(file_path):
                 print(f"{split} not found for {config_name}")
@@ -279,8 +338,8 @@ def push_math_dataset(
             if "idx" in df.columns:
                 df = df.drop(columns=["idx"])
 
-            # Enforce generation config columns
-            df = enforce_generation_columns(df, k, temperature, max_len)
+            # Enforce generation config columns with actual parameters
+            df = enforce_generation_columns(df, actual_k, actual_temp, actual_maxlen)
 
             # Enforce correctness dtype
             df = enforce_correctness_column(df)
@@ -320,10 +379,15 @@ if __name__ == "__main__":
     REPO_ID = "CoffeeGitta/pika-math-generations"
     DATASET_NAME = "DigitalLearningGmbH_MATH-lighteval"
 
+    # Models can be specified as:
+    # - (org, model) - will auto-detect parameters from filenames
+    # - (org, model, k, temperature, max_len) - uses explicit parameters
     MODELS = [
         ("openai", "gpt-oss-20b_low"),
         ("openai", "gpt-oss-20b_high"),
         ("openai", "gpt-oss-20b_medium"),
+        ("Qwen", "Qwen2.5-Math-1.5B-Instruct"),  # Auto-detects from available files
+        ("Qwen", "Qwen2.5-Math-7B-Instruct"),    # Auto-detects from available files
     ]
 
     push_math_dataset(
@@ -331,8 +395,5 @@ if __name__ == "__main__":
         repo_id=REPO_ID,
         dataset_name=DATASET_NAME,
         models=MODELS,
-        k=5,
-        temperature=1.0,
-        max_len=131072,
         push_readme=True,  # Set to False if you've already pushed README
     )

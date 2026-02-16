@@ -130,6 +130,31 @@ class TfidfProbeConfig(BaseModel):
     alpha_grid: list[float] = [0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000]
     fit_intercept: bool = True
 
+class MLPProbeConfig(BaseModel):
+    """
+    MLP probe config for one-layer feedforward networks with ReLU non-linearities.
+    
+    Args:
+        model_name: str              Name of the base model to use for activation extraction
+        alpha_grid: list[float]      L2 regularization strengths
+        batch_size: int              Batch size for activation extraction
+        batch_size_train: int        Batch size for training MLP (mini-batching)
+        max_length: int              Maximum prompt length
+        hidden_dims: list[list[int]] One-layer architectures to search over (e.g., [[256], [512]])
+        learning_rates: list[float]  Learning rates to try
+        num_epochs: list[int]        Number of epochs for training
+        dropout_rates: list[float]   Dropout probabilities to try
+    """
+    model_name: str = "gpt2"
+    alpha_grid: list[float] = [0.1, 1, 10, 100, 1000, 10000]
+    batch_size: int = 64
+    batch_size_train: int = 32
+    max_length: int = 1024
+    hidden_dims: list[list[int]] = [[256]]
+    learning_rates: list[float] = [1e-3, 5e-4]
+    num_epochs: list[int] = [3]#[10, 20, 50]
+    dropout_rates: list[float] = [0.0, 0.1, 0.2]
+
 
 PROMPTING_BASELINE = {
     "batch_size": 16,

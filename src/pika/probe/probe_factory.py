@@ -9,10 +9,11 @@ from pika.probe.torch_probe import (
     LinearThenRollingMax,
 ) 
 from pika.probe.linear_eoi_probe import LinearEoiProbe
+from pika.probe.mlp_probe import MLPProbe
 from pika.probe.length_probe import LengthProbe
 
 from pika.probe.tfidf_probe import TfidfProbe
-from pika.config import LinearEOIProbeConfig, AttentionProbeConfig, TfidfProbeConfig, DEVICE
+from pika.config import LinearEOIProbeConfig, AttentionProbeConfig, TfidfProbeConfig, MLPProbeConfig, DEVICE
 
 class ProbeFactory:
 
@@ -92,6 +93,15 @@ class ProbeFactory:
         elif probe_name == "length_probe":
             probe = LengthProbe()
             return probe.setup()
+        
+        elif probe_name == "mlp_probe":
+            probe_setup_args = {
+                'model_name': kwargs.get('model'),
+                'device': DEVICE,
+            }
+            probe = MLPProbe(MLPProbeConfig())
+            print("Lets set up the probe ⚙️ ...")
+            return probe.setup(**probe_setup_args)
 
         else:
             raise NotImplementedError(f"Probe {probe_name} not implemented")
