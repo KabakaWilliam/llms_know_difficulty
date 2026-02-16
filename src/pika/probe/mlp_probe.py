@@ -523,8 +523,8 @@ class MLPProbe(Probe):
             specified_eoi_position=self.best_position_value,
         )
         
-        # Extract and prepare activations
-        activations = activations_data[0]
+        # Extract and prepare activations (activations_data is a dict with 'activations' key)
+        activations = activations_data['activations']
         x_pred = linear_eoi_probe_train_utils.to_numpy(activations[:, self.best_layer_idx, :])
         
         # Forward pass
@@ -550,6 +550,64 @@ class MLPProbe(Probe):
             torch.tensor(indices, dtype=torch.int32),
             torch.tensor(predictions, dtype=torch.float32)
         )
+
+    def save_probe(self, results_path: Path | str, metadata: dict | None = None) -> None:
+        """
+        Save the trained probe weights and metadata to disk.
+        
+        Args:
+            results_path: Directory where to save the probe files
+            metadata: Optional full metadata dict (e.g., with test metrics). 
+                     If not provided, creates minimal metadata.
+        
+        Saves:
+            - best_model.pt: The PyTorch model state dict
+            - platt_scaler.joblib: Platt scaler if classification task
+            - probe_metadata.json: Probe configuration and layer/position info
+        """
+        results_path = Path(results_path)
+        results_path.mkdir(parents=True, exist_ok=True)
+        
+        if self.best_model is None:
+            raise RuntimeError("Must call train() before save_probe()")
+        
+        # Save the trained PyTorch model
+        model_file = results_path / "best_model.pt"
+        torch.save(self.best_model.state_dict(), model_file)
+        
+        # Save Platt scaler if it exists
+        if self.platt_scaler is not None:
+            import joblib
+            platt_file = results_path / "platt_scaler.joblib"
+            joblib.dump(self.platt_scaler, platt_file)
+        
+        # If no metadata provided, create minimal metadata for loading
+        if metadata is None:
+            metadata = {
+                "best_layer_idx": self.best_layer_idx,
+                "best_position_value": self.best_position_value,
+                "best_hidden_dims": self.best_hidden_dims,
+                "best_learning_rate": self.best_learning_rate,
+                "best_dropout_rate": self.best_dropout_rate,
+                "best_alpha": self.best_alpha,
+                "best_val_score": float(self.best_val_score) if self.best_val_score else None,
+                "task_type": self.task_type,
+                "model_name": self.model_name,
+                "d_model": self.d_model,
+            }
+            
+            # Add calibration info if available
+            if self.task_type == "classification" and self.platt_scaler is not None:
+                metadata["has_platt_scaler"] = True
+                metadata["platt_coef"] = float(self.platt_scaler.coef_[0][0])
+                metadata["platt_intercept"] = float(self.platt_scaler.intercept_[0])
+            elif self.task_type == "classification":
+                metadata["has_platt_scaler"] = False
+        
+        # Save metadata as JSON
+        metadata_file = results_path / "probe_metadata.json"
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2, default=str)
 
     def get_probe_metadata(self) -> dict:
         """Return probe metadata for saving."""
