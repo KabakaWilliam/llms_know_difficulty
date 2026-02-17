@@ -147,7 +147,7 @@ class MLPProbeConfig(BaseModel):
     """
     model_name: str = "gpt2"
     alpha_grid: list[float] = [0.1, 1, 10, 100, 1000, 10000]
-    batch_size: int = 64
+    batch_size: int = 4
     batch_size_train: int = 32
     max_length: int = 1024
     hidden_dims: list[list[int]] = [[256]]

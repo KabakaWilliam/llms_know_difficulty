@@ -59,7 +59,7 @@ def is_equiv(str1, str2, verbose=False):
         ss2 = strip_string(str2)
         if verbose:
             print(ss1, ss2)
-        return ss1 == ss2
+        return ss1.lower() == ss2.lower()
     except Exception:
         return str1 == str2
 

@@ -5,14 +5,15 @@
 
 # GPU configuration
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-export CUDA_VISIBLE_DEVICES=3
+export CUDA_VISIBLE_DEVICES=2
 
 # Define model configurations as an array of "model|maxlen|k|temp"
 # Format: "model_name|max_len|k|temperature"
 declare -a MODEL_CONFIGS=(
-    "Qwen/Qwen2.5-Math-1.5B-Instruct|3000|5|0.7"
-    "Qwen/Qwen2.5-Math-7B-Instruct|3000|5|0.7"
+    # "Qwen/Qwen2.5-Math-1.5B-Instruct|3000|5|0.7"
+    # "Qwen/Qwen2.5-Math-7B-Instruct|3000|5|0.7"
     # "Qwen/Qwen2.5-1.5B-Instruct|3000|5|0.7"
+    "Qwen/Qwen3-8B|32768|5|0.6"
     # "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B|32768|5|0.6"
     # "openai/gpt-oss-20b_low|131072|5|1.0"
     # "openai/gpt-oss-20b_medium|131072|5|1.0"
@@ -25,7 +26,8 @@ declare -a MODEL_CONFIGS=(
 declare -a DATASETS=(
     "gneubig_aime-1983-2024"
     "openai_gsm8k"
-    "DigitalLearningGmbH_MATH-lighteval"
+    # "DigitalLearningGmbH_MATH-lighteval"
+    "Idavidrein_gpqa"
     # "E2H-AMC"
     # "livecodebench_code_generation_lite"
 )
@@ -35,7 +37,7 @@ declare -a PROBES=(
     "linear_eoi_probe"
     # "tfidf_probe"
     # "length_probe"
-    # "mlp_probe"
+    "mlp_probe"
 )
 
 # Label column to use for all models

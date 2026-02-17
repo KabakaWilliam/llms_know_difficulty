@@ -388,6 +388,7 @@ if __name__ == "__main__":
         ("openai", "gpt-oss-20b_medium"),
         ("Qwen", "Qwen2.5-Math-1.5B-Instruct"),  # Auto-detects from available files
         ("Qwen", "Qwen2.5-Math-7B-Instruct"),    # Auto-detects from available files
+        ("deepseek-ai", "DeepSeek-R1-Distill-Qwen-7B"),    # Auto-detects from available files
     ]
 
     push_math_dataset(
