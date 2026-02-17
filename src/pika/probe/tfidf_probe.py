@@ -57,8 +57,8 @@ class TfidfProbe(Probe):
         self.metric_name = None
         self.model_type = None  # "ridge" for regression, "logistic" for classification
         
-        # Calibration
-        self.calibration_temperature: Optional[float] = None
+        # Calibration (Platt scaling for classification)
+        self.platt_scaler: Optional[LogisticRegression] = None
         self.val_metrics_raw: Optional[dict] = None
         self.val_metrics_cal: Optional[dict] = None
     
@@ -77,29 +77,18 @@ class TfidfProbe(Probe):
         raise NotImplementedError("Initializing a model from a checkpoint is not implemented for the eoi probe.")    
     def calibrate(self, x_cal: np.ndarray, y_cal: np.ndarray) -> None:
         """
-        Fit calibration_temperature scaling for classification probes.
+        Fit Platt scaling calibration for classification probes.
+        Uses logistic regression on validation logits to calibrate probabilities.
         """
         assert self.task_type == "classification"
         assert self.best_model is not None
 
         # Get logits (NOT probabilities)
-        logits = self.best_model.decision_function(x_cal)
-        labels = torch.tensor(y_cal, dtype=torch.float32)
-        logits = torch.tensor(logits, dtype=torch.float32)
-
-        T = torch.ones(1, requires_grad=True)
-
-        optimizer = torch.optim.LBFGS([T], lr=0.01, max_iter=50)
-
-        def closure():
-            optimizer.zero_grad()
-            probs = torch.sigmoid(logits / T)
-            loss = torch.nn.functional.binary_cross_entropy(probs, labels)
-            loss.backward()
-            return loss
-
-        optimizer.step(closure)
-        self.calibration_temperature = float(T.detach())            
+        logits = self.best_model.decision_function(x_cal).reshape(-1, 1)
+        
+        # Fit logistic regression: sigmoid(logits) = sigmoid(a*logits + b)
+        self.platt_scaler = LogisticRegression(random_state=42, max_iter=1000)
+        self.platt_scaler.fit(logits, y_cal)            
 
     def setup(self) -> "TfidfProbe":
         """
@@ -266,8 +255,8 @@ class TfidfProbe(Probe):
         self.best_model.fit(X_full_train, y_full_train)
         print(f"✓ Model trained on {len(y_full_train)} samples")
         
-        # === Calibration step ===
-        if self.task_type == "classification" and self.calibration_temperature is None:
+        # === Calibration step (Platt scaling) ===
+        if self.task_type == "classification" and self.platt_scaler is None:
             # Get validation predictions for calibration using val data transformed with current vectorizer
             X_val_recalc = self.vectorizer.transform(val_processed)
             
@@ -279,13 +268,12 @@ class TfidfProbe(Probe):
                 full_metrics=True
             )
             
-            # Fit temperature scaling
+            # Fit Platt scaling on validation logits
             self.calibrate(X_val_recalc, y_val)
             
-            # Calibrated probabilities
-            logits = self.best_model.decision_function(X_val_recalc)
-            logits_scaled = logits / self.calibration_temperature
-            cal_val_probs = 1 / (1 + np.exp(-logits_scaled))
+            # Calibrated probabilities using Platt scaling
+            logits = self.best_model.decision_function(X_val_recalc).reshape(-1, 1)
+            cal_val_probs = self.platt_scaler.predict_proba(logits)[:, 1]
             
             assert np.all((cal_val_probs >= 0) & (cal_val_probs <= 1))
             
@@ -299,8 +287,8 @@ class TfidfProbe(Probe):
             self.val_metrics_raw = raw_val_metrics
             self.val_metrics_cal = cal_val_metrics
             
-            print("\nCalibration (validation set):")
-            print(f"  Fitted temperature: {self.calibration_temperature:.4f}")
+            print("\nCalibration (Platt scaling on validation set):")
+            print(f"  Platt scaling fitted on {len(y_val)} validation samples")
             print(f"  ECE before: {raw_val_metrics.get('ece', 'N/A')}")
             print(f"  ECE after : {cal_val_metrics.get('ece', 'N/A')}")
         
@@ -367,10 +355,13 @@ class TfidfProbe(Probe):
         if self.task_type == "regression":
             predictions = self.best_model.predict(X)
         else:  # classification - use probability of positive class
-            logits = self.best_model.decision_function(X)
-            if self.calibration_temperature is not None:
-                logits = logits / self.calibration_temperature
-            predictions = 1 / (1 + np.exp(-logits))
+            logits = self.best_model.decision_function(X).reshape(-1, 1)
+            if self.platt_scaler is not None:
+                # Use Platt scaling if fitted
+                predictions = self.platt_scaler.predict_proba(logits)[:, 1]
+            else:
+                # Fallback to uncalibrated probabilities
+                predictions = 1 / (1 + np.exp(-logits.ravel()))
         
         # Return as formatted tensors
         return (
@@ -380,7 +371,7 @@ class TfidfProbe(Probe):
     
     def save_probe(self, results_path: Path | str, metadata: dict | None = None) -> None:
         """
-        Save the trained probe (vectorizer and model) to disk.
+        Save the trained probe (vectorizer, model, and Platt scaler) to disk.
         
         Args:
             results_path: Directory where to save the probe files
@@ -389,6 +380,7 @@ class TfidfProbe(Probe):
         Saves:
             - vectorizer.joblib: The TF-IDF vectorizer
             - model.joblib: The Ridge regression model
+            - platt_scaler.joblib: The Platt scaling calibrator (if classification)
             - probe_metadata.json: Probe configuration and results
         """
         results_path = Path(results_path)
@@ -400,6 +392,10 @@ class TfidfProbe(Probe):
         # Save vectorizer and model
         joblib.dump(self.vectorizer, results_path / "vectorizer.joblib")
         joblib.dump(self.best_model, results_path / "model.joblib")
+        
+        # Save Platt scaler if available (classification only)
+        if self.platt_scaler is not None:
+            joblib.dump(self.platt_scaler, results_path / "platt_scaler.joblib")
         
         # Create metadata if not provided
         if metadata is None:
@@ -430,6 +426,10 @@ class TfidfProbe(Probe):
         vectorizer = joblib.load(results_path / "vectorizer.joblib")
         model = joblib.load(results_path / "model.joblib")
         
+        # Load Platt scaler if available (classification only)
+        platt_scaler_path = results_path / "platt_scaler.joblib"
+        platt_scaler = joblib.load(platt_scaler_path) if platt_scaler_path.exists() else None
+        
         # Create probe instance
         probe = cls(config={})
         probe.setup()  # Setup spaCy
@@ -437,13 +437,12 @@ class TfidfProbe(Probe):
         # Restore state
         probe.vectorizer = vectorizer
         probe.best_model = model
+        probe.platt_scaler = platt_scaler
         probe.best_alpha = metadata.get("best_alpha")
         probe.best_val_score = metadata.get("best_val_score")
         probe.test_score = metadata.get("test_score")
         probe.task_type = metadata.get("task_type")
         probe.metric_name = "spearman" if probe.task_type == "regression" else "auc"
-        # Restore calibration temperature if available (only for classification probes)
-        probe.calibration_temperature = metadata.get("calibration_temperature", None)
         
         return probe
     
@@ -470,8 +469,8 @@ class TfidfProbe(Probe):
                 metadata['ece_before_calibration'] = self.val_metrics_raw.get('ece')
             if self.val_metrics_cal is not None:
                 metadata['ece_after_calibration'] = self.val_metrics_cal.get('ece')
-            if self.calibration_temperature is not None:
-                metadata['calibration_temperature'] = self.calibration_temperature
+            if self.platt_scaler is not None:
+                metadata['calibration_method'] = 'platt_scaling'
         
         return metadata
     

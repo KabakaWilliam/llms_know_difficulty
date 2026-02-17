@@ -51,8 +51,8 @@ class LengthProbe(Probe):
         self.metric_name = None
         self.model_type = None
         
-        # Calibration (for classification)
-        self.calibration_temperature: Optional[float] = None
+        # Calibration (Platt scaling for classification)
+        self.platt_scaler: Optional[LogisticRegression] = None
         self.val_metrics_raw: Optional[dict] = None
         self.val_metrics_cal: Optional[dict] = None
     
@@ -106,27 +106,17 @@ class LengthProbe(Probe):
         return np.array([len(str(p).split()) for p in prompts], dtype=float)
     
     def calibrate(self, x_cal: np.ndarray, y_cal: np.ndarray) -> None:
-        """Temperature scaling for classification probes."""
+        """Fit Platt scaling calibration for classification probes.
+        Uses logistic regression on validation logits to calibrate probabilities."""
         assert self.task_type == "classification"
         assert self.best_model is not None
         
         # Get logits (NOT probabilities)
-        logits = self.best_model.decision_function(x_cal.reshape(-1, 1))
-        labels = torch.tensor(y_cal, dtype=torch.float32)
-        logits = torch.tensor(logits, dtype=torch.float32)
+        logits = self.best_model.decision_function(x_cal.reshape(-1, 1)).reshape(-1, 1)
         
-        T = torch.ones(1, requires_grad=True)
-        optimizer = torch.optim.LBFGS([T], lr=0.01, max_iter=50)
-        
-        def closure():
-            optimizer.zero_grad()
-            probs = torch.sigmoid(logits / T)
-            loss = torch.nn.functional.binary_cross_entropy(probs, labels)
-            loss.backward()
-            return loss
-        
-        optimizer.step(closure)
-        self.calibration_temperature = float(T.detach())
+        # Fit logistic regression: sigmoid(logits) = sigmoid(a*logits + b)
+        self.platt_scaler = LogisticRegression(random_state=42, max_iter=1000)
+        self.platt_scaler.fit(logits, y_cal)
     
     def train(self,
               train_data: Tuple[List[int], List[str], List[float]],
@@ -218,8 +208,8 @@ class LengthProbe(Probe):
         self.best_model.fit(X_full, y_full)
         print(f"✓ Model trained on {len(y_full)} samples")
         
-        # Calibration for classification
-        if self.task_type == "classification" and self.calibration_temperature is None:
+        # Calibration (Platt scaling) for classification
+        if self.task_type == "classification" and self.platt_scaler is None:
             # Raw probabilities before calibration
             raw_val_probs = self.best_model.predict_proba(X_val)[:, 1]
             raw_val_metrics = compute_metrics(
@@ -228,13 +218,12 @@ class LengthProbe(Probe):
                 full_metrics=True
             )
             
-            # Fit temperature scaling
+            # Fit Platt scaling on validation logits
             self.calibrate(X_val, y_val)
             
-            # Calibrated probabilities
-            logits = self.best_model.decision_function(X_val)
-            logits_scaled = logits / self.calibration_temperature
-            cal_val_probs = 1 / (1 + np.exp(-logits_scaled))
+            # Calibrated probabilities using Platt scaling
+            logits = self.best_model.decision_function(X_val).reshape(-1, 1)
+            cal_val_probs = self.platt_scaler.predict_proba(logits)[:, 1]
             
             cal_val_metrics = compute_metrics(
                 y_val, cal_val_probs,
@@ -246,8 +235,8 @@ class LengthProbe(Probe):
             self.val_metrics_raw = raw_val_metrics
             self.val_metrics_cal = cal_val_metrics
             
-            print("\nCalibration (validation set):")
-            print(f"  Fitted temperature: {self.calibration_temperature:.4f}")
+            print("\nCalibration (Platt scaling on validation set):")
+            print(f"  Platt scaling fitted on {len(y_val)} validation samples")
             print(f"  ECE before: {raw_val_metrics.get('ece', 'N/A')}")
             print(f"  ECE after : {cal_val_metrics.get('ece', 'N/A')}")
         
@@ -258,10 +247,13 @@ class LengthProbe(Probe):
             if self.task_type == "regression":
                 test_preds = self.best_model.predict(X_test)
             else:
-                logits = self.best_model.decision_function(X_test)
-                if self.calibration_temperature is not None:
-                    logits = logits / self.calibration_temperature
-                test_preds = 1 / (1 + np.exp(-logits))
+                logits = self.best_model.decision_function(X_test).reshape(-1, 1)
+                if self.platt_scaler is not None:
+                    # Use Platt scaling if fitted
+                    test_preds = self.platt_scaler.predict_proba(logits)[:, 1]
+                else:
+                    # Fallback to uncalibrated probabilities
+                    test_preds = 1 / (1 + np.exp(-logits.ravel()))
             
             test_metrics = compute_metrics(y_test, test_preds, task_type=self.task_type, full_metrics=True)
             self.test_score = test_metrics[self.metric_name]
@@ -309,10 +301,13 @@ class LengthProbe(Probe):
         if self.task_type == "regression":
             predictions = self.best_model.predict(X)
         else:
-            logits = self.best_model.decision_function(X)
-            if self.calibration_temperature is not None:
-                logits = logits / self.calibration_temperature
-            predictions = 1 / (1 + np.exp(-logits))
+            logits = self.best_model.decision_function(X).reshape(-1, 1)
+            if self.platt_scaler is not None:
+                # Use Platt scaling if fitted
+                predictions = self.platt_scaler.predict_proba(logits)[:, 1]
+            else:
+                # Fallback to uncalibrated probabilities
+                predictions = 1 / (1 + np.exp(-logits.ravel()))
         
         return (
             torch.tensor(indices, dtype=torch.int32),
@@ -328,6 +323,7 @@ class LengthProbe(Probe):
         
         Saves:
             - model.joblib: The Ridge/Logistic regression model
+            - platt_scaler.joblib: The Platt scaling calibrator (if classification)
             - probe_metadata.json: Probe configuration and results
         """
         results_path = Path(results_path)
@@ -338,6 +334,10 @@ class LengthProbe(Probe):
         
         # Save model
         joblib.dump(self.best_model, results_path / "model.joblib")
+        
+        # Save Platt scaler if available (classification only)
+        if self.platt_scaler is not None:
+            joblib.dump(self.platt_scaler, results_path / "platt_scaler.joblib")
         
         # Create metadata if not provided
         if metadata is None:
@@ -366,20 +366,23 @@ class LengthProbe(Probe):
         # Load model
         model = joblib.load(results_path / "model.joblib")
         
+        # Load Platt scaler if available (classification only)
+        platt_scaler_path = results_path / "platt_scaler.joblib"
+        platt_scaler = joblib.load(platt_scaler_path) if platt_scaler_path.exists() else None
+        
         # Create probe instance
         probe = cls(config={})
         probe.setup()
         
         # Restore state
         probe.best_model = model
+        probe.platt_scaler = platt_scaler
         probe.best_alpha = metadata.get("best_alpha")
         probe.best_val_score = metadata.get("best_val_score")
         probe.test_score = metadata.get("test_score")
         probe.task_type = metadata.get("task_type")
         probe.model_type = metadata.get("model_type")
         probe.metric_name = "spearman" if probe.task_type == "regression" else "auc"
-        # Restore calibration temperature if available (only for classification probes)
-        probe.calibration_temperature = metadata.get("calibration_temperature", None)
         
         return probe
     
@@ -401,7 +404,7 @@ class LengthProbe(Probe):
                 metadata['ece_before_calibration'] = self.val_metrics_raw.get('ece')
             if self.val_metrics_cal is not None:
                 metadata['ece_after_calibration'] = self.val_metrics_cal.get('ece')
-            if self.calibration_temperature is not None:
-                metadata['calibration_temperature'] = self.calibration_temperature
+            if self.platt_scaler is not None:
+                metadata['calibration_method'] = 'platt_scaling'
         
         return metadata
