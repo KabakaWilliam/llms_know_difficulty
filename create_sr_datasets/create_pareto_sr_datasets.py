@@ -263,9 +263,9 @@ def main(
     TASKS = [
         # "openai_gsm8k",
         # "opencompass_AIME2025",
-        # "gneubig_aime-1983-2024",
-        # "DigitalLearningGmbH_MATH-lighteval",
-        "Idavidrein_gpqa"
+        "gneubig_aime-1983-2024",
+        "DigitalLearningGmbH_MATH-lighteval",
+        # "Idavidrein_gpqa"
     ] 
     # + [f"Qwen_PolyMath_{lang}" for lang in LANGUAGE_SUFFIXES]
 
@@ -598,7 +598,7 @@ if __name__ == "__main__":
             top_p=0.95,  # Optimal setting for math
             top_k=20,
             batch_size=512,
-            num_rollouts=5,
+            num_rollouts=1,
         ),
         "Qwen/Qwen2.5-Math-72B-Instruct": GenerationConfig(
             max_tokens=3000,
@@ -672,10 +672,10 @@ if __name__ == "__main__":
         main(
             model_name=MODEL_TO_ROLLOUT,
             generation_config=gen_config,
-            gpu_memory_utilization=0.3,
+            gpu_memory_utilization=0.4,
             # max_questions_per_split=15,
             level_reasoning="high",
-            tensor_parallel_size=2,
+            tensor_parallel_size=1,
             pricing_config=SIMPLE_MODEL_POOL_CONFIG,
         )
         

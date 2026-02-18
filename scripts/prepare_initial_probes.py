@@ -28,6 +28,8 @@ PROBES_TO_UPLOAD = [
     "openai/gpt-oss-20b_medium/DigitalLearningGmbH_MATH-lighteval/linear_eoi_probe/maxlen_131072_k_5_temp_1.0/label_majority_vote_is_correct/20260205_162444",
     # Qwen2.5-Math-7B on MATH
     "Qwen/Qwen2.5-Math-7B-Instruct/DigitalLearningGmbH_MATH-lighteval/linear_eoi_probe/maxlen_3000_k_5_temp_0.7/label_majority_vote_is_correct/20260205_134741",
+    # Qwen3-8B on AIME
+    "Qwen/Qwen3-8B/gneubig_aime-1983-2024/linear_eoi_probe/maxlen_32768_k_5_temp_0.6/label_majority_vote_is_correct/20260217_115640"
 ]
 
 
