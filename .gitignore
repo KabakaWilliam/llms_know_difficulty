@@ -187,3 +187,5 @@ run_flexible_probe_sweep_browse.sh
 
 # HuggingFace upload staging
 probes_for_hf/
+join_probe_preds_to_data.ipynb
+run_awarness_solver.sh

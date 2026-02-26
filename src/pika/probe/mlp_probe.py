@@ -156,15 +156,23 @@ class MLPProbe(Probe):
         self.tokenizer = AutoTokenizer.from_pretrained(base_model_name, use_fast=True)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        
+        # Use device_map="auto" to shard large models across all available GPUs
+        if device == "cpu":
+            dm = "cpu"
+        else:
+            dm = "auto"
         self.model = AutoModelForCausalLM.from_pretrained(base_model_name, attn_implementation="eager", 
-                                                          torch_dtype="auto", device_map=device, 
+                                                          torch_dtype="auto", device_map=dm, 
                                                           low_cpu_mem_usage=True)
         self.model.eval()
         for p in self.model.parameters():
             p.requires_grad_(False)
         
         self.d_model = self.model.config.hidden_size
-        self.device = device
+        # Resolve actual input device (where the embedding layer lives)
+        from pika.probe.probe_utils.linear_eoi_probe.linear_eoi_probe_activation_utils import get_model_input_device
+        self.device = str(get_model_input_device(self.model))
         self._has_setup_run = True
         
         return self

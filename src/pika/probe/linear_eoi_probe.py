@@ -102,13 +102,21 @@ class LinearEoiProbe(Probe):
         self.tokenizer = AutoTokenizer.from_pretrained(base_model_name, use_fast=True)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-        self.model = AutoModelForCausalLM.from_pretrained(base_model_name, attn_implementation="eager", torch_dtype="auto", device_map=device, low_cpu_mem_usage=True)
+        
+        # Use device_map="auto" to shard large models across all available GPUs
+        # If device is "cpu", respect that; otherwise use "auto" for multi-GPU support
+        if device == "cpu":
+            dm = "cpu"
+        else:
+            dm = "auto"
+        self.model = AutoModelForCausalLM.from_pretrained(base_model_name, attn_implementation="eager", torch_dtype="auto", device_map=dm, low_cpu_mem_usage=True)
         self.model.eval()
         for p in self.model.parameters():
             p.requires_grad_(False)
         
         self.d_model = self.model.config.hidden_size
-        self.device = device
+        # Resolve actual input device (where the embedding layer lives)
+        self.device = str(linear_eoi_probe_activation_utils.get_model_input_device(self.model))
         self._has_setup_run = True
 
         return self
@@ -801,9 +809,9 @@ class LinearEoiProbe(Probe):
             probe.calibration_temperature = metadata.get("calibration_temperature", None)
             probe.platt_scaler = None
         
-        # Setup the model for activation extraction
-        if torch.cuda.is_available() and device == "cuda":
-            device = "cuda"
+        # Setup the model for activation extraction (uses device_map="auto" for multi-GPU)
+        if torch.cuda.is_available() and device != "cpu":
+            device = "auto"
         else:
             device = "cpu"
         

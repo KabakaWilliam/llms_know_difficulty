@@ -10,6 +10,18 @@ from tqdm import tqdm
 from ....config import ROOT_ACTIVATION_DATA_DIR
 
 ROOT_ACTIVATION_DATA_DIR = os.path.join(ROOT_ACTIVATION_DATA_DIR,"Linear_EOI_probe")
+
+def get_model_input_device(model: AutoModelForCausalLM) -> torch.device:
+    """
+    Get the device where the model expects its inputs (i.e. the embedding layer device).
+    Works for both single-GPU and multi-GPU (device_map="auto") models.
+    """
+    try:
+        # For models loaded with device_map, get the device of the first parameter
+        # (the embedding layer, which is where inputs need to go)
+        return next(model.parameters()).device
+    except StopIteration:
+        return torch.device("cpu")
 def parse_layers_arg(layers_arg: str, num_hidden_states: int) -> List[int]:
     """
     Parse layer specification string.
@@ -175,18 +187,18 @@ def extract_and_save_activations(
     positions = list(range(-n_eoi, 0))
     print(f"Extracting from positions: {positions}")
 
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
+    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto", device_map="auto", low_cpu_mem_usage=True)
     model.eval()
     for p in model.parameters():
         p.requires_grad_(False)
 
     d_model = model.config.hidden_size
+    input_device = get_model_input_device(model)
 
     # Determine number of layers
     with torch.no_grad():
         dummy = tokenizer("hello", return_tensors="pt")
-        dummy = {k: v.to(device) for k, v in dummy.items()}
+        dummy = {k: v.to(input_device) for k, v in dummy.items()}
         out = model(**dummy, output_hidden_states=True, use_cache=False)
         num_hidden_states = len(out.hidden_states)
 
@@ -240,8 +252,8 @@ def extract_and_save_activations(
             truncation=True,
             max_length=max_length,
         )
-        input_ids = enc['input_ids'].to(device)
-        attention_mask = enc['attention_mask'].to(device)
+        input_ids = enc['input_ids'].to(input_device)
+        attention_mask = enc['attention_mask'].to(input_device)
         
         # Extract features
         feats = _extract_layer_features(
@@ -334,11 +346,14 @@ def extract_activations_from_texts(
         # Extract all EOI positions (default behavior)
         positions = list(range(-n_eoi, 0))
     
+    # Resolve the actual input device from the model (supports multi-GPU device_map="auto")
+    input_device = get_model_input_device(model)
+    
     # Determine number of layers if not provided
     if layer_indices is None:
         with torch.no_grad():
             dummy = tokenizer("hello", return_tensors="pt")
-            dummy = {k: v.to(device) for k, v in dummy.items()}
+            dummy = {k: v.to(input_device) for k, v in dummy.items()}
             out = model(**dummy, output_hidden_states=True, use_cache=False)
             num_hidden_states = len(out.hidden_states)
         layer_indices = list(range(num_hidden_states))
@@ -359,8 +374,8 @@ def extract_activations_from_texts(
             truncation=True,
             max_length=max_length,
         )
-        input_ids = enc['input_ids'].to(device)
-        attention_mask = enc['attention_mask'].to(device)
+        input_ids = enc['input_ids'].to(input_device)
+        attention_mask = enc['attention_mask'].to(input_device)
         
         # Extract features
         feats = _extract_layer_features(
