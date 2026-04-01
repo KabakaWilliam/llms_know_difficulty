@@ -184,6 +184,7 @@ run_flexible_probe_sweep_browse.sh
 # runs/*
 # !runs/*/config.yaml
 # git add -f runs/DeepSeek-R1-Distill-Qwen-1.5B/config.yaml runs/DeepSeek-R1-Distill-Qwen-7B/config.yaml runs/Qwen2.5-Math-1.5B-Instruct/config.yaml runs/Qwen2.5-Math-1.5B/config.yaml runs/Qwen2.5-Math-7B/config.yaml
+IRT-Router
 
 # HuggingFace upload staging
 probes_for_hf/

@@ -479,8 +479,16 @@ def plot_cost_vs_accuracy(
     label_tweaks: dict | None = None,
     baseline_palette: list[str] | None = None,
     legend_loc=("upper center", (0.5, -0.22), 3),
+    mirt_router_df: pd.DataFrame | None = None,
 ):
-    """Plot the cost-vs-accuracy Pareto figure."""
+    """Plot the cost-vs-accuracy Pareto figure with optional MIRT router baseline.
+    
+    Parameters
+    ----------
+    mirt_router_df : pd.DataFrame, optional
+        DataFrame with columns ['cost', metric_col] containing MIRT router Pareto frontier.
+        Will be plotted as a separate sweep curve in green.
+    """
     label_tweaks = label_tweaks or {}
     palette = baseline_palette or _DEFAULT_PALETTE
 
@@ -598,16 +606,31 @@ def plot_cost_vs_accuracy(
             ax.scatter(sx[sfi], sy[sfi], s=40, color=color, marker=marker, linewidths=1.6, alpha=0.95, zorder=4)
 
     _draw_sweep(rx, ry, rfi, color="red", marker="x")
-    _draw_sweep(ox, oy, ofi, color="blue", marker="+", ls="--")
+    _draw_sweep(ox, oy, ofi, color="blue", marker="*", ls="--")
+    
+    # ---- MIRT router (optional) ----
+    if mirt_router_df is not None and not mirt_router_df.empty:
+        mx = mirt_router_df[cost_col].to_numpy(float)
+        my = np.maximum.accumulate(mirt_router_df[metric_col].to_numpy(float))
+        mfi = pareto_frontier(mx, my)
+        mfi = mfi[np.argsort(mx[mfi])]
+        _draw_sweep(mx, my, mfi, color="#2ca02c", marker="s")  # Green squares for MIRT
 
     # ---- legend ----
     legend_elements = [
         Line2D([0], [0], marker="o", color="w", markerfacecolor="gray", markeredgecolor="black", markersize=5, label="Single"),
         Line2D([0], [0], marker="D", color="w", markerfacecolor="#7f7f7f", markeredgecolor="black", markersize=5, label="Random"),
         Line2D([0], [0], marker="*", color="w", markerfacecolor="#FFD700", markeredgecolor="darkgoldenrod", markersize=9, markeredgewidth=1.2, label="Oracle"),
-        Line2D([0], [0], color="red", marker="x", markeredgecolor="red", markersize=6, linewidth=2.4, label="Router (λ sweep)"),
-        Line2D([0], [0], color="blue", marker="+", markeredgecolor="blue", markersize=6, linewidth=2.4, linestyle="--", label="Oracle Util (λ sweep)"),
+        Line2D([0], [0], color="red", marker="x", markeredgecolor="red", markersize=6, linewidth=2.4, label="Probe Router (λ sweep)"),
+        Line2D([0], [0], color="blue", marker="*", markeredgecolor="blue", markersize=8, linewidth=2.4, linestyle="--", label="Oracle Util (λ sweep)"),
     ]
+    
+    # Add MIRT router to legend if provided
+    if mirt_router_df is not None and not mirt_router_df.empty:
+        legend_elements.append(
+            Line2D([0], [0], color="#2ca02c", marker="s", markeredgecolor="#2ca02c", markersize=5, linewidth=0, label="MIRT Router")
+        )
+    
     loc, anchor, ncol = legend_loc
     ax.legend(handles=legend_elements, loc=loc, bbox_to_anchor=anchor, ncol=ncol, fontsize=8, frameon=False, handlelength=1.3, columnspacing=1.1)
     plt.subplots_adjust(left=0.12, right=0.99, top=0.95, bottom=0.30)

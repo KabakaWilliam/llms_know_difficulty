@@ -318,17 +318,24 @@ class MLPProbe(Probe):
                 
                 val_score = self._compute_metric(y_val, val_preds, task_type)
             
-            # Early stopping
-            if val_score > best_val_score:
+            # Early stopping - skip NaN scores (can occur with constant predictions)
+            is_valid_score = not np.isnan(val_score)
+            if is_valid_score and (best_model_state is None or val_score > best_val_score):
                 best_val_score = val_score
                 best_model_state = model.state_dict().copy()
                 patience_counter = 0
             else:
-                patience_counter += 1
-                if patience_counter >= patience:
-                    break
+                # Only increment patience counter if we have a valid baseline to compare against
+                if best_model_state is not None:
+                    patience_counter += 1
+                    if patience_counter >= patience:
+                        break
         
-        # Load best model
+        # Load best model - fallback to current model state if no valid model was saved
+        if best_model_state is None:
+            best_model_state = model.state_dict().copy()
+            best_val_score = np.nan
+        
         model.load_state_dict(best_model_state)
         return model, best_val_score
 
@@ -432,8 +439,8 @@ class MLPProbe(Probe):
                                         batch_size=self.batch_size_train
                                     )
                                     
-                                    # Update best if better
-                                    if val_score > best_val_score:
+                                    # Update best if better (skip NaN scores)
+                                    if not np.isnan(val_score) and val_score > best_val_score:
                                         best_val_score = val_score
                                         self.best_model = model
                                         self.best_pos_idx = pos_idx
