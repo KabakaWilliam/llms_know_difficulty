@@ -1,10 +1,11 @@
-# PIKA: Probe-Informed K-Aware Routing
+# LLMs Encode Their Failures
 
 [![arXiv](https://img.shields.io/badge/arXiv-2602.09924-b31b1b.svg)](https://arxiv.org/abs/2602.09924)
 [![HuggingFace Probes](https://img.shields.io/badge/🤗%20HuggingFace-Probes-yellow)](https://huggingface.co/CoffeeGitta/pika-probes)
 [![HuggingFace Datasets](https://img.shields.io/badge/🤗%20HuggingFace-Datasets-blue)](https://huggingface.co/datasets/CoffeeGitta/pika-math-generations)
 
-**Predict LLM success before generation and route queries efficiently across model pools.**
+
+In this repository we present code to train probes to predict difficulty and PIKA: (Probe-Informed K-Aware Routing) which we use to predict LLM success before generation and route queries efficiently across model pools.**
 
 PIKA trains lightweight probes on LLM internal representations to predict per-problem difficulty *before generation begins*. These predictions enable intelligent routing across a pool of models, balancing accuracy against inference cost — achieving up to 70% cost reduction on MATH while maintaining or exceeding the accuracy of the best-performing model.
 
