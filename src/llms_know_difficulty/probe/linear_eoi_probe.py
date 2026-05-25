@@ -21,6 +21,7 @@ from llms_know_difficulty.probe.probe_utils.linear_eoi_probe import linear_eoi_p
 from sklearn.linear_model import LogisticRegression, Ridge
 from tqdm import tqdm
 from llms_know_difficulty.metrics import compute_metrics
+from llms_know_difficulty.wandb_logger import BaseLogger
 
 ROOT_ACTIVATION_DATA_DIR = os.path.join(ROOT_ACTIVATION_DATA_DIR,"linear_eoi_probe")
 
@@ -332,7 +333,8 @@ class LinearEoiProbe(Probe):
             train_data: Tuple[List[int], List[str], List[float]],
             val_data: Tuple[List[int], List[str], List[float]],
             test_data: Optional[Tuple[List[int], List[str], List[float]]] = None,
-            alpha_grid: Optional[List[float]] = None
+            alpha_grid: Optional[List[float]] = None,
+            logger: Optional[BaseLogger] = None
             ) -> "LinearEoiProbe":
         """
         Train probes on train data, select best using validation data, optionally evaluate on test data.

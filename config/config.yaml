@@ -8,6 +8,7 @@ defaults:
               #          linear_then_max_probe, linear_then_softmax_probe, 
               #          linear_then_rolling_max_probe, layer_attn_probe
   - dataset: dataset_default
+  - logger: null # Default logger is None, set to wandb_logger to use wandb
 
 
 # Model configuration
