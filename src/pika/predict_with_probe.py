@@ -145,6 +145,12 @@ def main():
         help="Directory to save predictions (optional)"
     )
     parser.add_argument(
+        "--probe_dataset",
+        type=str,
+        default=None,
+        help="Dataset the probe was trained on (for cross-dataset runs). Defaults to --dataset."
+    )
+    parser.add_argument(
         "--device",
         type=str,
         default="cuda" if torch.cuda.is_available() else "cpu",
@@ -233,17 +239,20 @@ def main():
     
     # Save predictions if output directory is specified
     if args.output_dir:
+        import pandas as pd
         output_dir = Path(args.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         print(f"\n💾 Saving predictions to {output_dir}...")
-        
+
         # Save predictions as torch tensors
         torch.save({
             'indices': indices_tensor,
             'predictions': predictions_tensor,
         }, output_dir / "predictions.pt")
-        
+
+        probe_dataset = args.probe_dataset or args.dataset
+
         # Save predictions as JSON
         predictions_dict = {
             'indices': indices_tensor.tolist() if isinstance(indices_tensor, torch.Tensor) else indices_tensor,
@@ -251,14 +260,22 @@ def main():
             'metrics': metrics,
             'split': args.split,
             'dataset': args.dataset,
+            'probe_dataset': probe_dataset,
             'model': args.model,
             'mean_prediction': pred_mean,
         }
-        
+
         with open(output_dir / "predictions.json", 'w') as f:
             json.dump(predictions_dict, f, indent=2)
-        
-        print(f"   ✓ Saved predictions.pt and predictions.json")
+
+        # Save probe_preds.parquet (format expected by router_utils.get_latest_probe_preds)
+        preds_df = pd.DataFrame({
+            "idx": indices_tensor.tolist() if isinstance(indices_tensor, torch.Tensor) else list(indices_tensor),
+            "pred": predictions_tensor.tolist() if isinstance(predictions_tensor, torch.Tensor) else list(predictions_tensor),
+        })
+        preds_df.to_parquet(output_dir / "probe_preds.parquet", index=False)
+
+        print(f"   ✓ Saved predictions.pt, predictions.json, and probe_preds.parquet")
     
     print("\n" + "=" * 60)
     print("✅ Done!")

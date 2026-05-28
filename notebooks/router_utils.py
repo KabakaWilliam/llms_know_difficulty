@@ -5,11 +5,13 @@ Contains:
   - Model name helpers and generation string configs
   - Data loading (probe predictions, merge logic)
   - Routing strategies (probe-based, oracle, oracle-utility)
+  - Self-consistency entropy baseline (SC entropy)
   - Plotting (Pareto frontier, cost-vs-accuracy figure)
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -90,16 +92,23 @@ def get_latest_probe_preds(
     probe_model_type: str = "linear_eoi_probe",
     chosen_metric: str = "majority_vote_is_correct",
     data_dir: str = "../data",
+    probe_dataset: str | None = None,
 ) -> pd.DataFrame | None:
-    """Find and load the most recent probe predictions for a model."""
+    """Find and load the most recent probe predictions for a model.
+
+    Set probe_dataset to load cross-dataset predictions (probe trained on a
+    different dataset than the one being evaluated).
+    """
     base_dir = Path(
         f"{data_dir}/results/{model_name}/{dataset}/{probe_model_type}/{gen_str}/label_{chosen_metric}"
     )
+    if probe_dataset and probe_dataset != dataset:
+        base_dir = base_dir / f"probe_from_{probe_dataset}"
     if not base_dir.exists():
         print(f"⚠ Directory not found: {base_dir}")
         return None
 
-    timestamp_dirs = sorted(d for d in base_dir.iterdir() if d.is_dir())
+    timestamp_dirs = sorted(d for d in base_dir.iterdir() if d.is_dir() and d.name[0].isdigit())
     if not timestamp_dirs:
         print(f"⚠ No probe directories found in {base_dir}")
         return None
@@ -123,6 +132,51 @@ def merge_probe_predictions(
     result["probe_pred"] = probe_preds["pred"].values
     result["probe_pred_class"] = (result["probe_pred"] > 0.5).astype(int)
     return result
+
+
+# ──────────────────────────────────────────────
+# Self-consistency entropy baseline
+# ──────────────────────────────────────────────
+_BOXED_RE = re.compile(r'\\boxed\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}')
+
+
+def _extract_boxed_answer(text: str) -> str:
+    """Return the last \\boxed{...} content in *text*, or '' if absent."""
+    matches = _BOXED_RE.findall(text)
+    return matches[-1].strip() if matches else ""
+
+
+def compute_sc_entropy(solutions: list[dict]) -> float:
+    """Shannon entropy (nats) over extracted answers across K rollouts.
+
+    Lower entropy = more self-consistent = model is more confident.
+    Empty / un-parseable answers are counted as a single empty-string bucket.
+    """
+    answers = [_extract_boxed_answer(s["text"]) for s in solutions]
+    n = len(answers)
+    if n == 0:
+        return 0.0
+    counts: dict[str, int] = {}
+    for a in answers:
+        counts[a] = counts.get(a, 0) + 1
+    probs = np.array([c / n for c in counts.values()])
+    return float(-np.sum(probs * np.log(probs + 1e-12)))
+
+
+def add_sc_entropy_to_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Add ``sc_entropy`` and ``sc_confidence`` columns to a test dataframe.
+
+    ``sc_entropy``    – Shannon entropy over K rollout answers (lower = more consistent).
+    ``sc_confidence`` – 1 - sc_entropy / log(K), normalised to [0, 1]; mirrors
+                        ``probe_pred`` so it slots into the same routing logic
+                        (higher = more confident = route here).
+    """
+    df = df.copy()
+    k = len(df["generated_solutions"].iloc[0])
+    df["sc_entropy"] = df["generated_solutions"].apply(compute_sc_entropy)
+    max_entropy = np.log(k) if k > 1 else 1.0
+    df["sc_confidence"] = (1.0 - df["sc_entropy"] / max_entropy).clip(0.0, 1.0)
+    return df
 
 
 # ──────────────────────────────────────────────
@@ -157,9 +211,10 @@ def route_problems_by_probe_pred(
     value: float = 1.0,
     tier_costs_dict: dict[str, float] | None = None,
     utility_variant: str = "original",
+    routing_col: str = "probe_pred",
 ) -> pd.DataFrame:
     """
-    Route each problem to the best model based on probe predictions.
+    Route each problem to the best model based on a routing signal column.
 
     Parameters
     ----------
@@ -169,7 +224,10 @@ def route_problems_by_probe_pred(
         For ``max_utility``: ``"original"`` | ``"normalized"`` | ``"ratio"``
         | ``"threshold"`` | ``"sigmoid"`` | ``"success_per_dollar"``
         | ``"balance_costs"`` — or any other string (falls back to
-        ``probe_pred - tier_cost * value``).
+        ``routing_col - tier_cost * value``).
+    routing_col : str
+        Column in each test_df to use as the routing signal.  Default is
+        ``"probe_pred"``; pass ``"sc_confidence"`` for the SC-entropy baseline.
     """
     available = [m for m in model_list if m in test_dfs_dict]
     if not available:
@@ -187,7 +245,7 @@ def route_problems_by_probe_pred(
         cands = pd.DataFrame([
             {
                 "model_name": m,
-                "probe_pred": test_dfs_dict[m].loc[idx, "probe_pred"],
+                "probe_pred": test_dfs_dict[m].loc[idx, routing_col],
                 chosen_metric: test_dfs_dict[m].loc[idx, chosen_metric],
                 "total_output_cost_usd": test_dfs_dict[m].loc[idx, "total_output_cost_usd"],
                 "tier_cost": tier_costs[m],
@@ -480,14 +538,17 @@ def plot_cost_vs_accuracy(
     baseline_palette: list[str] | None = None,
     legend_loc=("upper center", (0.5, -0.22), 3),
     mirt_router_df: pd.DataFrame | None = None,
+    sc_entropy_router_df: pd.DataFrame | None = None,
 ):
-    """Plot the cost-vs-accuracy Pareto figure with optional MIRT router baseline.
-    
+    """Plot the cost-vs-accuracy Pareto figure with optional MIRT and SC-entropy baselines.
+
     Parameters
     ----------
     mirt_router_df : pd.DataFrame, optional
-        DataFrame with columns ['cost', metric_col] containing MIRT router Pareto frontier.
-        Will be plotted as a separate sweep curve in green.
+        DataFrame with columns [cost_col, metric_col] for the MIRT router sweep (green).
+    sc_entropy_router_df : pd.DataFrame, optional
+        DataFrame with columns [cost_col, metric_col] for the SC-entropy router sweep (orange).
+        Build it by running the λ-sweep with ``routing_col="sc_confidence"``.
     """
     label_tweaks = label_tweaks or {}
     palette = baseline_palette or _DEFAULT_PALETTE
@@ -616,6 +677,14 @@ def plot_cost_vs_accuracy(
         mfi = mfi[np.argsort(mx[mfi])]
         _draw_sweep(mx, my, mfi, color="#2ca02c", marker="s")  # Green squares for MIRT
 
+    # ---- SC-entropy router (optional) ----
+    if sc_entropy_router_df is not None and not sc_entropy_router_df.empty:
+        ex = sc_entropy_router_df[cost_col].to_numpy(float)
+        ey = np.maximum.accumulate(sc_entropy_router_df[metric_col].to_numpy(float))
+        efi = pareto_frontier(ex, ey)
+        efi = efi[np.argsort(ex[efi])]
+        _draw_sweep(ex, ey, efi, color="#F58518", marker="^")  # Orange triangles for SC entropy
+
     # ---- legend ----
     legend_elements = [
         Line2D([0], [0], marker="o", color="w", markerfacecolor="gray", markeredgecolor="black", markersize=5, label="Single"),
@@ -624,11 +693,17 @@ def plot_cost_vs_accuracy(
         Line2D([0], [0], color="red", marker="x", markeredgecolor="red", markersize=6, linewidth=2.4, label="Probe Router (λ sweep)"),
         Line2D([0], [0], color="blue", marker="*", markeredgecolor="blue", markersize=8, linewidth=2.4, linestyle="--", label="Oracle Util (λ sweep)"),
     ]
-    
+
     # Add MIRT router to legend if provided
     if mirt_router_df is not None and not mirt_router_df.empty:
         legend_elements.append(
             Line2D([0], [0], color="#2ca02c", marker="s", markeredgecolor="#2ca02c", markersize=5, linewidth=0, label="MIRT Router")
+        )
+
+    # Add SC-entropy router to legend if provided
+    if sc_entropy_router_df is not None and not sc_entropy_router_df.empty:
+        legend_elements.append(
+            Line2D([0], [0], color="#F58518", marker="^", markeredgecolor="#F58518", markersize=6, linewidth=2.4, label="SC-Entropy Router (λ sweep)")
         )
     
     loc, anchor, ncol = legend_loc
@@ -692,6 +767,71 @@ def plot_probe_histograms(
     fig.suptitle(f"Probe Prediction Distributions ({dataset_name})", fontsize=15, fontweight="bold", y=0.98)
     plt.tight_layout()
     return fig
+
+
+# ──────────────────────────────────────────────
+# SC-entropy vs probe AUROC comparison
+# ──────────────────────────────────────────────
+def compare_sc_entropy_vs_probe_auroc(
+    test_dfs_with_probes: dict[str, pd.DataFrame],
+    models: list[str],
+    chosen_metric: str,
+    dataset_name: str = "",
+) -> tuple[plt.Figure, dict[str, dict[str, float]]]:
+    """Bar chart comparing per-model AUROC of probe_pred vs sc_confidence.
+
+    Returns the figure and a dict ``{model: {"probe": auroc, "sc_entropy": auroc}}``.
+    Dataframes in *test_dfs_with_probes* must already have ``sc_confidence`` added
+    (via ``add_sc_entropy_to_df``).
+    """
+    available = [m for m in models if m in test_dfs_with_probes]
+    auroc_data: dict[str, dict[str, float]] = {}
+
+    for m in available:
+        df = test_dfs_with_probes[m]
+        labels = df[chosen_metric].values
+        results: dict[str, float] = {}
+        for col, key in [("probe_pred", "probe"), ("sc_confidence", "sc_entropy")]:
+            if col in df.columns:
+                try:
+                    results[key] = roc_auc_score(labels, df[col].values)
+                except Exception:
+                    results[key] = float("nan")
+            else:
+                results[key] = float("nan")
+        auroc_data[m] = results
+
+    # Plot
+    n = len(available)
+    x = np.arange(n)
+    width = 0.35
+    fig, ax = plt.subplots(figsize=(max(6, n * 1.4), 4))
+
+    probe_aurocs = [auroc_data[m].get("probe", np.nan) for m in available]
+    sc_aurocs    = [auroc_data[m].get("sc_entropy", np.nan) for m in available]
+
+    bars1 = ax.bar(x - width / 2, probe_aurocs, width, label="Probe (activations)",
+                   color="#4C78A8", edgecolor="black", linewidth=0.7)
+    bars2 = ax.bar(x + width / 2, sc_aurocs, width, label="SC Entropy (outputs)",
+                   color="#F58518", edgecolor="black", linewidth=0.7)
+
+    for bar in list(bars1) + list(bars2):
+        h = bar.get_height()
+        if np.isfinite(h):
+            ax.text(bar.get_x() + bar.get_width() / 2, h + 0.003, f"{h:.3f}",
+                    ha="center", va="bottom", fontsize=7.5)
+
+    ax.axhline(0.5, color="gray", linestyle="--", linewidth=1.0, alpha=0.6, label="Random (0.5)")
+    ax.set_xticks(x)
+    ax.set_xticklabels([short_model_name(m) for m in available], fontsize=9)
+    ax.set_ylabel("AUROC", fontsize=10)
+    ax.set_ylim(0.4, 1.05)
+    ax.set_title(f"Probe vs SC-Entropy AUROC — {dataset_name or chosen_metric}", fontsize=11)
+    ax.legend(fontsize=9, frameon=False)
+    ax.grid(True, axis="y", alpha=0.25)
+    plt.tight_layout()
+
+    return fig, auroc_data
 
 
 # ──────────────────────────────────────────────

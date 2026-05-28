@@ -262,10 +262,10 @@ def main(
     # --------- tasks ----------
     TASKS = [
         # "openai_gsm8k",
+        # "gneubig_aime-1983-2024",
         # "opencompass_AIME2025",
-        "gneubig_aime-1983-2024",
-        "DigitalLearningGmbH_MATH-lighteval",
-        # "Idavidrein_gpqa"
+        # "DigitalLearningGmbH_MATH-lighteval",
+        "Idavidrein_gpqa"
     ] 
     # + [f"Qwen_PolyMath_{lang}" for lang in LANGUAGE_SUFFIXES]
 
@@ -479,15 +479,14 @@ def main(
                 results_df["total_output_tokens"] = results_df["generated_solutions"].apply(get_output_tokens)
                 results_df["total_output_cost_usd"] = results_df["generated_solutions"].apply(get_output_cost)
                 results_df["total_cost_usd"] = results_df["input_cost_usd_once"] + results_df["total_output_cost_usd"]
-                results_df["majority_vote_extracted_answer"] = results_df["generated_solutions"].apply(add_majority_vote_answer)
-                results_df["majority_vote_is_correct"] = results_df.apply(
+
+            results_df["majority_vote_extracted_answer"] = results_df["generated_solutions"].apply(add_majority_vote_answer)
+            results_df["majority_vote_is_correct"] = results_df.apply(
                 lambda row: compute_score(solution_str=f"\\boxed{{{row['majority_vote_extracted_answer']}}}", ground_truth=row["ground_truth"]),
                 axis=1
-                )
-                mv_accuracy = results_df["majority_vote_is_correct"].mean()
-                print(f"Majority Vote Accuracy : {mv_accuracy}")
-            else:
-                mv_accuracy = np.nan
+            )
+            mv_accuracy = results_df["majority_vote_is_correct"].mean()
+            print(f"Majority Vote Accuracy : {mv_accuracy}")
 
             results_df.to_parquet(filepath)
             print(f"Saved {TASK} / {split} split to: {filepath}")
@@ -550,7 +549,7 @@ if __name__ == "__main__":
             top_p=0.8,
             top_k=-1,
             batch_size=256,
-            num_rollouts=50,
+            num_rollouts=5,
         ),
         "Qwen/Qwen2.5-7B-Instruct": GenerationConfig(
             max_tokens=3000,
@@ -558,7 +557,15 @@ if __name__ == "__main__":
             top_p=0.8,
             top_k=-1,
             batch_size=256,
-            num_rollouts=50,
+            num_rollouts=5,
+        ),
+        "Qwen/Qwen3-4B-Thinking-2507": GenerationConfig(
+            max_tokens=32768,
+            temperature=0.6,
+            top_p=0.95,
+            top_k=20,
+            batch_size=256,
+            num_rollouts=5,
         ),
         "Qwen/Qwen2.5-Math-1.5B-Instruct": GenerationConfig(
             max_tokens=3000,
@@ -653,8 +660,11 @@ if __name__ == "__main__":
     MODELS_TO_RUN = [
         # "Qwen/Qwen2.5-Math-1.5B-Instruct",
         # "Qwen/Qwen2.5-Math-7B-Instruct",
+        # "Qwen/Qwen2.5-7B",
+        # "Qwen/Qwen2.5-7B-Instruct",
+        "Qwen/Qwen3-4B-Thinking-2507"
         # "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
-        "Qwen/Qwen3-8B"
+        # "Qwen/Qwen3-8B"
         # "Qwen/Qwen2.5-Math-72B-Instruct",
         # "openai/gpt-oss-20b"
         # "gpt2"
@@ -672,7 +682,7 @@ if __name__ == "__main__":
         main(
             model_name=MODEL_TO_ROLLOUT,
             generation_config=gen_config,
-            gpu_memory_utilization=0.4,
+            gpu_memory_utilization=0.65,
             # max_questions_per_split=15,
             level_reasoning="high",
             tensor_parallel_size=1,

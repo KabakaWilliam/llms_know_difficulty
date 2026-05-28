@@ -1,0 +1,29 @@
+\begin{table}[h!]
+\centering
+\caption{Routing strategies comparison on GSM8K benchmark}
+\label{tab:GSM8K_routing_results}
+\begin{tabular}{llrr}
+\toprule
+Strategy & Model & Accuracy & Cost \\
+\midrule
+\multicolumn{4}{l}{\textit{Single-model baselines}} \\
+gpt-oss-20b-low & gpt-oss-20b (low) & 0.900 & 0.39 \\
+Math-7B & Qwen2.5-Math-7B-Instruct & 0.948 & 0.43 \\
+gpt-oss-20b-medium & gpt-oss-20b (medium) & 0.933 & 0.82 \\
+R1-Qwen-7B & DeepSeek-R1-Distill-Qwen-7B & 0.881 & 1.38 \\
+gpt-oss-20b-high & gpt-oss-20b (high) & 0.944 & 2.14 \\
+\midrule
+\multicolumn{4}{l}{\textit{Routing strategies}} \\
+Random Routing & ensemble & 0.920 & 0.98 \\
+Oracle (Perfect Knowledge) & ensemble & 0.978 & 0.41 \\
+\midrule
+\multicolumn{4}{l}{\textit{Probe router}} \\
+Probe Router ($\lambda=0.00$) & ensemble & 0.936 & 0.97 \\
+Probe Router ($\lambda=0.20$) & ensemble & 0.944 & 0.56 \\
+Probe Router ($\lambda=0.40$) & ensemble & 0.943 & 0.49 \\
+Probe Router ($\lambda=0.60$) & ensemble & 0.945 & 0.44 \\
+Probe Router ($\lambda=0.80$) & ensemble & 0.943 & 0.42 \\
+Probe Router ($\lambda=1.00$) & ensemble & 0.941 & 0.42 \\
+\bottomrule
+\end{tabular}
+\end{table}
