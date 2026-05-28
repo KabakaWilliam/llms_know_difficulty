@@ -261,10 +261,10 @@ def main(
     LANGUAGE_SUFFIXES = ["en", "sw", "zh", "es", "ar", "fr", "bn", "pt", "ru", "id", "de", "ja", "vi", "it", "te", "ko", "th", "ms"]
     # --------- tasks ----------
     TASKS = [
-        # "openai_gsm8k",
-        # "opencompass_AIME2025",
-        "gneubig_aime-1983-2024",
-        "DigitalLearningGmbH_MATH-lighteval",
+        "openai_gsm8k",
+        #"opencompass_AIME2025",
+        #"gneubig_aime-1983-2024",
+        #"DigitalLearningGmbH_MATH-lighteval",
         # "Idavidrein_gpqa"
     ] 
     # + [f"Qwen_PolyMath_{lang}" for lang in LANGUAGE_SUFFIXES]
@@ -512,6 +512,7 @@ def main(
     unload_model(llm)
 
 if __name__ == "__main__":
+
     import time
     import gc
     from pathlib import Path
@@ -535,6 +536,14 @@ if __name__ == "__main__":
             top_k=-1,
             batch_size=256,
             num_rollouts=50,
+        ),
+        "Qwen/Qwen3-4B-Thinking-2507": GenerationConfig(
+            max_tokens=3000, # Particularly long for reasoning tasks capability.
+            temperature=0.6,
+            top_p=0.95,
+            top_k=20,
+            batch_size=512,
+            num_rollouts=50, 
         ),
         "Qwen/Qwen2-1.5B-Instruct": GenerationConfig(
             max_tokens=3000,
@@ -651,15 +660,18 @@ if __name__ == "__main__":
     }
 
     MODELS_TO_RUN = [
+        "Qwen/Qwen3-4B-Thinking-2507",
         # "Qwen/Qwen2.5-Math-1.5B-Instruct",
         # "Qwen/Qwen2.5-Math-7B-Instruct",
         # "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
-        "Qwen/Qwen3-8B"
+        # "Qwen/Qwen3-8B"
         # "Qwen/Qwen2.5-Math-72B-Instruct",
         # "openai/gpt-oss-20b"
         # "gpt2"
     ]
     
+
+
     for i, MODEL_TO_ROLLOUT in enumerate(MODELS_TO_RUN):
 
         print(f"\n{'='*60}")
@@ -672,7 +684,7 @@ if __name__ == "__main__":
         main(
             model_name=MODEL_TO_ROLLOUT,
             generation_config=gen_config,
-            gpu_memory_utilization=0.4,
+            gpu_memory_utilization=0.9,
             # max_questions_per_split=15,
             level_reasoning="high",
             tensor_parallel_size=1,
