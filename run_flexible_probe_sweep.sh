@@ -43,55 +43,53 @@ declare -a PROBES=(
 # Label column to use for all models
 LABEL_COLUMN="majority_vote_is_correct"  # or "success_rate" or "pass_at_k"
 
+LAYERS="all"
+
 # Change to source directory
 cd "$(dirname "$0")" || exit
 
-# Counter for progress
-total_runs=$((${#MODEL_CONFIGS[@]} * ${#DATASETS[@]} * ${#PROBES[@]}))
+declare -a LAYER_CHOICES=(
+    "all"
+    "10"
+    "15"
+    "17"
+    "20"
+)
+
+total_runs=$((${#MODEL_CONFIGS[@]} * ${#DATASETS[@]} * ${#PROBES[@]} * ${#LAYER_CHOICES[@]}))
 current_run=0
 
-echo "========================================"
-echo "Starting Flexible Model Sweep"
-echo "Models: ${#MODEL_CONFIGS[@]}"
-echo "Datasets: ${#DATASETS[@]}"
-echo "Probes: ${#PROBES[@]}"
-echo "Total runs to execute: $total_runs"
-echo "========================================"
-
-# Loop through all combinations
 for model_config in "${MODEL_CONFIGS[@]}"; do
-    # Parse the config string
     IFS='|' read -r model max_len k temperature <<< "$model_config"
-    
+
     for dataset in "${DATASETS[@]}"; do
         for probe in "${PROBES[@]}"; do
-            ((current_run++))
-            
-            echo ""
-            echo "========================================"
-            echo "Run $current_run / $total_runs"
-            echo "Model: $model"
-            echo "Dataset: $dataset"
-            echo "Probe: $probe"
-            echo "Config: maxlen=$max_len, k=$k, temp=$temperature"
-            echo "========================================"
-            
-            python3 src/pika/main.py \
-                --probe "$probe" \
-                --dataset "$dataset" \
-                --model "$model" \
-                --max_len "$max_len" \
-                --k "$k" \
-                --temperature "$temperature" \
-                --label_column "$LABEL_COLUMN"
-            
-            if [ $? -eq 0 ]; then
-                echo "✅ Run $current_run completed successfully"
-            else
-                echo "❌ Run $current_run failed"
-                # Optionally uncomment to stop on first failure:
-                # exit 1
-            fi
+            for LAYERS in "${LAYER_CHOICES[@]}"; do
+                ((current_run++))
+
+                echo ""
+                echo "========================================"
+                echo "Run $current_run / $total_runs"
+                echo "Model: $model | Dataset: $dataset | Probe: $probe | Layers: $LAYERS"
+                echo "Config: maxlen=$max_len, k=$k, temp=$temperature"
+                echo "========================================"
+
+                python3 src/pika/main.py \
+                    --probe "$probe" \
+                    --dataset "$dataset" \
+                    --model "$model" \
+                    --max_len "$max_len" \
+                    --k "$k" \
+                    --temperature "$temperature" \
+                    --label_column "$LABEL_COLUMN" \
+                    --layers "$LAYERS"
+
+                if [ $? -eq 0 ]; then
+                    echo "✅ Run $current_run completed successfully"
+                else
+                    echo "❌ Run $current_run failed"
+                fi
+            done
         done
     done
 done

@@ -133,6 +133,9 @@ class MLPProbe(Probe):
         self.val_metrics_raw: Optional[dict] = None
         self.val_metrics_cal: Optional[dict] = None
 
+
+        self.user_layer_indices: Optional[List[int]] = None
+
     @property
     def name(self) -> str:
         """The name of the probe."""
@@ -223,6 +226,25 @@ class MLPProbe(Probe):
             self.test_labels = activation_data['test']['labels']
         
         self.layer_indices = activation_data['train']['layer_indices']
+
+        # If the user asked for a specific subset, filter the sweep down to those layers.
+        # The activation tensor still contains all layers along dim 1, and
+        # layer_idx values in the training loop are used as direct positional indices,
+        # so simply shrinking self.layer_indices is sufficient and safe.
+        if self.user_layer_indices is not None:
+            available = set(self.layer_indices)
+            missing = [l for l in self.user_layer_indices if l not in available]
+            if missing:
+                raise ValueError(
+                    f"Requested layers {missing} are not available. "
+                    f"Extracted layers: {sorted(available)}"
+                )
+            print(
+                f"Restricting layer sweep to user-specified layers "
+                f"{self.user_layer_indices} (out of {len(self.layer_indices)} extracted)."
+            )
+            self.layer_indices = list(self.user_layer_indices)
+            
         self.positions = activation_data['train']['positions']
 
     def fit(self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray, y_val: np.ndarray,

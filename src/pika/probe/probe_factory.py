@@ -39,12 +39,12 @@ class ProbeFactory:
             return probe.setup(**probe_setup_args)
             
         elif probe_name == "linear_eoi_probe":
-
             probe_setup_args = {
                 'model_name': kwargs.get('model'),
                 'device': DEVICE,
             }
             probe = LinearEoiProbe(LinearEOIProbeConfig())
+            probe.user_layer_indices = kwargs.get('layer_indices', None)
             print("Lets set up the probe ⚙️ ...")
             return probe.setup(**probe_setup_args)
         
@@ -100,6 +100,7 @@ class ProbeFactory:
                 'device': DEVICE,
             }
             probe = MLPProbe(MLPProbeConfig())
+            probe.user_layer_indices = kwargs.get('layer_indices', None)
             print("Lets set up the probe ⚙️ ...")
             return probe.setup(**probe_setup_args)
 

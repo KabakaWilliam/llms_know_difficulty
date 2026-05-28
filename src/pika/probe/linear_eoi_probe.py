@@ -61,6 +61,9 @@ class LinearEoiProbe(Probe):
         self.calibration_temperature: Optional[float] = None  # For backward compatibility
         self.platt_scaler = None  # LogisticRegression for Platt scaling
         
+        # Added for user_layer_indices analysis:
+        self.user_layer_indices: Optional[List[int]] = None
+        
         # Best probe metadata
         self.best_probe = None
         self.best_pos_idx = None
@@ -177,6 +180,24 @@ class LinearEoiProbe(Probe):
             self.test_activations = activation_data['test']['activations']
             self.test_labels = activation_data['test']['labels']
         self.layer_indices = activation_data['train']['layer_indices']
+
+        # If the user asked for a specific subset, filter the sweep down to those layers.
+        # The activation tensor still contains all layers along dim 1, and
+        # layer_idx values in the training loop are used as direct positional indices,
+        # so simply shrinking self.layer_indices is sufficient and safe.
+        if self.user_layer_indices is not None:
+            available = set(self.layer_indices)
+            missing = [l for l in self.user_layer_indices if l not in available]
+            if missing:
+                raise ValueError(
+                    f"Requested layers {missing} are not available. "
+                    f"Extracted layers: {sorted(available)}"
+                )
+            print(
+                f"Restricting layer sweep to user-specified layers "
+                f"{self.user_layer_indices} (out of {len(self.layer_indices)} extracted)."
+            )
+            self.layer_indices = list(self.user_layer_indices)
         self.positions = activation_data['train']['positions']
 
     def _select_best_alpha_on_validation(self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray, y_val: np.ndarray, alpha_grid: List[float]) -> Tuple[float, dict]:

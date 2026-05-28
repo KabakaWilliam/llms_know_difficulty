@@ -20,7 +20,23 @@ def main():
     parser.add_argument("--temperature", type=float, required=False, help="Temperature for the model")
     parser.add_argument("--prompt_column", type=str, default=PROMPT_COLUMN_NAME, help="Name of prompt column")
     parser.add_argument("--label_column", type=str, default=LABEL_COLUMN_NAME, help="Name of label column")
+    parser.add_argument(
+    "--layers",
+    type=str,
+    default="all",
+    help="Layer specification. 'all' to sweep every extracted layer (default), "
+         "a single int like '17', or a comma-separated list like '15,17,20'.",
+)
+    
     args = parser.parse_args()
+
+    def _parse_layers(layers_arg: str):
+        """'all' or None -> None (sweep all). '17' -> [17]. '15,17,20' -> [15, 17, 20]."""
+        if layers_arg is None or str(layers_arg).strip().lower() == "all":
+            return None
+        return [int(s.strip()) for s in str(layers_arg).split(",") if s.strip()]
+
+    user_layer_indices = _parse_layers(args.layers)
 
     print("Args:", args)
 
@@ -35,19 +51,22 @@ def main():
         label_column=args.label_column)
     
     # 3. Setup the results directory for the run 
-    gen_str = f"maxlen_{args.max_len}_k_{args.k}_temp_{args.temperature}"
+    layers_tag = "all" if user_layer_indices is None else "-".join(map(str, user_layer_indices))
+    gen_str = f"maxlen_{args.max_len}_k_{args.k}_temp_{args.temperature}_layers_{layers_tag}"
     results_path = create_results_path(args.dataset, args.model, args.probe, gen_str=gen_str, label_column=args.label_column)
     print(f"Creating results directory at {results_path}")
 
     # 4. Initialize the probe:
     print(f"Initializing probe {args.probe}\n")
 
-    probe = ProbeFactory.create_probe(probe_name=args.probe, 
-                                        model=args.model,
-                                        dataset=args.dataset,
-                                        max_len=args.max_len,
-                                        k=args.k,
-                                        temperature=args.temperature)
+    probe = ProbeFactory.create_probe(
+        probe_name=args.probe,
+        model=args.model,
+        dataset=args.dataset,
+        max_len=args.max_len,
+        k=args.k,
+        temperature=args.temperature,
+        layer_indices=user_layer_indices)
 
     if args.checkpoint_path is not None:
         print(f"Loading probe from checkpoint {args.checkpoint_path}")

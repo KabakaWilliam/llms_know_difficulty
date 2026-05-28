@@ -276,11 +276,18 @@ class DataIngestionWorkflow:
             df = df.sample(frac=1, random_state=SEED).reset_index(drop=True)            
             outputs[split] = df
 
-        # turn it into a tuple of prompts and labels:
+        # turn it into a tuple of indices, prompts and labels:
         for key, value in outputs.items():
+            # The upload pipeline (scripts/upload_math_dataset.py) drops the `idx` column,
+            # so synthesize it from the row position when missing. The probe code in
+            # linear_eoi_probe.py expects int32-castable indices.
+            if IDX_COLUMN_NAME not in value.columns:
+                value = value.reset_index(drop=True)
+                value[IDX_COLUMN_NAME] = value.index.astype("int32")
             outputs[key] = (value[IDX_COLUMN_NAME].tolist(), value[prompt_column].tolist(), value[label_column].tolist())
 
         return outputs['train'], outputs['val'], outputs['test']
+
 
     @staticmethod
     def create_dataset_path(dataset_name: str, model_name: str, split:str, max_len: int, k: int, temperature: float):
