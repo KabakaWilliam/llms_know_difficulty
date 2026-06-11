@@ -28,7 +28,7 @@ def infer_task_type(y: np.ndarray, task_type: str = "auto") -> str:
     else:
         return "regression"
 
-def create_results_path(dataset_name: str, model_name: str, probe_name: str, gen_str: str = None, label_column: str = None) -> Path:
+def create_results_path(dataset_name: str, model_name: str, probe_name: str, gen_str: str = None, label_column: str = None, seed: int = SEED) -> Path:
     """
     Create a path for saving probe results
     
@@ -57,6 +57,8 @@ def create_results_path(dataset_name: str, model_name: str, probe_name: str, gen
     # Append label column name if provided
     if label_column:
         base_path = os.path.join(base_path, f"label_{label_column}")
+    if seed is not None:
+        base_path = os.path.join(base_path, f"seed_{seed}")
     
     # Append timestamp last
     results_path = os.path.join(base_path, timestamp)
@@ -217,7 +219,7 @@ class DataIngestionWorkflow:
 
     @staticmethod
     def load_dataset(dataset_name: str, model_name: str, max_len: int, k: int, temperature: float,
-                     prompt_column: str = None, label_column: str = None):
+                     prompt_column: str = None, label_column: str = None, seed: int = SEED):        
         """
         1. Check if the dataset exists at the expected directory.
 
@@ -273,11 +275,16 @@ class DataIngestionWorkflow:
                 df = pd.read_parquet(dataset_path)
 
             # Shuffle the dataframe with the SEED:
-            df = df.sample(frac=1, random_state=SEED).reset_index(drop=True)            
+            df = df.sample(frac=1, random_state=seed).reset_index(drop=True)            
             outputs[split] = df
 
-        # turn it into a tuple of prompts and labels:
         for key, value in outputs.items():
+            # The upload pipeline (scripts/upload_math_dataset.py) drops the `idx` column,
+            # so synthesize it from the row position when missing. The probe code in
+            # linear_eoi_probe.py expects int32-castable indices.
+            if IDX_COLUMN_NAME not in value.columns:
+                value = value.reset_index(drop=True)
+                value[IDX_COLUMN_NAME] = value.index.astype("int32")
             outputs[key] = (value[IDX_COLUMN_NAME].tolist(), value[prompt_column].tolist(), value[label_column].tolist())
 
         return outputs['train'], outputs['val'], outputs['test']

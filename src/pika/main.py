@@ -20,9 +20,15 @@ def main():
     parser.add_argument("--temperature", type=float, required=False, help="Temperature for the model")
     parser.add_argument("--prompt_column", type=str, default=PROMPT_COLUMN_NAME, help="Name of prompt column")
     parser.add_argument("--label_column", type=str, default=LABEL_COLUMN_NAME, help="Name of label column")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
     args = parser.parse_args()
 
     print("Args:", args)
+
+
+    # Set relevant seeds:
+    from pika.probe.probe_utils.linear_eoi_probe import set_seed   # already exported in __init__
+    set_seed(args.seed)
 
     # 1. Load the dataset from the config
     train_data, val_data, test_data = DataIngestionWorkflow.load_dataset(
@@ -32,7 +38,8 @@ def main():
         k=args.k,
         temperature=args.temperature,
         prompt_column=args.prompt_column,
-        label_column=args.label_column)
+        label_column=args.label_column,
+        seed=args.seed)
     
     # 3. Setup the results directory for the run 
     gen_str = f"maxlen_{args.max_len}_k_{args.k}_temp_{args.temperature}"
@@ -47,7 +54,8 @@ def main():
                                         dataset=args.dataset,
                                         max_len=args.max_len,
                                         k=args.k,
-                                        temperature=args.temperature)
+                                        temperature=args.temperature,
+                                        seed=args.seed)
 
     if args.checkpoint_path is not None:
         print(f"Loading probe from checkpoint {args.checkpoint_path}")
@@ -72,6 +80,7 @@ def main():
     test_metrics = compute_metrics(test_labels, probe_preds_tensor, full_metrics=True)
     metadata = probe.get_probe_metadata()  # Get probe-specific metadata
     metadata.update(test_metrics)  # Add test metrics
+    metadata['seed'] = args.seed
     
     # Add test_score (main evaluation metric) if available from probe
     if hasattr(probe, 'test_score') and probe.test_score is not None:
